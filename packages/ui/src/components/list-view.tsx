@@ -23,7 +23,7 @@ export function ListView({
 }) {
   return (
     <div className="h-full overflow-auto p-4 pt-16">
-      <div className="overflow-hidden rounded-lg border">
+      <div className="border">
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/40">

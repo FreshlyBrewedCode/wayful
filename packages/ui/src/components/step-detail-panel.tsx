@@ -153,7 +153,12 @@ function Slots({
             <div
               key={slot.name}
               data-status={hit ? "complete" : "ready"}
-              className="rounded-md border border-l-[3px] border-l-[var(--status)] p-2"
+              className={cn(
+                "p-2",
+                hit
+                  ? "bg-accent border border-l-[3px] border-l-[var(--status)]"
+                  : "border-2 border-dashed",
+              )}
             >
               <div className="flex items-baseline gap-2">
                 <span className="font-mono text-xs font-medium">{slot.name}</span>
@@ -164,13 +169,11 @@ function Slots({
                   {slot.description}
                 </p>
               )}
-              <div className="mt-1.5">
-                {hit ? (
+              {hit && (
+                <div className="mt-1.5">
                   <ArtifactChip name={hit.artifact} artifact={artifacts.get(hit.artifact)} />
-                ) : (
-                  <span className="text-[var(--status)] text-xs">unfilled</span>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           );
         })}

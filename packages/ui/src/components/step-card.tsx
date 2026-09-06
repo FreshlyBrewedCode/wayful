@@ -51,7 +51,7 @@ export function StepCard({
       title={step.description}
       {...props}
       className={cn(
-        "group bg-card ring-offset-background flex flex-col gap-1.5 overflow-hidden rounded-lg border p-2.5 text-left transition-shadow",
+        "group bg-card ring-offset-background flex flex-col gap-1.5 overflow-hidden border p-2.5 text-left transition-shadow",
         "border-l-[3px] border-l-[var(--status)] hover:shadow-md",
         "focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
         "aria-[current]:ring-primary aria-[current]:ring-2",

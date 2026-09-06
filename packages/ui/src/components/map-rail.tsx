@@ -20,16 +20,16 @@ export function MapRail({
 }) {
   return (
     <ScrollArea className="h-full">
-      <nav aria-label="Maps" className="p-3">
-        <h2 className="text-muted-foreground mb-2 px-1 text-[11px] font-semibold tracking-wide uppercase">
+      <nav aria-label="Maps" className="py-3">
+        <h2 className="text-muted-foreground mb-2 px-3 text-[11px] font-semibold tracking-wide uppercase">
           Maps
         </h2>
         {maps.length === 0 ? (
-          <p className="text-muted-foreground px-1 text-xs">
+          <p className="text-muted-foreground px-3 text-xs">
             No maps yet. Create one with <code className="font-mono">wayful map create</code>.
           </p>
         ) : (
-          <ul className="space-y-1.5">
+          <ul>
             {maps.map((map) => (
               <li key={map.name}>
                 <MapCard map={map} active={map.name === activeMap} onNavigate={onNavigate} />
@@ -40,10 +40,10 @@ export function MapRail({
 
         {types.length > 0 && (
           <>
-            <h3 className="text-muted-foreground mt-5 mb-2 px-1 text-[11px] font-semibold tracking-wide uppercase">
+            <h3 className="text-muted-foreground mt-5 mb-2 px-3 text-[11px] font-semibold tracking-wide uppercase">
               Step types
             </h3>
-            <ul className="flex flex-wrap gap-1 px-1">
+            <ul className="flex flex-wrap gap-1 px-3">
               {types.map((type) => (
                 <Tooltip key={type.name}>
                   <TooltipTrigger asChild>
@@ -84,8 +84,8 @@ function MapCard({
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "bg-card hover:bg-accent focus-visible:ring-ring block rounded-lg border p-2.5 transition-colors focus-visible:ring-2 focus-visible:outline-none",
-        active && "ring-primary bg-accent ring-2",
+        "bg-background hover:bg-accent focus-visible:ring-ring block border p-2.5 transition-colors focus-visible:ring-2 focus-visible:outline-none",
+        active && "bg-accent",
       )}
     >
       <span className="block truncate font-mono text-[13px] font-medium">{map.name}</span>
