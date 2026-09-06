@@ -73,9 +73,11 @@ export function StepCard({
       <span className="text-muted-foreground line-clamp-2 text-xs leading-snug">
         {step.description}
       </span>
-      <span className="mt-auto flex flex-wrap items-center gap-1.5 pt-0.5">
+      <span className="mt-auto flex items-center gap-1.5 pt-0.5">
         {!compact && <StatusPill status={status} />}
-        <span className="text-muted-foreground truncate font-mono text-[11px]">{step.type}</span>
+        <span className="text-muted-foreground min-w-0 truncate font-mono text-[11px]">
+          {step.type}
+        </span>
         {status === "ready" && (
           <span className="text-status-ready ml-auto shrink-0 text-[11px] font-medium">▶ next</span>
         )}

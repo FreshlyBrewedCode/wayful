@@ -14,6 +14,12 @@ import {
 
 type Mode = "auto" | "fit" | "manual";
 
+/** Must match the `background-size` in the `.bg-dot-grid` CSS class. */
+const DOT_GRID_SIZE = 22;
+
+/** Below this the dots are too dense to read as anything but noise. */
+const DOT_GRID_MIN_SCALE = 0.5;
+
 /**
  * Panning must survive a re-render — selecting a step, a live-reload push, a
  * trip through the board view — but a different map should open fitted. The
@@ -53,6 +59,15 @@ export function useGraphViewport(content: Size, key: string): GraphViewport {
       remembered.set(key, { mode: modeRef.current, transform: next });
       if (canvasRef.current) {
         canvasRef.current.style.transform = `translate(${next.x}px, ${next.y}px) scale(${next.scale})`;
+      }
+      if (wrapRef.current) {
+        // The dot grid lives on the (unbounded) wrap, not the canvas, so it
+        // always covers the viewport; this keeps its phase and scale locked
+        // to the canvas transform so it still reads as part of world space.
+        wrapRef.current.style.backgroundPosition = `${next.x}px ${next.y}px`;
+        const size = DOT_GRID_SIZE * next.scale;
+        wrapRef.current.style.backgroundSize = `${size}px ${size}px`;
+        wrapRef.current.style.backgroundImage = next.scale < DOT_GRID_MIN_SCALE ? "none" : "";
       }
       setScale(next.scale);
     },
@@ -151,7 +166,11 @@ export function useGraphViewport(content: Size, key: string): GraphViewport {
       pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
       travelled = 0;
       if (pointers.size === 2) pinch = pinchFrom();
-      wrap.setPointerCapture(event.pointerId);
+      // Captured on the actual target (not `wrap`) so a plain click still
+      // reaches the step card underneath — capture still lets move/up keep
+      // reaching `wrap`'s listeners via bubbling once the pointer wanders
+      // outside the viewport.
+      (event.target as Element).setPointerCapture(event.pointerId);
       wrap.dataset.grabbing = "true";
     };
 

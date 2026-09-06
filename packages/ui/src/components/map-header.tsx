@@ -80,7 +80,7 @@ export function MapHeader({ detail }: { detail: MapDetail }) {
               heading={`Goals · ${status?.goals.satisfied ?? 0} of ${status?.goals.total ?? 0} satisfied`}
               className="min-w-0 flex-1"
             >
-              <ul className="grid gap-2 min-[760px]:grid-cols-2">
+              <ul className="flex flex-col gap-2">
                 {map.goals.map((goal) => (
                   <li
                     key={goal.name}

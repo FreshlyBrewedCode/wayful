@@ -36,7 +36,7 @@ export function GraphView({
   return (
     <div
       ref={viewport.wrapRef}
-      className="relative h-full w-full touch-none overflow-hidden [&[data-grabbing]]:cursor-grabbing"
+      className="bg-dot-grid relative h-full w-full touch-none overflow-hidden [&[data-grabbing]]:cursor-grabbing [&[data-grabbing]]:select-none"
     >
       <div
         ref={viewport.canvasRef}

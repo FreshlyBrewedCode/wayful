@@ -113,6 +113,17 @@
 }
 
 @layer components {
+  /* Fixed to the viewport (not the pannable canvas) so the grid reads as the
+     surface the graph sits on rather than something drawn into world space. */
+  .bg-dot-grid {
+    background-image: radial-gradient(
+      circle,
+      color-mix(in oklab, var(--foreground) 16%, transparent) 1px,
+      transparent 1px
+    );
+    background-size: 22px 22px;
+  }
+
   /* `--status` is set per element from the display status, so a card, a pill and
      a graph edge can all tint themselves from one variable. */
   [data-status="complete"] {
