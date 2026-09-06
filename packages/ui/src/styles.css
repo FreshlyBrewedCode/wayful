@@ -1,0 +1,133 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Status colours are defined per theme rather than shared, so contrast holds in
+   both. They are the one palette the viewer owns: every other colour is
+   shadcn's. */
+:root {
+  --radius: 0.75rem;
+
+  --background: oklch(0.978 0.004 250);
+  --foreground: oklch(0.21 0.03 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.03 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.03 260);
+  --primary: oklch(0.55 0.2 264);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.958 0.006 250);
+  --secondary-foreground: oklch(0.28 0.03 260);
+  --muted: oklch(0.958 0.006 250);
+  --muted-foreground: oklch(0.52 0.02 258);
+  --accent: oklch(0.945 0.012 255);
+  --accent-foreground: oklch(0.28 0.03 260);
+  --destructive: oklch(0.58 0.21 27);
+  --border: oklch(0.9 0.008 255);
+  --input: oklch(0.9 0.008 255);
+  --ring: oklch(0.55 0.2 264);
+
+  --status-complete: oklch(0.58 0.14 158);
+  --status-ready: oklch(0.58 0.13 70);
+  --status-pending: oklch(0.55 0.17 262);
+  --status-blocked: oklch(0.56 0.2 25);
+  --status-cancelled: oklch(0.6 0.02 258);
+}
+
+.dark {
+  --background: oklch(0.19 0.02 260);
+  --foreground: oklch(0.93 0.012 250);
+  --card: oklch(0.23 0.022 260);
+  --card-foreground: oklch(0.93 0.012 250);
+  --popover: oklch(0.24 0.022 260);
+  --popover-foreground: oklch(0.93 0.012 250);
+  --primary: oklch(0.75 0.13 260);
+  --primary-foreground: oklch(0.19 0.02 260);
+  --secondary: oklch(0.27 0.023 260);
+  --secondary-foreground: oklch(0.93 0.012 250);
+  --muted: oklch(0.27 0.023 260);
+  --muted-foreground: oklch(0.71 0.025 256);
+  --accent: oklch(0.3 0.025 260);
+  --accent-foreground: oklch(0.93 0.012 250);
+  --destructive: oklch(0.68 0.18 22);
+  --border: oklch(0.32 0.025 260);
+  --input: oklch(0.34 0.025 260);
+  --ring: oklch(0.65 0.14 262);
+
+  --status-complete: oklch(0.81 0.16 163);
+  --status-ready: oklch(0.84 0.13 80);
+  --status-pending: oklch(0.75 0.13 265);
+  --status-blocked: oklch(0.73 0.15 22);
+  --status-cancelled: oklch(0.6 0.02 258);
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-status-complete: var(--status-complete);
+  --color-status-ready: var(--status-ready);
+  --color-status-pending: var(--status-pending);
+  --color-status-blocked: var(--status-blocked);
+  --color-status-cancelled: var(--status-cancelled);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    overscroll-behavior-y: none;
+    -webkit-text-size-adjust: 100%;
+  }
+}
+
+@layer components {
+  /* `--status` is set per element from the display status, so a card, a pill and
+     a graph edge can all tint themselves from one variable. */
+  [data-status="complete"] {
+    --status: var(--status-complete);
+  }
+  [data-status="ready"] {
+    --status: var(--status-ready);
+  }
+  [data-status="pending"] {
+    --status: var(--status-pending);
+  }
+  [data-status="blocked"] {
+    --status: var(--status-blocked);
+  }
+  [data-status="cancelled"] {
+    --status: var(--status-cancelled);
+  }
+}

@@ -18,5 +18,5 @@
     "no-await-in-loop": "off",
     "no-map-spread": "off"
   },
-  "ignorePatterns": ["prototypes/**"]
+  "ignorePatterns": ["prototypes/**", "**/routeTree.gen.ts"]
 }
