@@ -7,5 +7,19 @@
   ],
   "engines": {
     "bun": ">=1.4.1"
+  },
+  "scripts": {
+    "test": "bun run --filter './packages/*' test",
+    "typecheck": "bun run --filter './packages/*' typecheck",
+    "lint": "oxfmt --check packages && oxlint packages",
+    "format": "oxfmt packages",
+    "check": "bun run lint && bun run typecheck && bun run test"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.1",
+    "@wayful/cli": "workspace:*",
+    "oxfmt": "0.66.0",
+    "oxlint": "1.81.0",
+    "typescript": "7.0.2"
   }
 }

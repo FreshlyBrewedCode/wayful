@@ -110,7 +110,7 @@ evidence of what the viewer should do, not the implementation to ship. See
 ## Further Notes
 
 - The prototype at `skills/wayful/prototype/` is a primary source, kept deliberately. It settled that the graph is the right primary view with board and list one tap away, that fit and readable are different zoom levels needing separate controls, and that the phone default has to be the board. Treat it as evidence; do not extend it into the implementation.
-- The prototype invokes `bun cli/src/main.ts` directly, not the `cli/wayful` entrypoint, because that entrypoint hardcodes `/usr/bin/grep` and `/usr/bin/sed` and therefore cannot start on hosts without them. A shipped viewer that shells out to `wayful` depends on that being fixed first.
+- The prototype invokes `bun packages/cli/src/main.ts` directly rather than resolving a `wayful` executable from `PATH`, so it does not depend on the CLI being installed. A shipped viewer could shell out to `wayful` instead.
 - One SSE stream per open tab consumes one of the browser's limited per-origin HTTP/1.1 connections. Several tabs on the same origin will stall each other. If the viewer moves beyond casual local use, this needs either HTTP/2 or a different change-notification transport.
 - Shelling out per request is the right default — it keeps the CLI authoritative — but it costs a process spawn per command, and the project-scoped request spawns one per map. If that becomes slow, cache on the watcher's invalidation signal rather than reimplementing the model.
 - The viewer makes gaps in the CLI's read surface visible. Project metadata has no command, and there is no single call that answers "the state of this map", which is why the server composes four. Both are candidates for CLI work rather than viewer work.

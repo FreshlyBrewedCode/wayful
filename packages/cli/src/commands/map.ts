@@ -8,6 +8,7 @@ import {
   allSteps,
   artifacts,
   attachmentOK,
+  bodyLines,
   dependenciesOK,
   goals,
   project,
@@ -26,10 +27,7 @@ export async function handleMapCreate(flags: Record<string, any>) {
   await mkdir(join(dir, "steps"), { recursive: true });
   await mkdir(join(dir, "artifacts"));
   await mkdir(join(dir, "goals"));
-  await atomic(
-    join(dir, "map.toml"),
-    toml({ format_version: 1, name, start, step_id_counter: 1 }),
-  );
+  await atomic(join(dir, "map.toml"), toml({ format_version: 1, name, start, step_id_counter: 1 }));
   await writeMd(
     join(dir, "goals", "initial-goal.md"),
     {
@@ -48,17 +46,12 @@ export async function handleMapList(flags: Record<string, any>) {
   render(maps, flags, maps.map((map) => `${map.name}: ${map.start}`).join("\n"));
 }
 
-export async function handleMap(
-  command: string,
-  flags: Record<string, any>,
-  m: any,
-) {
+export async function handleMap(command: string, flags: Record<string, any>, m: any) {
   if (command === "validate") {
     const errors = await validate(m);
     const value = { valid: errors.length === 0, errors };
     if (flags.json) console.log(JSON.stringify(value, null, 2));
-    else if (errors.length)
-      console.error(`wayful: invalid map: ${errors.join(" ")}`);
+    else if (errors.length) console.error(`wayful: invalid map: ${errors.join(" ")}`);
     else console.log("Map is valid.");
     if (errors.length) process.exitCode = 1;
     return;
@@ -78,26 +71,17 @@ export async function handleMap(
       `Start: ${m.data.start}`,
       "Goals:",
       ...(gs.length
-        ? gs.flatMap((g) => [
-            `- ${g.name}: ${g.description}`,
-            ...(g.body
-              ? ["  Body:", ...g.body.split("\n").map((line: string) => `    ${line}`)]
-              : ["  Body: (empty)"]),
-          ])
+        ? gs.flatMap((g) => [`- ${g.name}: ${g.description}`, ...bodyLines(g.body, "  ")])
         : ["- none"]),
       "Artifacts:",
       ...(arts.length
-        ? arts.map((artifact) =>
-            `- ${artifact.name} (${artifact.kind}): ${artifact.ref}`
-          )
+        ? arts.map((artifact) => `- ${artifact.name} (${artifact.kind}): ${artifact.ref}`)
         : ["- none"]),
       "Steps:",
       ...(ss.length
         ? ss.flatMap((step) => [
             `- ${step.id} ${step.name}: ${step.description}`,
-            ...(step.body
-              ? ["  Body:", ...step.body.split("\n").map((line: string) => `    ${line}`)]
-              : ["  Body: (empty)"]),
+            ...bodyLines(step.body, "  "),
           ])
         : ["- none"]),
     ].join("\n");
@@ -106,10 +90,7 @@ export async function handleMap(
   }
   if (command === "next") {
     const v = ss.filter(
-      (s) =>
-        s.status === "pending" &&
-        dependenciesOK(s, ss) &&
-        attachmentOK(s, "inputs", arts),
+      (s) => s.status === "pending" && dependenciesOK(s, ss) && attachmentOK(s, "inputs", arts),
     );
     render(
       v.map(({ path, body, ...s }) => s),
@@ -120,10 +101,7 @@ export async function handleMap(
   }
   if (command === "status") {
     const next = ss.filter(
-      (s) =>
-        s.status === "pending" &&
-        dependenciesOK(s, ss) &&
-        attachmentOK(s, "inputs", arts),
+      (s) => s.status === "pending" && dependenciesOK(s, ss) && attachmentOK(s, "inputs", arts),
     );
     const counts = Object.fromEntries(
       ["pending", "blocked", "complete", "cancelled"].map((k) => [
@@ -150,14 +128,10 @@ export async function handleMap(
       `Steps: ${counts.pending} pending, ${counts.blocked} blocked, ${counts.complete} complete, ${counts.cancelled} cancelled`,
       "Blockers:",
       ...(blockers.length
-        ? blockers.map(
-            (s) => `- ${s.id} ${s.name}: ${s.reason ?? "no reason recorded"}`,
-          )
+        ? blockers.map((s) => `- ${s.id} ${s.name}: ${s.reason ?? "no reason recorded"}`)
         : ["- none"]),
       "Actionable steps:",
-      ...(next.length
-        ? next.map((s) => `- ${s.id} ${s.name}: ${s.description}`)
-        : ["- none"]),
+      ...(next.length ? next.map((s) => `- ${s.id} ${s.name}: ${s.description}`) : ["- none"]),
     ].join("\n");
     render(v, flags, human);
     return;

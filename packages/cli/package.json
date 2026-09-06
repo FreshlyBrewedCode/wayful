@@ -1,0 +1,15 @@
+{
+  "name": "@wayful/cli",
+  "private": true,
+  "bin": {
+    "wayful": "./src/main.ts"
+  },
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "bun": ">=1.4.1"
+  }
+}

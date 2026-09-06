@@ -15,9 +15,9 @@ automation.
 
 ## Solution
 
-Build a zero-runtime-dependency Bun CLI under the Wayful skill. It exposes a
-`wayful` executable script, discovers directory-scoped projects, and persists
-all data in a project's `.wayful` folder.
+Build a zero-runtime-dependency Bun CLI in `packages/cli`. It exposes a
+`wayful` executable, discovers directory-scoped projects, and persists all
+data in a project's `.wayful` folder.
 
 The CLI implements the Wayful commands documented in `SKILL.md`, plus the
 settled project-level type inspection commands and step inspection needed to
@@ -28,10 +28,11 @@ Markdown documents with YAML frontmatter. Generated YAML uses multiline block
 style rather than compact flow-style mappings and non-empty sequences. The
 files remain deliberately human-readable and manually editable.
 
-The `skills/wayful/cli/wayful` entrypoint verifies that Bun exists and that its
-version satisfies the CLI's declared Bun engine requirement before dispatching
-to the TypeScript implementation. It is a local tool, not a package intended
-to be published.
+`src/main.ts` is the entrypoint, declared as the package's `wayful` bin and
+executable directly through its `#!/usr/bin/env bun` shebang. Bun's presence
+and version are enforced by the package `engines` field and the repository's
+Nix dev shell rather than by a hand-rolled shell preamble. It is a local tool,
+not a package intended to be published.
 
 ## User Stories
 
@@ -82,9 +83,9 @@ to be published.
 
 ## Implementation Decisions
 
-- The implementation is a local, zero-dependency Bun CLI. It may use Bun's native YAML and TOML parse/stringify facilities and Bun's test runner, but must not add runtime or development npm packages.
-- The CLI is not packaged or published. An executable shell entrypoint named `wayful` lives at the CLI root. It checks for the `bun` executable, reads the supported Bun range declared by the local CLI metadata, checks the installed version, and emits an actionable stderr message before dispatching to Bun TypeScript.
-- The supported Bun version is declared once in local CLI metadata as `>=1.4.1`, the first verified project baseline that provides both `Bun.YAML.stringify` and `Bun.TOML.stringify`. The entrypoint and documentation use that declaration rather than duplicating an unrelated version constant.
+- The implementation is a local, zero-dependency Bun CLI. It may use Bun's native YAML and TOML parse/stringify facilities and Bun's test runner, but must not add npm packages of its own; the repository's shared lint, format, and typecheck tooling is the only development dependency it relies on.
+- The CLI is not packaged or published. `src/main.ts` carries a `#!/usr/bin/env bun` shebang and is declared as the package's `wayful` bin, so a workspace install links it as `node_modules/.bin/wayful`.
+- The supported Bun version is declared once in the package `engines` field as `>=1.4.1`, the first verified project baseline that provides both `Bun.YAML.stringify` and `Bun.TOML.stringify`. Documentation uses that declaration rather than duplicating an unrelated version constant.
 - Project discovery walks upward from the supplied `--project` directory, `WAYFUL_PROJECT` directory, or current working directory, stopping at the first directory containing `.wayful/project.toml`. An absent project produces an `init`-oriented error.
 - Context precedence is explicit flag, then environment variable, then project discovery. No map is inferred merely because a project contains one map.
 - `map list` is project-scoped and does not require map context. It returns every valid map in ascending name order, showing `name: start` in human output and map metadata objects in JSON output.
@@ -118,10 +119,10 @@ to be published.
 
 ## Testing Decisions
 
-- The primary test seam is end-to-end CLI invocation through the local `wayful` entrypoint against fresh temporary filesystem projects. Tests assert process exit status, stdout/stderr, and persisted file contents after observable operations.
+- The primary test seam is end-to-end CLI invocation of `src/main.ts` in a child Bun process against fresh temporary filesystem projects. Tests assert process exit status, stdout/stderr, and persisted file contents after observable operations.
 - Tests must not assert private function calls, module layout, or incidental serialization ordering beyond the documented persistence contracts. They should assert user-visible command behavior, valid readable documents, and domain outcomes.
 - The test suite uses only `bun:test` and Bun/standard process and filesystem APIs; no external test helpers or fixture dependencies are introduced.
-- Entry-point tests cover missing Bun diagnostics, unsupported Bun diagnostics, supported Bun dispatch, and preservation of command arguments. Where manipulating the real Bun executable is impractical, the entrypoint's Bun resolution must be injectable through environment/path setup at the process boundary.
+- Bun discovery and version gating are no longer the CLI's responsibility, so no test covers them; the tests exercise command behavior only.
 - Project tests cover initialization, upward discovery, `--project` and `WAYFUL_PROJECT` precedence, existing-project refusal, malformed and unsupported project metadata, and safe identifier rejection.
 - Map tests cover creation, project-scoped map listing, explicit/environment map selection and precedence, existing-map refusal, map display/status, optional manual type restrictions, and map metadata validation.
 - Step tests cover creation, monotonic IDs, lookup by name and ID, description and body updates, body inspection, all allowed/forbidden state transitions, completion/cancellation/block reasons, body preservation, dependency integrity/cycle detection, and immutable terminal steps.

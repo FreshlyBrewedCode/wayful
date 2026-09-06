@@ -2,9 +2,9 @@ import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 
+import type { Dict } from "./core";
 import {
   CliError,
-  Dict,
   IDENT,
   MapMetadataError,
   fail,
@@ -30,9 +30,7 @@ async function discover(start: string) {
   fail("no Wayful project found; run 'wayful init' first.");
 }
 async function project(flags: Dict) {
-  const root = await discover(
-    flags.project ?? process.env.WAYFUL_PROJECT ?? process.cwd(),
-  );
+  const root = await discover(flags.project ?? process.env.WAYFUL_PROJECT ?? process.cwd());
   const file = join(root, ".wayful", "project.toml");
   const data = parseToml(await readFile(file, "utf8"), file);
   projectMetadata(data);
@@ -51,8 +49,7 @@ async function mapContext(flags: Dict) {
   if (!existsSync(file)) fail(`map '${name}' does not exist.`);
   try {
     const data = parseToml(await readFile(file, "utf8"), file);
-    if (!data || typeof data !== "object" || Array.isArray(data))
-      fail("malformed map metadata.");
+    if (!data || typeof data !== "object" || Array.isArray(data)) fail("malformed map metadata.");
     const allowed = new Set([
       "format_version",
       "name",
@@ -60,8 +57,7 @@ async function mapContext(flags: Dict) {
       "step_id_counter",
       "allowed_step_types",
     ]);
-    if (Object.keys(data).some((key) => !allowed.has(key)))
-      fail("malformed map metadata.");
+    if (Object.keys(data).some((key) => !allowed.has(key))) fail("malformed map metadata.");
     version(data, "map metadata", true);
     if (
       data.name !== name ||
@@ -73,9 +69,7 @@ async function mapContext(flags: Dict) {
     if (data.allowed_step_types !== undefined) {
       if (
         !Array.isArray(data.allowed_step_types) ||
-        data.allowed_step_types.some(
-          (x: any) => typeof x !== "string" || !IDENT.test(x),
-        ) ||
+        data.allowed_step_types.some((x: any) => typeof x !== "string" || !IDENT.test(x)) ||
         new Set(data.allowed_step_types).size !== data.allowed_step_types.length
       )
         fail("malformed map metadata.");
@@ -103,7 +97,7 @@ async function allMaps(flags: Dict) {
     entries
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
-      .sort()
+      .toSorted()
       .map(async (name) => {
         try {
           return (await mapContext({ project: p.root, map: name })).data;
@@ -120,8 +114,7 @@ async function typeDef(root: string, name: string) {
   if (!existsSync(file)) fail(`type '${name}' does not exist.`);
   const { data, body } = await frontmatter(file);
   version(data, `type '${name}'`);
-  if (data.name !== name)
-    fail(`type filename and name do not match for '${name}'.`);
+  if (data.name !== name) fail(`type filename and name do not match for '${name}'.`);
   return {
     ...data,
     name: identifier(data.name, "type name"),
@@ -142,7 +135,7 @@ async function allTypes(root: string) {
   return Promise.all(
     files
       .filter((x) => x.endsWith(".md"))
-      .sort()
+      .toSorted()
       .map((x) => typeDef(root, x.slice(0, -3))),
   );
 }
@@ -154,8 +147,8 @@ async function allSteps(m: any) {
   } catch {
     fail("cannot read steps.");
   }
-  const result = [];
-  for (const file of files.filter((x) => x.endsWith(".md")).sort()) {
+  const result: Dict[] = [];
+  for (const file of files.filter((x) => x.endsWith(".md")).toSorted()) {
     const path = join(dir, file);
     const { data, body } = await frontmatter(path);
     try {
@@ -168,7 +161,7 @@ async function allSteps(m: any) {
       fail(`step filename does not match identity (${file}).`);
     result.push({ ...data, body, path });
   }
-  return result.sort((a, b) => a.id - b.id);
+  return result.toSorted((a, b) => a.id - b.id);
 }
 function validateStep(s: Dict) {
   version(s, "step");
@@ -178,19 +171,13 @@ function validateStep(s: Dict) {
   nonEmpty(s.description, "step description");
   if (!["pending", "blocked", "complete", "cancelled"].includes(s.status))
     fail("invalid step status.");
-  if (
-    !Array.isArray(s.dependencies) ||
-    s.dependencies.some((x) => !Number.isInteger(x))
-  )
+  if (!Array.isArray(s.dependencies) || s.dependencies.some((x) => !Number.isInteger(x)))
     fail("invalid step dependencies.");
-  if (!Array.isArray(s.inputs) || !Array.isArray(s.outputs))
-    fail("invalid step attachments.");
+  if (!Array.isArray(s.inputs) || !Array.isArray(s.outputs)) fail("invalid step attachments.");
   slots(s.required_inputs, "required_inputs");
   slots(s.required_outputs, "required_outputs");
-  if (s.status === "complete")
-    nonEmpty(s.completion_summary, "completion summary");
-  if (s.status === "cancelled")
-    nonEmpty(s.cancellation_reason, "cancellation reason");
+  if (s.status === "complete") nonEmpty(s.completion_summary, "completion summary");
+  if (s.status === "cancelled") nonEmpty(s.cancellation_reason, "cancellation reason");
   if (s.status === "blocked") nonEmpty(s.block_reason, "block reason");
 }
 async function step(m: any, reference: string) {
@@ -226,7 +213,7 @@ async function artifacts(m: any) {
       fail(`artifact filename does not match identity (${f}).`);
     out.push(data);
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
+  return out.toSorted((a, b) => a.name.localeCompare(b.name));
 }
 async function goals(m: any) {
   const dir = join(m.dir, "goals");
@@ -242,49 +229,39 @@ async function goals(m: any) {
     version(data, `goal '${f}'`);
     identifier(data.name, "goal name");
     nonEmpty(data.description, "goal description");
-    if (
-      !Array.isArray(data.evidence) ||
-      data.evidence.some((x: any) => typeof x !== "string")
-    )
+    if (!Array.isArray(data.evidence) || data.evidence.some((x: any) => typeof x !== "string"))
       fail(`invalid goal evidence (${f}).`);
-    if (f !== `${data.name}.md`)
-      fail(`goal filename does not match identity (${f}).`);
+    if (f !== `${data.name}.md`) fail(`goal filename does not match identity (${f}).`);
     out.push({ ...data, body, path: join(dir, f) });
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
+  return out.toSorted((a, b) => a.name.localeCompare(b.name));
 }
 function render(value: any, flags: Dict, human: string) {
   console.log(flags.json ? JSON.stringify(value, null, 2) : human);
 }
+/** Renders a Markdown body as the labelled, indented lines humans see. */
+function bodyLines(body: string, indent = "") {
+  if (!body) return [`${indent}Body: (empty)`];
+  const lines = body.split("\n").map((line) => `${indent}  ${line}`);
+  return [`${indent}Body:`, ...lines];
+}
 function attachmentOK(s: any, direction: "inputs" | "outputs", arts: any[]) {
-  const required =
-    s[direction === "inputs" ? "required_inputs" : "required_outputs"];
+  const required = s[direction === "inputs" ? "required_inputs" : "required_outputs"];
   const attachments = Array.isArray(s[direction]) ? s[direction] : [];
   return (
     Array.isArray(required) &&
     required.every((slot: any) => {
       const a = attachments.find(
-        (x: any) =>
-          x &&
-          typeof x === "object" &&
-          !Array.isArray(x) &&
-          x.slot === slot.name,
+        (x: any) => x && typeof x === "object" && !Array.isArray(x) && x.slot === slot.name,
       );
-      return (
-        a && arts.some((x) => x.name === a.artifact && x.kind === slot.kind)
-      );
+      return a && arts.some((x) => x.name === a.artifact && x.kind === slot.kind);
     })
   );
 }
-function attachmentErrors(
-  s: any,
-  direction: "inputs" | "outputs",
-  arts: any[],
-) {
+function attachmentErrors(s: any, direction: "inputs" | "outputs", arts: any[]) {
   const errors: string[] = [];
   const attachments = s[direction];
-  const required =
-    s[direction === "inputs" ? "required_inputs" : "required_outputs"] ?? [];
+  const required = s[direction === "inputs" ? "required_inputs" : "required_outputs"] ?? [];
   const slotsSeen = new Set<string>();
   for (const attachment of attachments) {
     if (
@@ -298,23 +275,15 @@ function attachmentErrors(
     }
     const artifact = arts.find((a) => a.name === attachment.artifact);
     if (!artifact)
-      errors.push(
-        `step '${s.name}' has a missing ${direction} artifact '${attachment.artifact}'.`,
-      );
+      errors.push(`step '${s.name}' has a missing ${direction} artifact '${attachment.artifact}'.`);
     if (attachment.slot === undefined) continue;
     if (typeof attachment.slot !== "string") {
-      errors.push(
-        `step '${s.name}' has an invalid ${direction} slot attachment.`,
-      );
+      errors.push(`step '${s.name}' has an invalid ${direction} slot attachment.`);
       continue;
     }
-    const slot = required.find(
-      (candidate: any) => candidate.name === attachment.slot,
-    );
+    const slot = required.find((candidate: any) => candidate.name === attachment.slot);
     if (!slot) {
-      errors.push(
-        `step '${s.name}' has an unknown ${direction} slot '${attachment.slot}'.`,
-      );
+      errors.push(`step '${s.name}' has an unknown ${direction} slot '${attachment.slot}'.`);
       continue;
     }
     if (slotsSeen.has(attachment.slot))
@@ -330,9 +299,7 @@ function attachmentErrors(
   return errors;
 }
 function dependenciesOK(s: any, ss: any[]) {
-  return s.dependencies.every(
-    (id: number) => ss.find((x) => x.id === id)?.status === "complete",
-  );
+  return s.dependencies.every((id: number) => ss.find((x) => x.id === id)?.status === "complete");
 }
 async function validate(m: any, includeProgress = true) {
   const errors: string[] = [];
@@ -350,43 +317,33 @@ async function validate(m: any, includeProgress = true) {
   }
   const highestStepID = ss.reduce((highest, s) => Math.max(highest, s.id), 0);
   if (m.data.step_id_counter <= highestStepID)
-    errors.push(
-      "map step_id_counter must be greater than every existing step ID.",
-    );
+    errors.push("map step_id_counter must be greater than every existing step ID.");
   const artifactNames = new Set<string>();
   for (const art of arts) {
-    if (artifactNames.has(art.name))
-      errors.push("duplicate artifact identity.");
+    if (artifactNames.has(art.name)) errors.push("duplicate artifact identity.");
     artifactNames.add(art.name);
   }
   const names = new Set<string>(),
     ids = new Set<number>();
   for (const s of ss) {
-    if (names.has(s.name) || ids.has(s.id))
-      errors.push("duplicate step identity.");
+    if (names.has(s.name) || ids.has(s.id)) errors.push("duplicate step identity.");
     names.add(s.name);
     ids.add(s.id);
     try {
-      const t = await typeDef(m.root, s.type);
-      if (
-        m.data.allowed_step_types &&
-        !m.data.allowed_step_types.includes(s.type)
-      )
+      await typeDef(m.root, s.type);
+      if (m.data.allowed_step_types && !m.data.allowed_step_types.includes(s.type))
         errors.push(`step '${s.name}' has a disallowed type.`);
     } catch (e) {
       errors.push(e instanceof Error ? e.message : "invalid type.");
     }
     const dependencyIDs = new Set<number>();
     for (const id of s.dependencies) {
-      if (dependencyIDs.has(id))
-        errors.push(`step '${s.name}' has a duplicate dependency.`);
+      if (dependencyIDs.has(id)) errors.push(`step '${s.name}' has a duplicate dependency.`);
       dependencyIDs.add(id);
       const dep = ss.find((x) => x.id === id);
       if (!dep) errors.push(`step '${s.name}' has a missing dependency.`);
       else if (dep.status === "cancelled")
-        errors.push(
-          `step '${s.name}' depends on cancelled step '${dep.name}'.`,
-        );
+        errors.push(`step '${s.name}' depends on cancelled step '${dep.name}'.`);
     }
     for (const direction of ["inputs", "outputs"] as const)
       errors.push(...attachmentErrors(s, direction, arts));
@@ -394,10 +351,8 @@ async function validate(m: any, includeProgress = true) {
       errors.push(`step '${s.name}' has unmet required inputs.`);
     if (s.status === "complete" && !attachmentOK(s, "outputs", arts))
       errors.push(`completed step '${s.name}' has unmet required outputs.`);
-    if (includeProgress && s.status === "blocked")
-      errors.push(`step '${s.name}' is blocked.`);
-    if (includeProgress && s.status === "pending")
-      errors.push(`step '${s.name}' remains pending.`);
+    if (includeProgress && s.status === "blocked") errors.push(`step '${s.name}' is blocked.`);
+    if (includeProgress && s.status === "pending") errors.push(`step '${s.name}' remains pending.`);
   }
   const visit = (s: any, seen: Set<number>, stack: Set<number>) => {
     if (stack.has(s.id)) {
@@ -415,8 +370,7 @@ async function validate(m: any, includeProgress = true) {
   };
   ss.forEach((s) => visit(s, new Set(), new Set()));
   for (const g of gs) {
-    if (includeProgress && !g.evidence.length)
-      errors.push(`goal '${g.name}' is not satisfied.`);
+    if (includeProgress && !g.evidence.length) errors.push(`goal '${g.name}' is not satisfied.`);
     for (const evidence of g.evidence)
       if (!arts.some((a) => a.name === evidence))
         errors.push(`goal '${g.name}' has missing evidence.`);
@@ -436,6 +390,7 @@ export {
   assertWritableMapIntegrity,
   attachmentErrors,
   attachmentOK,
+  bodyLines,
   dependenciesOK,
   discover,
   goals,

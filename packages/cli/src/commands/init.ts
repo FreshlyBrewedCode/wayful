@@ -9,14 +9,9 @@ export async function handleInit(flags: Record<string, any>) {
   if (existsSync(join(root, ".wayful")))
     fail("Wayful state already exists; refusing to overwrite it.");
   const description =
-    flags.description === undefined
-      ? ""
-      : nonEmpty(flags.description, "project description");
+    flags.description === undefined ? "" : nonEmpty(flags.description, "project description");
   await mkdir(join(root, ".wayful", "types"), { recursive: true });
-  await atomic(
-    join(root, ".wayful", "project.toml"),
-    toml({ format_version: 1, description }),
-  );
+  await atomic(join(root, ".wayful", "project.toml"), toml({ format_version: 1, description }));
   await writeMd(join(root, ".wayful", "types", "task.md"), {
     format_version: 1,
     name: "task",

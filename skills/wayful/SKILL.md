@@ -18,7 +18,7 @@ Wayful is best used if you want a fundamentally flexible process but still need 
 
 The CLI manages the map, not the work inside a step. Use it to capture the current state of work, discover what can happen next, and adapt the map as new information becomes available. Complete the substantive work with the appropriate tools, then record its result as artifacts and update the relevant step.
 
-Note: the cli is not in path. Run it from its entrypoint in this repository: `prototypes/cli/wayful`
+Note: the cli is not in path. Run it from its entrypoint in this repository: `packages/cli/src/main.ts` (or `node_modules/.bin/wayful` after `bun install`)
 
 ## Create and inspect work
 

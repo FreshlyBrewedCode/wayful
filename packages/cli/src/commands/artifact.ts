@@ -9,10 +9,8 @@ export async function handleArtifact(
   position: string[],
   m: any,
 ) {
-  const name = identifier(
-      position[2] ?? fail("artifact name is required."),
-      "artifact name",
-    ),
+  if (command !== "add") fail(`unknown artifact command '${command}'.`);
+  const name = identifier(position[2] ?? fail("artifact name is required."), "artifact name"),
     kind = nonEmpty(flags.kind, "artifact kind"),
     ref = nonEmpty(flags.ref, "artifact reference");
   const file = join(m.dir, "artifacts", `${name}.yaml`);
@@ -20,5 +18,4 @@ export async function handleArtifact(
     fail(`artifact '${name}' already exists.`);
   await atomic(file, yaml({ format_version: 1, name, kind, ref }));
   console.log(`Added artifact '${name}'.`);
-  return;
 }

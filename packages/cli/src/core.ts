@@ -5,19 +5,16 @@ const IDENT = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 type Dict = Record<string, any>;
 class CliError extends Error {}
 class MapMetadataError extends CliError {}
-const fail = (message: string): never => {
+// The explicit annotation on the binding (not just on the arrow) is what lets
+// control-flow analysis treat `fail(...)` as terminating, so callers can use it
+// as an expression without TypeScript widening everything downstream.
+const fail: (message: string) => never = (message) => {
   throw new CliError(message);
 };
 const nonEmpty = (value: any, label: string) =>
-  typeof value === "string" && value.trim()
-    ? value
-    : fail(`${label} is required.`);
+  typeof value === "string" && value.trim() ? value : fail(`${label} is required.`);
 function identifier(value: any, label: string, step = false) {
-  if (
-    typeof value !== "string" ||
-    !IDENT.test(value) ||
-    (step && /^\d+$/.test(value))
-  )
+  if (typeof value !== "string" || !IDENT.test(value) || (step && /^\d+$/.test(value)))
     fail(`${label} must be a lowercase kebab-case identifier.`);
   return value;
 }
@@ -35,23 +32,21 @@ function toml(value: Dict) {
   if (text === undefined) fail("cannot serialize TOML metadata.");
   return text.endsWith("\n") ? text : `${text}\n`;
 }
-function parseYaml(text: string, where: string) {
+function parseYaml(text: string, where: string): any {
   try {
     return Bun.YAML.parse(text);
   } catch {
     fail(`malformed YAML in ${where}.`);
   }
 }
-function parseToml(text: string, where: string) {
+function parseToml(text: string, where: string): any {
   try {
     return Bun.TOML.parse(text);
   } catch {
     fail(`malformed TOML in ${where}.`);
   }
 }
-async function frontmatter(
-  path: string,
-): Promise<{ data: Dict; body: string }> {
+async function frontmatter(path: string): Promise<{ data: Dict; body: string }> {
   let text: string;
   try {
     text = await readFile(path, "utf8");
@@ -77,8 +72,7 @@ function slots(raw: any, label: string): any[] {
       fail(`${label} contains an invalid slot.`);
     const name = identifier(slot.name, "slot name");
     const kind = nonEmpty(slot.kind, "slot kind");
-    if (slot.description !== undefined)
-      nonEmpty(slot.description, "slot description");
+    if (slot.description !== undefined) nonEmpty(slot.description, "slot description");
     if (seen.has(name)) fail(`${label} repeats slot '${name}'.`);
     seen.add(name);
     return slot.description === undefined
@@ -91,19 +85,13 @@ function version(data: Dict, where: string, allowMissing = false) {
     if (allowMissing) return;
     fail(`missing format version in ${where}.`);
   }
-  if (!Number.isInteger(data.format_version))
-    fail(`malformed format version in ${where}.`);
-  if (data.format_version !== 1)
-    fail(`unsupported format version in ${where}.`);
+  if (!Number.isInteger(data.format_version)) fail(`malformed format version in ${where}.`);
+  if (data.format_version !== 1) fail(`unsupported format version in ${where}.`);
 }
 function projectMetadata(data: any) {
-  if (!data || typeof data !== "object" || Array.isArray(data))
-    fail("malformed project metadata.");
+  if (!data || typeof data !== "object" || Array.isArray(data)) fail("malformed project metadata.");
   const allowed = new Set(["format_version", "description"]);
-  if (
-    Object.keys(data).some((key) => !allowed.has(key)) ||
-    typeof data.description !== "string"
-  )
+  if (Object.keys(data).some((key) => !allowed.has(key)) || typeof data.description !== "string")
     fail("malformed project metadata.");
   version(data, "project metadata", true);
 }
@@ -156,10 +144,7 @@ function groupUsage(group: string) {
       "add --name NAME --description TEXT --map NAME [--project DIR] [--body TEXT]",
       "satisfy --goal NAME (--artifact NAME | --evidence NAME) [...] --map NAME [--project DIR]",
     ],
-    type: [
-      "list [--project DIR] [--json]",
-      "show NAME [--project DIR] [--json]",
-    ],
+    type: ["list [--project DIR] [--json]", "show NAME [--project DIR] [--json]"],
   };
   return `Usage: wayful ${group} <command> [options]
 
@@ -259,7 +244,8 @@ Options:
 `,
   };
   const stepCommands: Record<string, string> = {
-    create: "create NAME --type TYPE --description TEXT --map NAME [--project DIR] [--body TEXT] [--required-inputs JSON] [--required-outputs JSON]",
+    create:
+      "create NAME --type TYPE --description TEXT --map NAME [--project DIR] [--body TEXT] [--required-inputs JSON] [--required-outputs JSON]",
     show: "show STEP --map NAME [--project DIR] [--json]",
     update: "update STEP --map NAME [--project DIR] [--description TEXT] [--body TEXT]",
     block: "block STEP --reason TEXT --map NAME [--project DIR]",
@@ -272,20 +258,28 @@ Options:
   };
   if (group === "step" && command) {
     const required: Record<string, string> = {
-      create: "  NAME                  Step name\n  --type TYPE           Step type\n  --description TEXT    Result description\n  --map NAME            Map name",
+      create:
+        "  NAME                  Step name\n  --type TYPE           Step type\n  --description TEXT    Result description\n  --map NAME            Map name",
       show: "  STEP                  Step name or numeric ID\n  --map NAME            Map name",
       update: "  STEP                  Step name or numeric ID\n  --map NAME            Map name",
-      block: "  STEP                  Step name or numeric ID\n  --reason TEXT         Block reason\n  --map NAME            Map name",
+      block:
+        "  STEP                  Step name or numeric ID\n  --reason TEXT         Block reason\n  --map NAME            Map name",
       unblock: "  STEP                  Step name or numeric ID\n  --map NAME            Map name",
-      complete: "  STEP                  Step name or numeric ID\n  --summary TEXT        Completion summary\n  --map NAME            Map name",
-      cancel: "  STEP                  Step name or numeric ID\n  --reason TEXT         Cancellation reason\n  --map NAME            Map name",
-      depends: "  STEP                  Step to update\n  --on STEP             Prerequisite step name or numeric ID\n  --map NAME            Map name",
-      input: "  STEP                  Step name or numeric ID\n  --artifact NAME       Existing artifact name\n  --map NAME            Map name",
-      output: "  STEP                  Step name or numeric ID\n  --artifact NAME       Existing artifact name\n  --map NAME            Map name",
+      complete:
+        "  STEP                  Step name or numeric ID\n  --summary TEXT        Completion summary\n  --map NAME            Map name",
+      cancel:
+        "  STEP                  Step name or numeric ID\n  --reason TEXT         Cancellation reason\n  --map NAME            Map name",
+      depends:
+        "  STEP                  Step to update\n  --on STEP             Prerequisite step name or numeric ID\n  --map NAME            Map name",
+      input:
+        "  STEP                  Step name or numeric ID\n  --artifact NAME       Existing artifact name\n  --map NAME            Map name",
+      output:
+        "  STEP                  Step name or numeric ID\n  --artifact NAME       Existing artifact name\n  --map NAME            Map name",
     };
-    const optional = command === "create"
-      ? "  --project DIR         Project directory\n  --body TEXT           Optional Markdown body\n  --required-inputs JSON   Replace inherited required input slots\n  --required-outputs JSON  Replace inherited required output slots\n  --help                Show help"
-      : `  --project DIR         Project directory${command === "show" ? "\n  --json                Render stable JSON output" : ""}${command === "update" ? "\n  --description TEXT    New step description\n  --body TEXT           Replace the Markdown body" : ""}${["input", "output"].includes(command) ? "\n  --slot NAME           Fulfill a required slot" : ""}\n  --help                Show help`;
+    const optional =
+      command === "create"
+        ? "  --project DIR         Project directory\n  --body TEXT           Optional Markdown body\n  --required-inputs JSON   Replace inherited required input slots\n  --required-outputs JSON  Replace inherited required output slots\n  --help                Show help"
+        : `  --project DIR         Project directory${command === "show" ? "\n  --json                Render stable JSON output" : ""}${command === "update" ? "\n  --description TEXT    New step description\n  --body TEXT           Replace the Markdown body" : ""}${["input", "output"].includes(command) ? "\n  --slot NAME           Fulfill a required slot" : ""}\n  --help                Show help`;
     return `Usage: wayful step ${stepCommands[command]}
 
 Required arguments and options:
@@ -328,16 +322,12 @@ function parse(argv: string[]) {
     const x = argv[i];
     if (x.startsWith("--")) {
       const key = x.slice(2);
-      if (key === "help" || key === "json" || key === "version")
-        flags[key] = true;
+      if (key === "help" || key === "json" || key === "version") flags[key] = true;
       else {
         const value = argv[++i];
-        if (value === undefined || value.startsWith("--"))
-          fail(`--${key} requires a value.`);
+        if (value === undefined || value.startsWith("--")) fail(`--${key} requires a value.`);
         if (flags[key] !== undefined)
-          flags[key] = Array.isArray(flags[key])
-            ? [...flags[key], value]
-            : [flags[key], value];
+          flags[key] = Array.isArray(flags[key]) ? [...flags[key], value] : [flags[key], value];
         else flags[key] = value;
       }
     } else position.push(x);
@@ -402,18 +392,13 @@ function validateInvocation(
   flags: Dict,
   position: string[],
 ) {
-  const contract =
-    commandOptions[group === "init" ? "init" : `${group}:${command}`];
+  const contract = commandOptions[group === "init" ? "init" : `${group}:${command}`];
   if (!contract)
-    fail(
-      `unknown ${group === "init" ? "command 'init'" : `${group} command '${command}'`}.`,
-    );
+    fail(`unknown ${group === "init" ? "command 'init'" : `${group} command '${command}'`}.`);
   for (const [option, value] of Object.entries(flags)) {
     if (option === "help") continue;
-    if (option === "version")
-      fail("--version cannot be combined with a command.");
-    if (!contract.options.includes(option))
-      fail(`unknown or unsupported option '--${option}'.`);
+    if (option === "version") fail("--version cannot be combined with a command.");
+    if (!contract.options.includes(option)) fail(`unknown or unsupported option '--${option}'.`);
     if (Array.isArray(value) && !contract.repeated?.includes(option))
       fail(`option '--${option}' may only be specified once.`);
   }
@@ -426,10 +411,10 @@ function validateInvocation(
     fail(`unexpected positional argument '${position[position.length - 1]}'.`);
 }
 
+export type { Dict };
 export {
   CliError,
   commandUsage,
-  Dict,
   IDENT,
   MapMetadataError,
   VERSION,

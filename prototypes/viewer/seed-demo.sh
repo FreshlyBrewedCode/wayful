@@ -7,7 +7,7 @@
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-CLI="$HERE/../cli/src/main.ts"
+CLI="$HERE/../../packages/cli/src/main.ts"
 TYPES="$HERE/../../skills/wayful/step-types"
 DEMO="$HERE/demo-project"
 

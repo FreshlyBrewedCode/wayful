@@ -16,7 +16,7 @@ import { handleMap, handleMapCreate, handleMapList } from "./commands/map";
 import { handleStep } from "./commands/step";
 import { handleType } from "./commands/type";
 
-const commandGroups = ["map", "step", "artifact", "goal", "type"];
+const commandGroups = new Set(["map", "step", "artifact", "goal", "type"]);
 const mapMutations = new Set([
   "add",
   "create",
@@ -62,7 +62,7 @@ export async function run() {
     return;
   }
 
-  if (!commandGroups.includes(group)) fail(`unknown command '${group}'.`);
+  if (!commandGroups.has(group)) fail(`unknown command '${group}'.`);
   if (position[1] === undefined) {
     for (const option of Object.keys(flags))
       if (!["help", "project", "map"].includes(option))
@@ -86,15 +86,9 @@ export async function run() {
   try {
     m = await mapContext(flags);
   } catch (error) {
-    if (
-      group === "map" &&
-      command === "validate" &&
-      error instanceof MapMetadataError
-    ) {
+    if (group === "map" && command === "validate" && error instanceof MapMetadataError) {
       if (flags.json)
-        console.log(
-          JSON.stringify({ valid: false, errors: [error.message] }, null, 2),
-        );
+        console.log(JSON.stringify({ valid: false, errors: [error.message] }, null, 2));
       else console.error(`wayful: invalid map: ${error.message}`);
       process.exitCode = 1;
       return;
@@ -102,8 +96,7 @@ export async function run() {
     throw error;
   }
 
-  if (mapMutations.has(command) && group !== "map")
-    await assertWritableMapIntegrity(m);
+  if (mapMutations.has(command) && group !== "map") await assertWritableMapIntegrity(m);
 
   if (group === "map") return handleMap(command, flags, m);
   if (group === "artifact") return handleArtifact(command, flags, position, m);

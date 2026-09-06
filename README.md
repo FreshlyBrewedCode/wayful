@@ -8,12 +8,12 @@ completing agentic work on flexible maps of interdependent steps.
 | Path | Contents |
 | --- | --- |
 | `skills/wayful/` | The `wayful` skill: `SKILL.md` and the `step-types/` library it describes |
-| `prototypes/cli/` | The `wayful` CLI prototype, plus its spec (`SPEC.md`) |
+| `packages/cli/` | The `wayful` CLI, plus its spec (`SPEC.md`) |
 | `prototypes/viewer/` | Read-only web viewer prototype, plus its spec (`SPEC.md`) |
-| `packages/` | Empty — for extracted, non-throwaway packages |
 
-Both entries under `prototypes/` are throwaway code, kept as-is from the skill
-repository. `packages/` is where anything they prove out should graduate to.
+Everything under `prototypes/` is throwaway code, kept as-is from the skill
+repository and excluded from lint, format, and typecheck. `packages/` is where
+anything a prototype proves out graduates to.
 
 ## Getting started
 
@@ -25,15 +25,26 @@ bun install
 ```
 
 The dev shell pins the official Bun release binary rather than `pkgs.bun`,
-which currently trails upstream and would fail the CLI's version gate. See the
-comment in `flake.nix` for how to bump it.
+which currently trails upstream and does not yet provide the `Bun.YAML` and
+`Bun.TOML` stringify APIs the CLI depends on. See the comment in `flake.nix`
+for how to bump it.
 
-## Running the prototypes
+## Checks
 
 ```sh
-# CLI
-./prototypes/cli/wayful --help
-cd prototypes/cli && bun test
+bun run check       # lint + typecheck + test
+bun run lint        # oxfmt --check + oxlint
+bun run format      # oxfmt, writing in place
+bun run typecheck   # tsc --noEmit per package
+bun run test        # bun test per package
+```
+
+## Running
+
+```sh
+# CLI — bun install links it as node_modules/.bin/wayful
+./node_modules/.bin/wayful --help
+bun packages/cli/src/main.ts --help
 
 # Viewer — reads a project through the CLI, never writes
 cd prototypes/viewer
@@ -41,11 +52,3 @@ cd prototypes/viewer
 bun server.ts           # http://localhost:7830
 bun server.ts --project /path/to/repo --port 7830
 ```
-
-## Known issue
-
-`prototypes/cli/wayful` hardcodes `/usr/bin/grep` and `/usr/bin/sed`, so the
-entrypoint and its test suite fail on hosts without a Debian-shaped `/usr/bin`
-(NixOS, some containers). Invoking `bun prototypes/cli/src/main.ts` directly
-works everywhere. This predates the move into this repository and is tracked by
-the `cli-polish` map in the viewer's demo project.

@@ -60,7 +60,7 @@ it. Tabbing to an off-screen step pans it into view.
 ## Deliberate constraints
 
 - **Read-only.** The server never writes. It shells out to
-  `../cli/src/main.ts <cmd> --json` and forwards the result.
+  `../../packages/cli/src/main.ts <cmd> --json` and forwards the result.
 - **No domain logic in the client.** Status, readiness and validity are the
   CLI's answers. The only thing computed here is *layout* — which column a step
   sits in. If a number is not in `--json`, it is not on screen.

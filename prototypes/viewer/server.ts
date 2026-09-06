@@ -11,7 +11,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 const HERE = dirname(Bun.fileURLToPath(import.meta.url));
-const CLI = join(HERE, "..", "cli", "src", "main.ts");
+const CLI = join(HERE, "..", "..", "packages", "cli", "src", "main.ts");
 
 const argv = Bun.argv.slice(2);
 const arg = (name: string, fallback: string) => {
