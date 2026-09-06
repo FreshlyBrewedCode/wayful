@@ -1,0 +1,94 @@
+<!doctype html>
+<!-- PROTOTYPE — throwaway viewer for Wayful projects. Not production code. -->
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Wayful viewer · prototype</title>
+    <link rel="stylesheet" href="/app.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='14'>🧭</text></svg>"
+    />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to map</a>
+
+    <header class="topbar">
+      <button class="icon-button rail-toggle" id="rail-toggle" aria-expanded="false" aria-controls="rail">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" /></svg>
+        <span class="sr-only">Show maps</span>
+      </button>
+
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <path d="m15.2 8.8-2 4.4-4.4 2 2-4.4Z" />
+        </svg>
+        <div class="brand-text">
+          <strong id="project-name">Wayful</strong>
+          <span id="project-description">loading…</span>
+        </div>
+      </div>
+
+      <div class="topbar-right">
+        <span class="badge badge-proto" title="Throwaway prototype — read-only">prototype</span>
+        <span class="live" id="live" data-state="idle" title="Watching .wayful for changes">
+          <i></i><span id="live-label">live</span>
+        </span>
+        <button class="icon-button" id="theme-toggle" title="Toggle light / dark">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M15 11a6 6 0 0 1-7.5-7.5 6.5 6.5 0 1 0 7.5 7.5Z" /></svg>
+          <span class="sr-only">Toggle colour scheme</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="shell">
+      <div class="scrim" id="scrim" hidden></div>
+
+      <!-- ------------------------------------------------------------ rail -->
+      <nav class="rail" id="rail" aria-label="Maps">
+        <div class="rail-head">
+          <h2>Maps</h2>
+          <button class="icon-button rail-close" id="rail-close">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" /></svg>
+            <span class="sr-only">Close</span>
+          </button>
+        </div>
+        <ul class="map-list" id="map-list"></ul>
+        <div class="rail-foot">
+          <h3>Step types</h3>
+          <ul class="type-list" id="type-list"></ul>
+        </div>
+      </nav>
+
+      <!-- ------------------------------------------------------------ main -->
+      <main class="main" id="main">
+        <section class="map-head" id="map-head" aria-live="polite"></section>
+
+        <section class="viewport">
+          <div class="viewbar">
+            <div class="segmented" role="tablist" aria-label="Map view">
+              <button role="tab" data-view="graph" aria-selected="true">Graph</button>
+              <button role="tab" data-view="board" aria-selected="false">Board</button>
+              <button role="tab" data-view="list" aria-selected="false">List</button>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="show-cancelled" checked />
+              <span>Cancelled</span>
+            </label>
+          </div>
+          <div class="view" id="view"></div>
+        </section>
+      </main>
+
+      <!-- ---------------------------------------------------------- detail -->
+      <aside class="detail" id="detail" aria-label="Step detail" data-open="false">
+        <div class="detail-grip" id="detail-grip" aria-hidden="true"></div>
+        <div class="detail-body" id="detail-body"></div>
+      </aside>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

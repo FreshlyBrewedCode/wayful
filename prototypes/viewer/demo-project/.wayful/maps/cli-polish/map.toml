@@ -1,0 +1,4 @@
+format_version = 1
+name = "cli-polish"
+start = "CLI passes its own suite but assumes a Debian-shaped host"
+step_id_counter = 4

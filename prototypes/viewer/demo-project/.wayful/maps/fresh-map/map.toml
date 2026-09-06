@@ -1,0 +1,4 @@
+format_version = 1
+name = "fresh-map"
+start = "Nothing charted yet"
+step_id_counter = 1

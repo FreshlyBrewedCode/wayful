@@ -1,0 +1,10 @@
+{
+  "name": "wayful-local-cli",
+  "private": true,
+  "scripts": {
+    "test": "bun test"
+  },
+  "engines": {
+    "bun": ">=1.4.1"
+  }
+}

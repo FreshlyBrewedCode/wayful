@@ -1,0 +1,4 @@
+format_version: 1
+name: cli-json-contract
+kind: research-findings
+ref: "skills/wayful/wayful_cli.spec.md#implementation-decisions"

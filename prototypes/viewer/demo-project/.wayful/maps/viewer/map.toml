@@ -1,0 +1,4 @@
+format_version = 1
+name = "viewer"
+start = "Wayful state is only readable through the CLI and raw files"
+step_id_counter = 8

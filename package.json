@@ -1,0 +1,11 @@
+{
+  "name": "wayful",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "prototypes/*"
+  ],
+  "engines": {
+    "bun": ">=1.4.1"
+  }
+}
