@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run check
+
+      # Compiles all four shipped targets with a placeholder version, so a
+      # cross-compile failure is caught here rather than in the release job.
+      - name: Build every release target
+        working-directory: packages/cli
+        run: bun scripts/build-release.ts
