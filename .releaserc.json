@@ -1,0 +1,47 @@
+{
+  "branches": ["main"],
+  "tagFormat": "v${version}",
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "conventionalcommits",
+        "releaseRules": [{ "breaking": true, "release": "minor" }]
+      }
+    ],
+    "@semantic-release/release-notes-generator",
+    [
+      "@semantic-release/exec",
+      {
+        "verifyConditionsCmd": "bun packages/cli/scripts/build-release.ts 0.0.0-development",
+        "prepareCmd": "bun packages/cli/scripts/build-release.ts ${nextRelease.version} --smoke-test"
+      }
+    ],
+    ["@semantic-release/npm", { "pkgRoot": "packages/cli/dist/npm/cli-linux-x64" }],
+    ["@semantic-release/npm", { "pkgRoot": "packages/cli/dist/npm/cli-linux-arm64" }],
+    ["@semantic-release/npm", { "pkgRoot": "packages/cli/dist/npm/cli-darwin-x64" }],
+    ["@semantic-release/npm", { "pkgRoot": "packages/cli/dist/npm/cli-darwin-arm64" }],
+    ["@semantic-release/npm", { "pkgRoot": "packages/cli/dist/npm/wayful" }],
+    [
+      "@semantic-release/github",
+      {
+        "assets": [
+          { "path": "packages/cli/dist/npm/cli-linux-x64/bin/wayful", "name": "wayful-linux-x64" },
+          {
+            "path": "packages/cli/dist/npm/cli-linux-arm64/bin/wayful",
+            "name": "wayful-linux-arm64"
+          },
+          {
+            "path": "packages/cli/dist/npm/cli-darwin-x64/bin/wayful",
+            "name": "wayful-darwin-x64"
+          },
+          {
+            "path": "packages/cli/dist/npm/cli-darwin-arm64/bin/wayful",
+            "name": "wayful-darwin-arm64"
+          },
+          { "path": "packages/cli/dist/npm/SHA256SUMS" }
+        ]
+      }
+    ]
+  ]
+}

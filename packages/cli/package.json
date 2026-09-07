@@ -6,8 +6,13 @@
   },
   "type": "module",
   "scripts": {
+    "build": "bun scripts/bundle-ui.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "4.0.0-rc.112",
+    "effect": "4.0.0-rc.112"
   },
   "engines": {
     "bun": ">=1.4.1"

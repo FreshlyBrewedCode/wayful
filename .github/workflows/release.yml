@@ -1,0 +1,43 @@
+name: release
+
+# This filename is load-bearing: npm's trusted-publisher configuration pins
+# the exact org/repo/workflow-filename triple it will mint an OIDC token for.
+# Renaming this file silently breaks publishing for all five packages.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      # semantic-release shells out to `npm publish`; @semantic-release/npm
+      # needs npm >= 11.5.1 for trusted-publishing (OIDC) support, or it
+      # falls back to token auth and fails with an error that never mentions
+      # OIDC. actions/setup-node's bundled npm is not guaranteed to clear
+      # that bar, so it's upgraded explicitly.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - run: npm install -g npm@latest
+
+      - run: bun install --frozen-lockfile
+
+      - run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
