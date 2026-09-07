@@ -44,11 +44,15 @@ function invoke(args: string[], cwd: string, environment: Record<string, string>
  * only place the actually-bound port and resolved project root are reported —
  * `--port 0` is what keeps concurrent tests off a fixed port.
  */
-async function serveInBackground(args: string[], cwd: string) {
+async function serveInBackground(
+  args: string[],
+  cwd: string,
+  environment: Record<string, string> = {},
+) {
   const child = Bun.spawn({
     cmd: [process.execPath, entrypoint, ...args],
     cwd,
-    env: { ...process.env },
+    env: { ...process.env, ...environment },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -178,7 +182,7 @@ describe("project and context contracts", () => {
       expect(result.stdout).toContain(expected);
       expect(result.stdout).toContain("--help");
     }
-  });
+  }, 20000); // 33 subprocess spawns; a loaded CI runner can outrun the default 5s.
 
   test("init creates versioned metadata and the generic task type, then refuses overwrite", async () => {
     const project = await temporaryDirectory();
@@ -1192,7 +1196,15 @@ describe("artifacts, goals, and validation", () => {
     await writeStep(project, "work", 1);
     const elsewhere = await temporaryDirectory();
 
-    const ui = await serveInBackground(["ui", "--project", project, "--port", "0"], elsewhere);
+    // Points `ui` at a minimal client rather than relying on packages/ui
+    // having been built — `check` runs before `build` in CI, so neither the
+    // embedded map nor a workspace dist/ is guaranteed to exist here.
+    const client = await temporaryDirectory();
+    await writeFile(join(client, "index.html"), '<!doctype html><div id="root"></div>');
+
+    const ui = await serveInBackground(["ui", "--project", project, "--port", "0"], elsewhere, {
+      WAYFUL_UI_DIST: client,
+    });
     expect(ui.banner).toContain(project);
 
     const overview = await fetchJson(ui.url, "/api/overview");

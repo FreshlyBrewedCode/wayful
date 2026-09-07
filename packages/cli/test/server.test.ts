@@ -369,11 +369,4 @@ describe("locating the bundled client", () => {
 
     expect(clientDirectory({ WAYFUL_UI_DIST: empty })).not.toBe(empty);
   });
-
-  test("finds a client bundled into the CLI package or built in the workspace", () => {
-    // `bun run build` in packages/cli produces the first; `bun run --filter
-    // './packages/ui' build` produces the second. At least one is present in a
-    // checked-out workspace, and that is what makes `wayful ui` self-contained.
-    expect(clientDirectory({})).toBeDefined();
-  });
 });
