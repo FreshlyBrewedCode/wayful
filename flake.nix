@@ -68,11 +68,11 @@
         default = pkgs.mkShell {
           # Node is only needed for npm: semantic-release shells out to it, and
           # the launcher (packages/cli/bin/wayful.js) is meant to run under real
-          # Node, not just Bun's Node-compatible runtime. nixpkgs' bundled npm
-          # can trail the >=11.5.1 that npm trusted publishing needs —
-          # release.yml upgrades it explicitly (`npm install -g npm@latest`)
-          # rather than relying on whatever a given nodejs derivation ships.
-          packages = [ (mkBun pkgs) pkgs.nodejs_22 ];
+          # Node, not just Bun's Node-compatible runtime. nodejs_24 (not _22) is
+          # deliberate — its bundled npm is >=11.5.1, which is what npm trusted
+          # publishing requires; an older npm falls back to token auth and fails
+          # with an error that never mentions OIDC.
+          packages = [ (mkBun pkgs) pkgs.nodejs_24 ];
 
           shellHook = ''
             echo "wayful devshell — bun $(bun --version), node $(node --version), npm $(npm --version)"
