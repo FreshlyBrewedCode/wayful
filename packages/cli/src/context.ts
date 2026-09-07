@@ -1,9 +1,9 @@
 import { Effect, Option } from "effect";
 
-import { WayfulBackend, type MapHandle, type ProjectHandle } from "../backend/Backend";
-import { MapMetadataError, WayfulError } from "../domain/errors";
-import type { MapSnapshot } from "../domain/model";
-import { validateMap } from "../domain/validate";
+import { WayfulBackend, type MapHandle, type ProjectHandle } from "./backend/Backend";
+import { MapMetadataError, WayfulError } from "./domain/errors";
+import type { MapSnapshot } from "./domain/model";
+import { validateMap } from "./domain/validate";
 
 export const fail = (message: string) => Effect.fail(new WayfulError({ message }));
 

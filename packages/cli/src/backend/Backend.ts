@@ -11,6 +11,8 @@ import type {
 
 export interface ProjectHandle {
   readonly root: string;
+  /** The project's own description, as `wayful init --description` recorded it. */
+  readonly description: string;
 }
 
 export interface MapHandle {

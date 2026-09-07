@@ -6,24 +6,24 @@ selected step.
 
 This is the baseline rebuild of `prototypes/viewer` as a real project:
 React + Vite + TypeScript, Tailwind and shadcn/ui components, TanStack Router
-and TanStack Query. `server.ts` is carried over from the prototype largely
-intact — the client is what was rebuilt.
+and TanStack Query. This package is the client only — the server that fronts it
+lives in `packages/cli`, which bundles this client and serves it.
 
 ## Run it
 
 ```sh
-# One process: the API plus the built client.
-bun run build
-bun run serve -- --project /path/to/repo --port 7830 --host 127.0.0.1
+# One process: the API plus the built client, from the CLI.
+bun run --filter '@wayful/cli' build
+wayful ui --project /path/to/repo --port 7830 --host 127.0.0.1
 
-# Or, while developing the client: Vite on :7831 proxying /api to the server.
-bun run serve -- --project /path/to/repo &
+# Or, while developing the client: Vite on :7831 proxying /api to the API.
+wayful serve --project /path/to/repo &
 bun run dev
 ```
 
-`server.ts` defaults `--project` to `$WAYFUL_PROJECT`, then the working
-directory. `prototypes/viewer/seed-demo.sh` builds a scratch project to point it
-at.
+Both commands default `--project` to `$WAYFUL_PROJECT`, then the working
+directory. `prototypes/viewer/seed-demo.sh` builds a scratch project to point
+them at. `WAYFUL_UI_DIST` points `wayful ui` at a client built anywhere else.
 
 ## The load-bearing constraint
 
@@ -44,9 +44,10 @@ the viewer cannot disagree with `wayful` about a map.
 is `pending` and whose ID appears in `map next`. Wayful's four persisted
 statuses are untouched.
 
-**Read-only.** The server never writes; it shells out to the CLI's read
-commands, sets `WAYFUL_PROJECT` and clears `WAYFUL_MAP` so an ambient shell
-value cannot select a different map.
+**Read-only.** The server never writes. It reads through the CLI's own backend
+and domain layers rather than through a second implementation of them, and it
+ignores `WAYFUL_PROJECT` and `WAYFUL_MAP` once running, so an ambient shell
+value cannot point it at a project or map other than the one it announced.
 
 ## Layout of the source
 
@@ -75,7 +76,8 @@ isolated and cancelled steps; the terminus edges; the `ready` derivation; and
 the viewport's fit, legibility floor, zoom-about-pointer and pan constraints.
 
 `test/app.test.tsx` drives the real router and components against a stubbed HTTP
-surface — the same seam `server.ts` exposes — and asserts what a user can see.
+surface — the same seam `wayful serve` exposes — and asserts what a user can
+see. The server side of that seam is tested in `packages/cli/test/server.test.ts`.
 
 ## Known gaps against `SPEC.md`
 

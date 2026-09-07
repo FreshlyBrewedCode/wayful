@@ -5,8 +5,9 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-// The viewer's data always comes from the Bun server that fronts the CLI. In
-// dev, Vite proxies to it so the client code is identical in both modes.
+// The viewer's data always comes from `wayful serve` (or the same API inside
+// `wayful ui`). In dev, Vite proxies to it so the client code is identical in
+// both modes.
 const API_TARGET = process.env.WAYFUL_VIEWER_API ?? "http://127.0.0.1:7830";
 
 // Vite refuses requests for hostnames it does not know, which blocks reaching a

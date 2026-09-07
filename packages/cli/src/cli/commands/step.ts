@@ -8,7 +8,7 @@ import { attachmentOK, reaches } from "../../domain/graph";
 import { identifier, nonEmpty, slots } from "../../domain/identifier";
 import type { Slot } from "../../domain/identifier";
 import type { StepRecord } from "../../domain/model";
-import { assertWritableMapIntegrity, fail, resolveMap, resolveProject } from "../context";
+import { assertWritableMapIntegrity, fail, resolveMap, resolveProject } from "../../context";
 import { jsonFlag, mapFlag } from "../flags";
 import { handle, printOutput } from "../render";
 import { wayfulRoot } from "../root";

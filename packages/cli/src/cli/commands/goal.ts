@@ -4,7 +4,7 @@ import { Command, Flag, Param } from "effect/unstable/cli";
 import { WayfulBackend } from "../../backend/Backend";
 import { liftSync } from "../../backend/filesystem/documents";
 import { identifier, nonEmpty } from "../../domain/identifier";
-import { assertWritableMapIntegrity, fail, resolveMap, resolveProject } from "../context";
+import { assertWritableMapIntegrity, fail, resolveMap, resolveProject } from "../../context";
 import { jsonFlag, mapFlag } from "../flags";
 import { bodyLines, handle, printOutput } from "../render";
 import { wayfulRoot } from "../root";

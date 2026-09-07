@@ -6,7 +6,7 @@ import { MapMetadataError } from "../../domain/errors";
 import { nextSteps } from "../../domain/graph";
 import { mapStatus } from "../../domain/status";
 import { validateMap } from "../../domain/validate";
-import { buildSnapshot, resolveMap, resolveProject } from "../context";
+import { buildSnapshot, resolveMap, resolveProject } from "../../context";
 import { jsonFlag, mapFlag } from "../flags";
 import { bodyLines, handle, printOutput } from "../render";
 import { wayfulRoot } from "../root";

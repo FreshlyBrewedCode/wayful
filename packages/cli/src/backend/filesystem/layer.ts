@@ -184,8 +184,8 @@ export const FileSystemBackend = Layer.effect(
           const file = projectFile(path, root);
           const text = yield* readTextFile(fs, file, `cannot read ${file}.`);
           const data = yield* liftSync(() => parseToml(text, file));
-          yield* liftSync(() => decodeProjectMetadata(data));
-          return { root };
+          const metadata = yield* liftSync(() => decodeProjectMetadata(data));
+          return { root, description: metadata.description };
         }),
 
       listTypes: (project) =>

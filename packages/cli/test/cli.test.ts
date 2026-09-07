@@ -7,8 +7,10 @@ const cliRoot = join(import.meta.dir, "..");
 const entrypoint = join(cliRoot, "src", "main.ts");
 const decoder = new TextDecoder();
 const temporaryDirectories: string[] = [];
+const spawned: Bun.Subprocess[] = [];
 
 afterEach(async () => {
+  for (const process of spawned.splice(0)) process.kill();
   await Promise.all(
     temporaryDirectories
       .splice(0)
@@ -36,6 +38,34 @@ function invoke(args: string[], cwd: string, environment: Record<string, string>
     stdout: decoder.decode(result.stdout),
   };
 }
+
+/**
+ * Starts a long-running server command and waits for the banner, which is the
+ * only place the actually-bound port and resolved project root are reported —
+ * `--port 0` is what keeps concurrent tests off a fixed port.
+ */
+async function serveInBackground(args: string[], cwd: string) {
+  const child = Bun.spawn({
+    cmd: [process.execPath, entrypoint, ...args],
+    cwd,
+    env: { ...process.env },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  spawned.push(child);
+  const reader = child.stdout.getReader();
+  let banner = "";
+  while (!/local\s+: http:\/\/\S+/.test(banner)) {
+    const { done, value } = await reader.read();
+    if (done) throw new Error(`server exited before serving:\n${banner}`);
+    banner += decoder.decode(value);
+  }
+  reader.releaseLock();
+  return { banner, url: banner.match(/local\s+: (http:\/\/\S+)/)![1]! };
+}
+
+const fetchJson = (url: string, path: string): Promise<any> =>
+  fetch(new URL(path, url)).then((response) => response.json());
 
 function expectCommandError(result: ReturnType<typeof invoke>) {
   expect(result.exitCode).toBe(2);
@@ -135,6 +165,12 @@ describe("project and context contracts", () => {
       [["goal", "satisfy", "--help"], "--artifact NAME"],
       [["type", "list", "--help"], "--project DIR"],
       [["type", "show", "--help"], "ARGUMENTS"],
+      [["serve", "--help"], "--port PORT"],
+      [["serve", "--help"], "--host ADDR"],
+      [["serve", "--help"], "--project DIR"],
+      [["ui", "--help"], "--port PORT"],
+      [["ui", "--help"], "--host ADDR"],
+      [["ui", "--help"], "--project DIR"],
     ];
     for (const [args, expected] of cases) {
       const result = invoke(args, project);
@@ -1149,6 +1185,34 @@ describe("artifacts, goals, and validation", () => {
     await expect(readFile(join(mapDirectory, "artifacts", "proof.yaml"), "utf8")).rejects.toThrow();
     await expect(readFile(join(mapDirectory, "goals", "release.md"), "utf8")).rejects.toThrow();
     await expect(readFile(join(mapDirectory, "steps", "3-new-work.md"), "utf8")).rejects.toThrow();
+  });
+
+  test("serves the viewer API and the bundled client from the project given by --project", async () => {
+    const project = await projectFixture();
+    await writeStep(project, "work", 1);
+    const elsewhere = await temporaryDirectory();
+
+    const ui = await serveInBackground(["ui", "--project", project, "--port", "0"], elsewhere);
+    expect(ui.banner).toContain(project);
+
+    const overview = await fetchJson(ui.url, "/api/overview");
+    expect(overview.project.root).toBe(project);
+    expect(overview.maps.map((m: { name: string }) => m.name)).toEqual(["plan"]);
+
+    const shell = await fetch(new URL("/maps/plan", ui.url));
+    expect(shell.status).toBe(200);
+    expect(await shell.text()).toContain('id="root"');
+  });
+
+  test("serve exposes the same API without the client", async () => {
+    const project = await projectFixture();
+    const elsewhere = await temporaryDirectory();
+
+    const api = await serveInBackground(["serve", "--project", project, "--port", "0"], elsewhere);
+
+    const detail = await fetchJson(api.url, "/api/map?name=plan");
+    expect(detail.map.name).toBe("plan");
+    expect((await fetch(new URL("/", api.url))).status).toBe(404);
   });
 
   test("renders deterministic human status with goals, counts, blockers, and actionable steps", async () => {

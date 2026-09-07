@@ -6,6 +6,7 @@
   },
   "type": "module",
   "scripts": {
+    "build": "bun scripts/bundle-ui.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
