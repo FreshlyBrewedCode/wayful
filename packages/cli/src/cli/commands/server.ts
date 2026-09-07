@@ -3,7 +3,7 @@ import { Command, Flag } from "effect/unstable/cli";
 import { resolve } from "node:path";
 
 import { fail } from "../../context";
-import { clientDirectory } from "../../server/client";
+import { resolveClientAssets } from "../../server/client";
 import { startServer, type RunningServer } from "../../server/http";
 import { handle } from "../render";
 import { wayfulRoot } from "../root";
@@ -29,12 +29,16 @@ function projectHint(flag: Option.Option<string>): string {
   return resolve(Option.getOrElse(flag, () => process.env.WAYFUL_PROJECT ?? process.cwd()));
 }
 
-function banner(command: string, server: RunningServer, client: string | undefined): string {
+function banner(
+  command: string,
+  server: RunningServer,
+  clientDescription: string | undefined,
+): string {
   const absent = server.found ? "" : "  (no .wayful here)";
   return [
     `wayful ${command}`,
     `  project : ${server.root}${absent}`,
-    ...(client ? [`  client  : ${client}`] : []),
+    ...(clientDescription ? [`  client  : ${clientDescription}`] : []),
     `  local   : ${server.url}`,
   ].join("\n");
 }
@@ -50,7 +54,8 @@ function serveUntilInterrupted(
     project: Option.Option<string>;
     port: number;
     host: string;
-    client: string | undefined;
+    client: Record<string, string> | undefined;
+    clientDescription: string | undefined;
   },
 ) {
   return handle(
@@ -62,7 +67,7 @@ function serveUntilInterrupted(
         port: options.port,
         client: options.client,
       });
-      yield* Console.log(banner(command, server, options.client));
+      yield* Console.log(banner(command, server, options.clientDescription));
       yield* Effect.ensuring(
         Effect.never,
         Effect.sync(() => server.stop()),
@@ -82,6 +87,7 @@ export const serveCommand = Command.make(
         port,
         host,
         client: undefined,
+        clientDescription: undefined,
       });
     }),
 ).pipe(Command.withDescription("Serve the read-only viewer API without a client"));
@@ -89,14 +95,20 @@ export const serveCommand = Command.make(
 export const uiCommand = Command.make("ui", { port: portFlag, host: hostFlag }, ({ port, host }) =>
   Effect.gen(function* () {
     const root = yield* wayfulRoot;
-    const client = clientDirectory();
-    if (!client)
+    const resolved = resolveClientAssets();
+    if (!resolved)
       return yield* handle(
         false,
         fail(
           "no built viewer client found; run 'bun run build' in packages/cli, or set WAYFUL_UI_DIST.",
         ),
       );
-    yield* serveUntilInterrupted("ui", { project: root.project, port, host, client });
+    yield* serveUntilInterrupted("ui", {
+      project: root.project,
+      port,
+      host,
+      client: resolved.assets,
+      clientDescription: resolved.description,
+    });
   }),
 ).pipe(Command.withDescription("Serve the viewer API and the bundled viewer client"));

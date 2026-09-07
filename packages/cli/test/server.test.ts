@@ -7,7 +7,8 @@ import { join } from "node:path";
 
 import { FileSystemBackend } from "../src/backend/filesystem/layer";
 import type { WayfulError } from "../src/domain/errors";
-import { clientDirectory } from "../src/server/client";
+import { clientDirectory, resolveClientAssets } from "../src/server/client";
+import { EMBEDDED_ASSETS } from "../src/server/embedded-ui";
 import { startServer, type RunningServer, type ServerConfig } from "../src/server/http";
 
 const TestLayer = FileSystemBackend.pipe(Layer.provide(BunServices.layer));
@@ -276,10 +277,13 @@ describe("serving the viewer client", () => {
 
   test("with a client, assets are served and deep links fall back to the SPA shell", async () => {
     const project = await projectFixture();
-    const client = await temporaryDirectory();
-    await mkdir(join(client, "assets"), { recursive: true });
-    await writeFile(join(client, "index.html"), '<!doctype html><div id="root"></div>');
-    await writeFile(join(client, "assets", "index-abc.js"), "export const ok = 1;\n");
+    const directory = await temporaryDirectory();
+    await mkdir(join(directory, "assets"), { recursive: true });
+    const indexPath = join(directory, "index.html");
+    const assetPath = join(directory, "assets", "index-abc.js");
+    await writeFile(indexPath, '<!doctype html><div id="root"></div>');
+    await writeFile(assetPath, "export const ok = 1;\n");
+    const client = { "/": indexPath, "/index.html": indexPath, "/assets/index-abc.js": assetPath };
     const server = await serve({ project, client });
 
     const shell = await get(server, "/");
@@ -299,19 +303,56 @@ describe("serving the viewer client", () => {
     expect((await get(server, "/api/overview")).status).toBe(200);
   });
 
-  test("a traversing path gets the SPA shell rather than a file outside the client", async () => {
+  test("a path matching no asset gets the SPA shell rather than a 404", async () => {
     const project = await projectFixture();
-    const client = await temporaryDirectory();
-    await writeFile(join(client, "index.html"), '<!doctype html><div id="root"></div>');
-    await writeFile(join(client, "..", "secret.txt"), "not served");
+    const directory = await temporaryDirectory();
+    const indexPath = join(directory, "index.html");
+    await writeFile(indexPath, '<!doctype html><div id="root"></div>');
+    const client = { "/": indexPath, "/index.html": indexPath };
     const server = await serve({ project, client });
 
-    // `%2e%2e` survives URL normalisation, so this reaches the server as an
-    // escape attempt rather than as an already-collapsed path.
+    // A request path is only ever compared against map keys — there is no
+    // filesystem path underneath it left to escape into — so an escape
+    // attempt just misses the map like any other unknown route.
     const escaped = await get(server, "/%2e%2e/secret.txt");
-    const body = await escaped.text();
-    expect(body).not.toContain("not served");
-    expect(body).toContain('id="root"');
+    expect(escaped.status).toBe(200);
+    expect(await escaped.text()).toContain('id="root"');
+  });
+});
+
+describe("resolving client assets to serve", () => {
+  // A prior local `bun run build` regenerates `embedded-ui.ts` in place with
+  // real content, which then always wins over `WAYFUL_UI_DIST` below — by
+  // design, matching what a compiled binary does. That only ever happens
+  // outside CI, where `check` always runs against the checked-in empty
+  // placeholder, so the directory-walk path is asserted only then.
+  const embedded = Object.keys(EMBEDDED_ASSETS).length > 0;
+
+  test.skipIf(embedded)(
+    "walks the resolved client directory into a route map, keyed with a leading slash",
+    async () => {
+      const directory = await temporaryDirectory();
+      await mkdir(join(directory, "assets"), { recursive: true });
+      await writeFile(join(directory, "index.html"), "<!doctype html>");
+      await writeFile(join(directory, "assets", "index-abc.js"), "export const ok = 1;\n");
+
+      const resolved = resolveClientAssets({ WAYFUL_UI_DIST: directory });
+
+      expect(resolved?.description).toBe(directory);
+      expect(Object.keys(resolved?.assets ?? {}).toSorted()).toEqual([
+        "/",
+        "/assets/index-abc.js",
+        "/index.html",
+      ]);
+      expect(resolved?.assets["/"]).toBe(resolved?.assets["/index.html"]);
+    },
+  );
+
+  test.skipIf(!embedded)("prefers the embedded client over any directory candidate", () => {
+    const resolved = resolveClientAssets({ WAYFUL_UI_DIST: "/nonexistent" });
+
+    expect(resolved?.description).toBe("(embedded)");
+    expect(resolved?.assets).toBe(EMBEDDED_ASSETS);
   });
 });
 

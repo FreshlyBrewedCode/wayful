@@ -6,7 +6,11 @@ import { Command } from "effect/unstable/cli";
 import { FileSystemBackend } from "./backend/filesystem/layer";
 import { cli } from "./cli/cli";
 
-const VERSION = "0.1.0";
+// Injected by `bun build --define 'WAYFUL_BUILD_VERSION:"x.y.z"'` in a release
+// build; `typeof` never throws on an identifier `--define` didn't replace, so
+// this still runs under plain `bun run` during development.
+declare const WAYFUL_BUILD_VERSION: string | undefined;
+const VERSION = typeof WAYFUL_BUILD_VERSION === "string" ? WAYFUL_BUILD_VERSION : "0.0.0-dev";
 
 const AppLayer = Layer.merge(
   FileSystemBackend.pipe(Layer.provide(BunServices.layer)),

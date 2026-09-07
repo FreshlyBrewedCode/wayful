@@ -4,7 +4,7 @@
 
 import { Effect, Option, Result } from "effect";
 import { watch, type FSWatcher } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { join, resolve } from "node:path";
 
 import type { WayfulBackend } from "../backend/Backend";
 import { resolveProject } from "../context";
@@ -17,8 +17,13 @@ export interface ServerConfig {
   readonly host: string;
   /** `0` binds an ephemeral port, which `RunningServer.port` then reports. */
   readonly port: number;
-  /** A built viewer client to serve, or `undefined` to expose only the API. */
-  readonly client: string | undefined;
+  /**
+   * A built viewer client to serve, as a route → file-path map, or `undefined`
+   * to expose only the API. Built once by `resolveClientAssets` before the
+   * server starts, so a request path is only ever compared against map keys —
+   * never turned into a filesystem path itself.
+   */
+  readonly client: Record<string, string> | undefined;
 }
 
 export interface RunningServer {
@@ -37,7 +42,7 @@ const json = (value: unknown) =>
 
 const notFound = () => new Response("not found", { status: 404 });
 
-/** A malformed escape is a path no asset can have, so it falls back to the shell. */
+/** A malformed escape matches no map key, so it falls back to the shell. */
 function decodeSafely(pathname: string): string {
   try {
     return decodeURIComponent(pathname);
@@ -48,21 +53,20 @@ function decodeSafely(pathname: string): string {
 
 /**
  * Serves a built asset, falling back to the SPA shell so a deep link like
- * `/maps/plan` reaches the client router instead of a 404. Paths that resolve
- * outside the client directory get the shell too, never the file they asked
- * for — the server hands out the viewer, not the filesystem.
+ * `/maps/plan` reaches the client router instead of a 404. A request path is
+ * only ever looked up as a map key — never resolved against a directory — so
+ * there is no filesystem path for it to escape into in the first place.
  */
-async function asset(client: string, pathname: string): Promise<Response> {
-  // Decoded before resolving, so an escape encoded as `%2e%2e` is caught by the
-  // containment check rather than served as a literal directory name.
+async function asset(assets: Record<string, string>, pathname: string): Promise<Response> {
   const requested = decodeSafely(pathname);
-  const target = resolve(client, requested === "/" ? "index.html" : requested.replace(/^\/+/, ""));
-  if (target.startsWith(client + sep)) {
-    const file = Bun.file(target);
+  const matched = assets[requested === "/" ? "/index.html" : requested];
+  if (matched) {
+    const file = Bun.file(matched);
     if (await file.exists()) return new Response(file);
   }
-  const shell = Bun.file(join(client, "index.html"));
-  if (await shell.exists())
+  const shellPath = assets["/index.html"];
+  const shell = shellPath ? Bun.file(shellPath) : undefined;
+  if (shell && (await shell.exists()))
     return new Response(shell, {
       headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
     });
