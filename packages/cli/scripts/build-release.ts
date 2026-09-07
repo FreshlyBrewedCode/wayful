@@ -12,7 +12,9 @@
 // compile without needing a real version. The release workflow passes the
 // real one, computed by semantic-release.
 
-import { chmod, cp, mkdir, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { chmod, cp, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const PACKAGE_ROOT = resolve(import.meta.dir, "..");
@@ -27,6 +29,8 @@ const DESCRIPTION =
   "A system for planning, orchestrating and completing agentic work on flexible maps of interdependent steps.";
 
 const VERSION = process.argv[2] ?? "0.0.0-dev";
+const SMOKE_TEST = process.argv.includes("--smoke-test");
+const SMOKE_TEST_PORT = 17999;
 
 interface Target {
   readonly bunTarget: string;
@@ -67,6 +71,48 @@ function manifestName(packageName: string): string {
   return packageName.replace("@wayful/", "");
 }
 
+/**
+ * The one free check: the runner can execute the `linux-x64` binary it just
+ * built, so it does — `--version`, `init`, and a bound-and-curled `serve` —
+ * before anything gets published. The other three targets reach npm having
+ * never run; this is the only signal a broken compile gets before release.
+ */
+async function smokeTest(binary: string): Promise<void> {
+  console.log(`wayful: smoke-testing ${binary}`);
+  run([binary, "--version"], REPO_ROOT);
+
+  const project = await mkdtemp(join(tmpdir(), "wayful-smoke-"));
+  try {
+    run([binary, "init", "--description", "smoke test"], project);
+
+    const server = Bun.spawn({
+      cmd: [binary, "serve", "--project", project, "--port", String(SMOKE_TEST_PORT)],
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    try {
+      const deadline = Date.now() + 5000;
+      let ok = false;
+      while (Date.now() < deadline && !ok) {
+        ok = await fetch(`http://127.0.0.1:${SMOKE_TEST_PORT}/api/overview`)
+          .then((response) => response.ok)
+          .catch(() => false);
+        if (!ok) await Bun.sleep(100);
+      }
+      if (!ok) {
+        console.error("wayful: smoke test could not reach `wayful serve`.");
+        process.exit(1);
+      }
+    } finally {
+      server.kill();
+    }
+  } finally {
+    await rm(project, { force: true, recursive: true });
+  }
+
+  console.log("wayful: smoke test passed.");
+}
+
 async function writeJson(path: string, value: unknown): Promise<void> {
   await Bun.write(path, `${JSON.stringify(value, null, 2)}\n`);
 }
@@ -78,10 +124,14 @@ run(["bun", "run", "build"]);
 
 await rm(DIST_NPM, { force: true, recursive: true });
 
+const checksums: string[] = [];
+let linuxX64Binary: string | undefined;
+
 for (const target of TARGETS) {
   const outDir = join(DIST_NPM, manifestName(target.packageName));
   await mkdir(join(outDir, "bin"), { recursive: true });
   const outfile = join(outDir, "bin", "wayful");
+  if (target.packageName === "@wayful/cli-linux-x64") linuxX64Binary = outfile;
 
   console.log(`wayful: compiling ${target.packageName}`);
   run([
@@ -97,6 +147,12 @@ for (const target of TARGETS) {
   ]);
   await chmod(outfile, 0o755);
 
+  const assetName = `wayful-${target.os}-${target.cpu}`;
+  const digest = createHash("sha256")
+    .update(await Bun.file(outfile).bytes())
+    .digest("hex");
+  checksums.push(`${digest}  ${assetName}`);
+
   await writeJson(join(outDir, "package.json"), {
     name: target.packageName,
     version: VERSION,
@@ -107,6 +163,11 @@ for (const target of TARGETS) {
     repository: { type: "git", url: REPOSITORY_URL, directory: "packages/cli" },
     files: ["bin/wayful"],
   });
+}
+
+if (SMOKE_TEST) {
+  if (!linuxX64Binary) throw new Error("wayful: no linux-x64 binary to smoke-test.");
+  await smokeTest(linuxX64Binary);
 }
 
 console.log("wayful: staging the wayful launcher package");
@@ -132,5 +193,9 @@ await writeJson(join(launcherDir, "package.json"), {
   // built by a different release than the launcher shipping it.
   optionalDependencies: Object.fromEntries(TARGETS.map((target) => [target.packageName, VERSION])),
 });
+
+// Outside every pkgRoot, so it's never a candidate for accidental publishing —
+// the GitHub release step attaches it as a plain file alongside the binaries.
+await Bun.write(join(DIST_NPM, "SHA256SUMS"), `${checksums.join("\n")}\n`);
 
 console.log(`wayful: staged five packages in ${DIST_NPM}`);
