@@ -51,8 +51,11 @@ async function wayful(args: string[]): Promise<CliResult> {
   } catch {
     data = null;
   }
-  // `map validate` exits 1 for an invalid map. That is a finding, not a failure.
-  return { ok: code === 0 || data !== null, code, data, stderr: stderr.trim() };
+  // Every `--json` failure now shapes its stdout as `{"error": "<message>"}`,
+  // exit code 0 or not — including `map validate`'s exit 1, which reports
+  // `{valid:false, errors:[...]}` and is a finding, not a failure.
+  const isError = !!data && typeof data === "object" && typeof data.error === "string";
+  return { ok: !isError, code, data, stderr: stderr.trim() };
 }
 
 async function projectMeta() {
@@ -81,7 +84,7 @@ async function overview() {
       status: statuses[i].data,
     })),
     types: types.data ?? [],
-    error: maps.data ? undefined : maps.stderr,
+    error: maps.ok ? undefined : (maps.data?.error ?? maps.stderr),
   };
 }
 
@@ -92,7 +95,7 @@ async function mapDetail(name: string) {
     wayful(["map", "next", "--map", name]),
     wayful(["map", "validate", "--map", name]),
   ]);
-  if (!show.data) return { error: show.stderr || `cannot read map '${name}'` };
+  if (!show.ok) return { error: show.data?.error ?? show.stderr ?? `cannot read map '${name}'` };
   return {
     map: show.data,
     status: status.data,
@@ -155,7 +158,7 @@ const server = Bun.serve({
           "--map",
           url.searchParams.get("map") ?? "",
         ]);
-        return json(result.data ?? { error: result.stderr });
+        return json(result.data ?? { error: result.stderr || "unknown error" });
       }
       case "/api/events": {
         let send: (event: string) => void;

@@ -113,7 +113,7 @@ describe("project and context contracts", () => {
       [["map", "create", "--help"], "--goal-body TEXT"],
       [["map", "list", "--help"], "--project DIR"],
       [["map", "validate", "--help"], "--json"],
-      [["map", "show", "--help"], "Required options:"],
+      [["map", "show", "--help"], "FLAGS"],
       [["map", "next", "--help"], "--map NAME"],
       [["map", "status", "--help"], "--project DIR"],
       [["step", "create", "--help"], "--required-outputs JSON"],
@@ -134,7 +134,7 @@ describe("project and context contracts", () => {
       [["goal", "add", "--help"], "--body TEXT"],
       [["goal", "satisfy", "--help"], "--artifact NAME"],
       [["type", "list", "--help"], "--project DIR"],
-      [["type", "show", "--help"], "Required arguments:"],
+      [["type", "show", "--help"], "ARGUMENTS"],
     ];
     for (const [args, expected] of cases) {
       const result = invoke(args, project);
@@ -215,6 +215,30 @@ describe("project and context contracts", () => {
     expect(
       invoke(["map", "show", "--map", "plan", "--json"], project, { WAYFUL_MAP: "other" }).exitCode,
     ).toBe(0);
+  });
+
+  test("emits a structured {error} on stdout for --json failures, not just map validate", async () => {
+    const project = await projectFixture();
+    const missingMap = invoke(["map", "show", "--json"], project);
+    expect(missingMap.exitCode).toBe(2);
+    expect(missingMap.stderr).toBe(
+      "wayful: map context is required; pass --map or set WAYFUL_MAP.\n",
+    );
+    expect(JSON.parse(missingMap.stdout)).toEqual({
+      error: "map context is required; pass --map or set WAYFUL_MAP.",
+    });
+
+    const missingProject = invoke(["type", "list", "--json"], await temporaryDirectory());
+    expect(missingProject.exitCode).toBe(2);
+    expect(JSON.parse(missingProject.stdout)).toEqual({
+      error: missingProject.stderr.replace(/^wayful: /, "").trimEnd(),
+    });
+
+    const unknownMap = invoke(["map", "show", "--map", "missing", "--json"], project);
+    expect(unknownMap.exitCode).toBe(2);
+    expect(JSON.parse(unknownMap.stdout)).toEqual({
+      error: unknownMap.stderr.replace(/^wayful: /, "").trimEnd(),
+    });
   });
 });
 
