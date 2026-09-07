@@ -3,6 +3,24 @@
 A Bun workspace monorepo for Wayful — a system for planning, orchestrating and
 completing agentic work on flexible maps of interdependent steps.
 
+> **0.x, and pinned to an Effect release candidate.** `packages/cli` depends on
+> `effect` and `@effect/platform-bun` at `4.0.0-rc.112` — a deliberate choice,
+> not an oversight, made so the first release isn't blocked on a stable
+> Effect 4 landing on a date this project doesn't control. This is exactly
+> what staying `0.x` is for: expect breaking changes without a major bump
+> until Effect 4 is stable and this pin is lifted.
+
+## Install
+
+```sh
+npx wayful --help     # or: bunx wayful --help
+```
+
+`wayful` ships as a small Node launcher that re-execs a Bun-compiled binary
+for your platform (installed automatically as an optional dependency) — the
+CLI itself needs Bun-only APIs it can't run under plain Node. Linux and
+macOS, `x64` and `arm64`, are supported; Windows and musl/Alpine are not yet.
+
 ## Layout
 
 | Path | Contents |
@@ -56,3 +74,7 @@ wayful serve --project /path/to/repo            # the same API, no client
 # Scratch data to point either at
 cd prototypes/viewer && ./seed-demo.sh          # rebuild demo-project/
 ```
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
