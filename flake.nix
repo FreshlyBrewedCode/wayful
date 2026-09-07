@@ -66,10 +66,16 @@
 
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
-          packages = [ (mkBun pkgs) ];
+          # Node is only needed for npm: semantic-release shells out to it, and
+          # the launcher (packages/cli/bin/wayful.js) is meant to run under real
+          # Node, not just Bun's Node-compatible runtime. nixpkgs' bundled npm
+          # can trail the >=11.5.1 that npm trusted publishing needs —
+          # release.yml upgrades it explicitly (`npm install -g npm@latest`)
+          # rather than relying on whatever a given nodejs derivation ships.
+          packages = [ (mkBun pkgs) pkgs.nodejs_22 ];
 
           shellHook = ''
-            echo "wayful devshell — bun $(bun --version)"
+            echo "wayful devshell — bun $(bun --version), node $(node --version), npm $(npm --version)"
           '';
         };
       });
