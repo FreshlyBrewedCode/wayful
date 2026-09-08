@@ -2,7 +2,7 @@ import { Console, Effect, Option } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { resolve } from "node:path";
 
-import { fail } from "../../context";
+import { fail } from "../../scope";
 import { resolveClientAssets } from "../../server/client";
 import { startServer, type RunningServer } from "../../server/http";
 import { handle } from "../render";

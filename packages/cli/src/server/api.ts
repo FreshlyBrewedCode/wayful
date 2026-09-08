@@ -10,7 +10,7 @@
 import { Effect, Option, Result } from "effect";
 
 import { WayfulBackend, type MapHandle, type ProjectHandle } from "../backend/Backend";
-import { fail, resolveMap, resolveProject } from "../context";
+import { fail, resolveMap, resolveProject } from "../scope";
 import type { MapMetadataError, WayfulError } from "../domain/errors";
 import type {
   ArtifactRecord,
