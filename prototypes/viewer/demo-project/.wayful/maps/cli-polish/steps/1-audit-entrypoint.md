@@ -1,5 +1,5 @@
 ---
-format_version: 1
+format_version: 2
 id: 1
 name: audit-entrypoint
 type: wayfinder-research
@@ -21,5 +21,7 @@ required_outputs:
   - name: resolution
     kind: wayfinder-resolution
     description: The resolution record linking the findings and stating their consequence for the map.
+created_at: 2026-09-08T17:48:47.906Z
+updated_at: 2026-09-08T17:48:48.057Z
 ---
 The entrypoint hardcodes /usr/bin/grep and /usr/bin/sed. Neither exists on NixOS, so `./wayful` cannot start there and the whole test suite exits 127.

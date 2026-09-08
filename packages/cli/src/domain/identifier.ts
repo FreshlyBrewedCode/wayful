@@ -1,6 +1,12 @@
 import { WayfulError } from "./errors";
+import { CURRENT_FORMAT_VERSION } from "./model";
 
 export const IDENT = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+// Matches exactly the shape `Date.prototype.toISOString()` produces, which is
+// the only shape this codebase ever writes: ISO-8601 UTC with millisecond
+// precision, so string ordering is chronological ordering.
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 const fail = (message: string): never => {
   throw new WayfulError({ message });
@@ -51,5 +57,13 @@ export function formatVersion(
     fail(`missing format version in ${where}.`);
   }
   if (!Number.isInteger(data.format_version)) fail(`malformed format version in ${where}.`);
-  if (data.format_version !== 1) fail(`unsupported format version in ${where}.`);
+  if (data.format_version !== CURRENT_FORMAT_VERSION)
+    fail(`unsupported format version in ${where}.`);
+}
+
+/** Validates an ISO-8601 UTC timestamp string, the only shape this codebase writes. */
+export function timestamp(value: unknown, label: string): string {
+  if (typeof value !== "string" || !ISO_TIMESTAMP.test(value) || Number.isNaN(Date.parse(value)))
+    fail(`${label} must be an ISO-8601 UTC timestamp.`);
+  return value as string;
 }

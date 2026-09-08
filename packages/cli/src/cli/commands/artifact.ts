@@ -4,7 +4,8 @@ import { Argument, Command, Flag } from "effect/unstable/cli";
 import { WayfulBackend } from "../../backend/Backend";
 import { liftSync } from "../../backend/filesystem/documents";
 import { identifier, nonEmpty } from "../../domain/identifier";
-import { assertWritableMapIntegrity, resolveMap, resolveProject } from "../../scope";
+import { CURRENT_FORMAT_VERSION } from "../../domain/model";
+import { assertWritableMapIntegrity, fail, resolveMap, resolveProject } from "../../scope";
 import { mapFlag } from "../flags";
 import { handle } from "../render";
 import { wayfulRoot } from "../root";
@@ -37,15 +38,24 @@ const artifactAddCommand = Command.make(
         const project = yield* resolveProject(root.project);
         const map = yield* resolveMap(parent.map, project);
         yield* assertWritableMapIntegrity(map);
+        const artifacts = yield* backend.listArtifacts(map);
         const resolvedName = yield* liftSync(() => identifier(name, "artifact name"));
+        if (artifacts.some((a) => a.name === resolvedName))
+          yield* fail(`artifact '${resolvedName}' already exists.`);
         const resolvedKind = yield* liftSync(() => nonEmpty(kind, "artifact kind"));
         const resolvedRef = yield* liftSync(() => nonEmpty(ref, "artifact reference"));
+        const highestArtifactID = artifacts.reduce((highest, a) => Math.max(highest, a.id), 0);
+        const id = map.metadata.artifact_id_counter;
+        if (id <= highestArtifactID)
+          yield* fail("map artifact_id_counter must be greater than every existing artifact ID.");
         yield* backend.createArtifact(map, {
-          format_version: 1,
+          format_version: CURRENT_FORMAT_VERSION,
+          id,
           name: resolvedName,
           kind: resolvedKind,
           ref: resolvedRef,
         });
+        yield* backend.setArtifactIdCounter(map, id + 1);
         yield* Console.log(`Added artifact '${resolvedName}'.`);
       }),
     ),

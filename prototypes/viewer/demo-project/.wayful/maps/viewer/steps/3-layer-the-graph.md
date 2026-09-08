@@ -1,5 +1,5 @@
 ---
-format_version: 1
+format_version: 2
 id: 3
 name: layer-the-graph
 type: task
@@ -18,6 +18,9 @@ required_outputs:
   - name: resolution
     kind: markdown
     description: A description of how the task was resolved
+created_at: 2026-09-08T17:48:45.415Z
+updated_at: 2026-09-08T17:48:45.880Z
 completion_summary: Layered DAG with orthogonal edges; cancelled steps rendered dimmed rather than dropped.
+closed_at: 2026-09-08T17:48:45.880Z
 ---
 Longest-path layering. Cancelled steps still occupy the graph — hiding them would hide why the map changed shape.

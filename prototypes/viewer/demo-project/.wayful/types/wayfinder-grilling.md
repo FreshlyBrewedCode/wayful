@@ -1,5 +1,5 @@
 ---
-format_version: 1
+format_version: 2
 name: wayfinder-grilling
 description: Resolve a decision through a live, structured conversation with the responsible human.
 required_inputs: []

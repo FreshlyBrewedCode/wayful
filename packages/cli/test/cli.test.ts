@@ -3,6 +3,8 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { CURRENT_FORMAT_VERSION } from "../src/domain/model";
+
 const cliRoot = join(import.meta.dir, "..");
 const entrypoint = join(cliRoot, "src", "main.ts");
 const decoder = new TextDecoder();
@@ -80,6 +82,36 @@ function expectCommandError(result: ReturnType<typeof invoke>) {
   expect(result.stderr).not.toContain("not been bootstrapped");
 }
 
+// A fixed timestamp used only for on-disk fixtures written directly by these
+// tests (not produced by the CLI under test), so that fixture files satisfy
+// the strict ISO-8601 `created_at`/`updated_at` fields the decoder requires.
+const FIXTURE_TIME = "2024-01-01T00:00:00.000Z";
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/**
+ * Timestamps are stamped by the backend's injected clock and are not
+ * predictable from a spawned CLI subprocess, so equality assertions against
+ * CLI JSON output strip them; exact values are covered at the backend seam
+ * (test/backend.test.ts), and `expectTimestamps` below spot-checks shape.
+ */
+function omitTimestamps<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((item) => omitTimestamps(item)) as unknown as T;
+  if (value && typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+      if (key === "created_at" || key === "updated_at" || key === "closed_at") continue;
+      result[key] = omitTimestamps(v);
+    }
+    return result as T;
+  }
+  return value;
+}
+
+function expectTimestamps(record: { created_at: string; updated_at: string }) {
+  expect(record.created_at).toMatch(ISO_TIMESTAMP);
+  expect(record.updated_at).toMatch(ISO_TIMESTAMP);
+}
+
 /** Creates documented on-disk input only; it never uses the CLI under test. */
 async function projectFixture(
   options: {
@@ -99,16 +131,16 @@ async function projectFixture(
   await mkdir(join(project, ".wayful", "types"), { recursive: true });
   await writeFile(
     join(project, ".wayful", "project.toml"),
-    'format_version = 1\ndescription = "Fixture project"\n',
+    `format_version = ${CURRENT_FORMAT_VERSION}\ndescription = "Fixture project"\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
   );
   await writeFile(
     join(project, ".wayful", "maps", map, "map.toml"),
-    `format_version = 1\nname = "${map}"\nstart = "here"\nstep_id_counter = 1\n${options.mapFields ?? ""}`,
+    `format_version = ${CURRENT_FORMAT_VERSION}\nname = "${map}"\nstart = "here"\nstep_id_counter = 1\nartifact_id_counter = 1\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n${options.mapFields ?? ""}`,
   );
   const typeSlots = options.typeSlots ?? "required_inputs: []\nrequired_outputs: []\n";
   await writeFile(
     join(project, ".wayful", "types", `${type}.md`),
-    `---\nformat_version: 1\nname: ${type}\ndescription: Fixture type\n${typeSlots}---\n${options.typeBody ?? ""}`,
+    `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nname: ${type}\ndescription: Fixture type\n${typeSlots}---\n${options.typeBody ?? ""}`,
   );
   return project;
 }
@@ -117,7 +149,7 @@ async function writeStep(project: string, name: string, id: number, fields = "")
   const requirements = fields || "required_inputs: []\nrequired_outputs: []\n";
   await writeFile(
     join(project, ".wayful", "maps", "plan", "steps", `${id}-${name}.md`),
-    `---\nformat_version: 1\nid: ${id}\nname: ${name}\ntype: task\ndescription: Original description\nstatus: pending\ndependencies: []\ninputs: []\noutputs: []\n${requirements}---\nNarrative that must survive frontmatter updates.\n`,
+    `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nid: ${id}\nname: ${name}\ntype: task\ndescription: Original description\nstatus: pending\ndependencies: []\ninputs: []\noutputs: []\n${requirements}created_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n---\nNarrative that must survive frontmatter updates.\n`,
   );
   const mapFile = join(project, ".wayful", "maps", "plan", "map.toml");
   const metadata = await readFile(mapFile, "utf8");
@@ -184,12 +216,13 @@ describe("project and context contracts", () => {
     }
   }, 20000); // 33 subprocess spawns; a loaded CI runner can outrun the default 5s.
 
-  test("init creates versioned metadata and the generic task type, then refuses overwrite", async () => {
+  test("init creates versioned, timestamped metadata and the generic task type, then refuses overwrite", async () => {
     const project = await temporaryDirectory();
     expect(invoke(["init", "--description", "Refresh the site"], project).exitCode).toBe(0);
-    expect(await readFile(join(project, ".wayful", "project.toml"), "utf8")).toContain(
-      "format_version = 1",
-    );
+    const projectToml = await readFile(join(project, ".wayful", "project.toml"), "utf8");
+    expect(projectToml).toContain(`format_version = ${CURRENT_FORMAT_VERSION}`);
+    expect(projectToml).toMatch(/created_at = "\d{4}-\d{2}-\d{2}T/);
+    expect(projectToml).toMatch(/updated_at = "\d{4}-\d{2}-\d{2}T/);
     expect(await readFile(join(project, ".wayful", "types", "task.md"), "utf8")).toContain(
       "name: task",
     );
@@ -219,7 +252,10 @@ describe("project and context contracts", () => {
     const project = await projectFixture();
     await writeFile(join(project, ".wayful", "project.toml"), "not toml = [");
     expectCommandError(invoke(["type", "list"], project));
-    await writeFile(join(project, ".wayful", "project.toml"), "format_version = 2\n");
+    await writeFile(
+      join(project, ".wayful", "project.toml"),
+      `format_version = ${CURRENT_FORMAT_VERSION + 1}\n`,
+    );
     expectCommandError(invoke(["type", "list"], project));
     expectCommandError(
       invoke(["map", "create", "--map", "../unsafe", "--start", "now", "--goal", "done"], project),
@@ -229,13 +265,16 @@ describe("project and context contracts", () => {
   test("strictly validates project metadata while accepting the documented unversioned migration form", async () => {
     const project = await projectFixture();
     const metadata = join(project, ".wayful", "project.toml");
-    await writeFile(metadata, 'description = "Legacy project"\n');
+    await writeFile(
+      metadata,
+      `description = "Legacy project"\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
+    );
     expect(invoke(["type", "list"], project).exitCode).toBe(0);
     for (const invalid of [
-      "format_version = 1\ndescription = 42\n",
-      "format_version = 1\n",
-      'format_version = 1\ndescription = "ok"\nunknown = true\n',
-      'format_version = "1"\ndescription = "ok"\n',
+      `format_version = ${CURRENT_FORMAT_VERSION}\ndescription = 42\n`,
+      `format_version = ${CURRENT_FORMAT_VERSION}\n`,
+      `format_version = ${CURRENT_FORMAT_VERSION}\ndescription = "ok"\nunknown = true\n`,
+      `format_version = "${CURRENT_FORMAT_VERSION}"\ndescription = "ok"\n`,
     ]) {
       await writeFile(metadata, invalid);
       expectCommandError(invoke(["type", "list"], project));
@@ -247,7 +286,7 @@ describe("project and context contracts", () => {
     await mkdir(join(project, ".wayful", "maps", "other", "steps"), { recursive: true });
     await writeFile(
       join(project, ".wayful", "maps", "other", "map.toml"),
-      'format_version = 1\nname = "other"\nstart = "there"\nstep_id_counter = 1\n',
+      `format_version = ${CURRENT_FORMAT_VERSION}\nname = "other"\nstart = "there"\nstep_id_counter = 1\nartifact_id_counter = 1\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
     );
     const missing = invoke(["map", "show"], project);
     expectCommandError(missing);
@@ -342,11 +381,11 @@ describe("maps, types, and readable rendering", () => {
       join(project, ".wayful", "types", "task.md"),
       join(project, ".wayful", "maps", "plan", "goals", "initial-goal.md"),
       join(project, ".wayful", "maps", "plan", "steps", "1-work.md"),
-      join(project, ".wayful", "maps", "plan", "artifacts", "proof.yaml"),
+      join(project, ".wayful", "maps", "plan", "artifacts", "1-proof.yaml"),
     ];
     for (const file of generated) {
       const text = await readFile(file, "utf8");
-      expect(text).toContain("format_version: 1\n");
+      expect(text).toContain(`format_version: ${CURRENT_FORMAT_VERSION}\n`);
       expect(text).not.toMatch(/^\{.*\}$/m);
     }
     expect(await readFile(generated[2], "utf8")).toContain(
@@ -395,9 +434,23 @@ describe("maps, types, and readable rendering", () => {
     expect(listed.stdout).toBe("plan: here\nrelease-plan: now\n");
 
     const listedJson = invoke(["map", "list", "--json"], project);
-    expect(JSON.parse(listedJson.stdout)).toEqual([
-      { format_version: 1, name: "plan", start: "here", step_id_counter: 1 },
-      { format_version: 1, name: "release-plan", start: "now", step_id_counter: 1 },
+    const parsed = JSON.parse(listedJson.stdout);
+    for (const entry of parsed) expectTimestamps(entry);
+    expect(omitTimestamps(parsed)).toEqual([
+      {
+        format_version: CURRENT_FORMAT_VERSION,
+        name: "plan",
+        start: "here",
+        step_id_counter: 1,
+        artifact_id_counter: 1,
+      },
+      {
+        format_version: CURRENT_FORMAT_VERSION,
+        name: "release-plan",
+        start: "now",
+        step_id_counter: 1,
+        artifact_id_counter: 1,
+      },
     ]);
   });
 
@@ -409,7 +462,7 @@ describe("maps, types, and readable rendering", () => {
     expect(malformed.exitCode).toBe(1);
     expect(malformed.stderr).toMatch(/^wayful: invalid map:/);
     expectCommandError(invoke(["map", "show", "--map", "plan"], project));
-    const corrupted = 'format_version = 2\nname = "plan"\nstart = "here"\nstep_id_counter = 1\n';
+    const corrupted = `format_version = ${CURRENT_FORMAT_VERSION + 1}\nname = "plan"\nstart = "here"\nstep_id_counter = 1\n`;
     await writeFile(mapFile, corrupted);
     const unsupported = invoke(["map", "validate", "--map", "plan"], project);
     expect(unsupported.exitCode).toBe(1);
@@ -422,7 +475,7 @@ describe("maps, types, and readable rendering", () => {
     for (const start of ["", "   "]) {
       await writeFile(
         mapFile,
-        `format_version = 1\nname = "plan"\nstart = "${start}"\nstep_id_counter = 1\n`,
+        `format_version = ${CURRENT_FORMAT_VERSION}\nname = "plan"\nstart = "${start}"\nstep_id_counter = 1\n`,
       );
       expect(invoke(["map", "validate", "--map", "plan"], project).exitCode).toBe(1);
       expectCommandError(invoke(["map", "show", "--map", "plan"], project));
@@ -436,7 +489,7 @@ describe("maps, types, and readable rendering", () => {
     expect(valid.exitCode).toBe(0);
     expect(JSON.parse(valid.stdout)).toEqual({ valid: true, errors: [] });
     expect(valid.stderr).toBe("");
-    const corrupted = 'format_version = 2\nname = "plan"\nstart = "here"\nstep_id_counter = 1\n';
+    const corrupted = `format_version = ${CURRENT_FORMAT_VERSION + 1}\nname = "plan"\nstart = "here"\nstep_id_counter = 1\n`;
     await writeFile(mapFile, corrupted);
     const invalid = invoke(["map", "validate", "--map", "plan", "--json"], project);
     expect(invalid.exitCode).toBe(1);
@@ -457,7 +510,7 @@ describe("maps, types, and readable rendering", () => {
     const listedJson = invoke(["type", "list", "--json"], project);
     expect(JSON.parse(listedJson.stdout)).toEqual([
       {
-        format_version: 1,
+        format_version: CURRENT_FORMAT_VERSION,
         name: "research",
         description: "Fixture type",
         required_inputs: [],
@@ -475,7 +528,7 @@ describe("maps, types, and readable rendering", () => {
     const project = await projectFixture();
     await writeFile(
       join(project, ".wayful", "types", "task.md"),
-      "---\nformat_version: 1\nname: task\nrequired_inputs: []\nrequired_outputs: []\n---\nInstructions.\n",
+      `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nname: task\nrequired_inputs: []\nrequired_outputs: []\n---\nInstructions.\n`,
     );
 
     const result = invoke(["type", "list"], project);
@@ -488,12 +541,12 @@ describe("maps, types, and readable rendering", () => {
     const project = await projectFixture({ mapFields: 'allowed_step_types = ["task"]\n' });
     await writeFile(
       join(project, ".wayful", "types", "wrong.md"),
-      "---\nformat_version: 1\nname: other\nrequired_inputs: []\nrequired_outputs: []\n---\n",
+      `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nname: other\nrequired_inputs: []\nrequired_outputs: []\n---\n`,
     );
     expectCommandError(invoke(["type", "list"], project));
     await writeFile(
       join(project, ".wayful", "types", "wrong.md"),
-      "---\nformat_version: 1\nname: wrong\ndescription: Invalid slot schema\nrequired_inputs: [bad]\nrequired_outputs: []\n---\n",
+      `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nname: wrong\ndescription: Invalid slot schema\nrequired_inputs: [bad]\nrequired_outputs: []\n---\n`,
     );
     const invalidSlots = invoke(
       ["step", "create", "work", "--map", "plan", "--type", "wrong", "--description", "Do it"],
@@ -509,7 +562,7 @@ describe("maps, types, and readable rendering", () => {
     for (const restriction of ['["task", "task"]', '["missing"]']) {
       await writeFile(
         mapFile,
-        `format_version = 1\nname = "plan"\nstart = "here"\nstep_id_counter = 1\nallowed_step_types = ${restriction}\n`,
+        `format_version = ${CURRENT_FORMAT_VERSION}\nname = "plan"\nstart = "here"\nstep_id_counter = 1\nartifact_id_counter = 1\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\nallowed_step_types = ${restriction}\n`,
       );
       const validation = invoke(["map", "validate", "--map", "plan"], project);
       expect(validation.exitCode).toBe(1);
@@ -603,7 +656,7 @@ describe("steps and graph integrity", () => {
     );
   });
 
-  test("versions created steps and rejects missing, malformed, or unsupported step versions", async () => {
+  test("versions created steps, stamps timestamps, and rejects missing, malformed, or unsupported step versions", async () => {
     const project = await projectFixture();
     expect(
       invoke(
@@ -612,10 +665,20 @@ describe("steps and graph integrity", () => {
       ).exitCode,
     ).toBe(0);
     const stepFile = join(project, ".wayful", "maps", "plan", "steps", "1-work.md");
-    expect(await readFile(stepFile, "utf8")).toContain("format_version: 1");
-    for (const replacement of ["", "format_version: nope", "format_version: 2"]) {
+    const stepText = await readFile(stepFile, "utf8");
+    expect(stepText).toContain(`format_version: ${CURRENT_FORMAT_VERSION}`);
+    expect(stepText).toMatch(/created_at: \d{4}-\d{2}-\d{2}T/);
+    expect(stepText).toMatch(/updated_at: \d{4}-\d{2}-\d{2}T/);
+    for (const replacement of [
+      "",
+      "format_version: nope",
+      `format_version: ${CURRENT_FORMAT_VERSION + 1}`,
+    ]) {
       const original = await readFile(stepFile, "utf8");
-      await writeFile(stepFile, original.replace("format_version: 1", replacement));
+      await writeFile(
+        stepFile,
+        original.replace(`format_version: ${CURRENT_FORMAT_VERSION}`, replacement),
+      );
       const validation = invoke(["map", "validate", "--map", "plan"], project);
       expect(validation.exitCode).toBe(1);
       expectCommandError(invoke(["step", "show", "work", "--map", "plan"], project));
@@ -651,7 +714,7 @@ describe("steps and graph integrity", () => {
     ).toBe(0);
     await writeFile(
       join(project, ".wayful", "types", "research.md"),
-      "---\nformat_version: 1\nname: research\ndescription: Updated research contract\nrequired_inputs:\n  - name: changed\n    kind: url\nrequired_outputs: []\n---\nUpdated guidance.\n",
+      `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nname: research\ndescription: Updated research contract\nrequired_inputs:\n  - name: changed\n    kind: url\nrequired_outputs: []\n---\nUpdated guidance.\n`,
     );
     const shown = invoke(["step", "show", "investigate", "--map", "plan", "--json"], project);
     expect(shown.exitCode).toBe(0);
@@ -822,8 +885,8 @@ describe("artifacts, goals, and validation", () => {
   test("refuses an artifact name already represented by a .yml record", async () => {
     const project = await projectFixture();
     await writeFile(
-      join(project, ".wayful", "maps", "plan", "artifacts", "proof.yml"),
-      "format_version: 1\nname: proof\nkind: document\nref: git:one\n",
+      join(project, ".wayful", "maps", "plan", "artifacts", "1-proof.yml"),
+      `format_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: proof\nkind: document\nref: git:one\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n`,
     );
     expectCommandError(
       invoke(
@@ -832,11 +895,11 @@ describe("artifacts, goals, and validation", () => {
       ),
     );
     await expect(
-      readFile(join(project, ".wayful", "maps", "plan", "artifacts", "proof.yaml"), "utf8"),
+      readFile(join(project, ".wayful", "maps", "plan", "artifacts", "1-proof.yaml"), "utf8"),
     ).rejects.toThrow();
   });
 
-  test("versions created artifacts and rejects missing, malformed, or unsupported artifact versions", async () => {
+  test("versions created artifacts, stamps timestamps, and rejects missing, malformed, or unsupported artifact versions", async () => {
     const project = await projectFixture();
     expect(
       invoke(
@@ -844,11 +907,21 @@ describe("artifacts, goals, and validation", () => {
         project,
       ).exitCode,
     ).toBe(0);
-    const artifactFile = join(project, ".wayful", "maps", "plan", "artifacts", "proof.yaml");
-    expect(await readFile(artifactFile, "utf8")).toContain("format_version: 1");
-    for (const replacement of ["", "format_version: nope", "format_version: 2"]) {
+    const artifactFile = join(project, ".wayful", "maps", "plan", "artifacts", "1-proof.yaml");
+    const artifactText = await readFile(artifactFile, "utf8");
+    expect(artifactText).toContain(`format_version: ${CURRENT_FORMAT_VERSION}`);
+    expect(artifactText).toMatch(/created_at: \d{4}-\d{2}-\d{2}T/);
+    expect(artifactText).toMatch(/updated_at: \d{4}-\d{2}-\d{2}T/);
+    for (const replacement of [
+      "",
+      "format_version: nope",
+      `format_version: ${CURRENT_FORMAT_VERSION + 1}`,
+    ]) {
       const original = await readFile(artifactFile, "utf8");
-      await writeFile(artifactFile, original.replace("format_version: 1", replacement));
+      await writeFile(
+        artifactFile,
+        original.replace(`format_version: ${CURRENT_FORMAT_VERSION}`, replacement),
+      );
       const validation = invoke(["map", "validate", "--map", "plan"], project);
       expect(validation.exitCode).toBe(1);
       expectCommandError(invoke(["map", "show", "--map", "plan"], project));
@@ -1033,12 +1106,12 @@ describe("artifacts, goals, and validation", () => {
       "inputs:\n  - artifact: missing\noutputs: []\nrequired_inputs: []\nrequired_outputs: []\n",
     );
     await writeFile(
-      join(project, ".wayful", "maps", "plan", "artifacts", "proof.yaml"),
-      "format_version: 1\nname: proof\nkind: document\nref: git:one\n",
+      join(project, ".wayful", "maps", "plan", "artifacts", "1-proof.yaml"),
+      `format_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: proof\nkind: document\nref: git:one\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n`,
     );
     await writeFile(
-      join(project, ".wayful", "maps", "plan", "artifacts", "proof.yml"),
-      "format_version: 1\nname: proof\nkind: document\nref: git:two\n",
+      join(project, ".wayful", "maps", "plan", "artifacts", "1-proof.yml"),
+      `format_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: proof\nkind: document\nref: git:two\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n`,
     );
     const result = invoke(["map", "validate", "--map", "plan"], project);
     expect(result.exitCode).toBe(1);
@@ -1050,18 +1123,18 @@ describe("artifacts, goals, and validation", () => {
     const project = await projectFixture();
     const artifactDirectory = join(project, ".wayful", "maps", "plan", "artifacts");
     await writeFile(
-      join(artifactDirectory, "document.yaml"),
-      "format_version: 1\nname: document\nkind: document\nref: doc\n",
+      join(artifactDirectory, "1-document.yaml"),
+      `format_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: document\nkind: document\nref: doc\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n`,
     );
     await writeFile(
-      join(artifactDirectory, "image.yaml"),
-      "format_version: 1\nname: image\nkind: image\nref: image\n",
+      join(artifactDirectory, "2-image.yaml"),
+      `format_version: ${CURRENT_FORMAT_VERSION}\nid: 2\nname: image\nkind: image\nref: image\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n`,
     );
     const stepDirectory = join(project, ".wayful", "maps", "plan", "steps");
     const manualStep = (id: number, name: string, inputs: string) =>
       writeFile(
         join(stepDirectory, `${id}-${name}.md`),
-        `---\nformat_version: 1\nid: ${id}\nname: ${name}\ntype: task\ndescription: Manually edited\nstatus: pending\ndependencies: []\ninputs:\n${inputs}outputs: []\nrequired_inputs:\n  - name: source\n    kind: document\nrequired_outputs:\n  - name: report\n    kind: document\n---\n`,
+        `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nid: ${id}\nname: ${name}\ntype: task\ndescription: Manually edited\nstatus: pending\ndependencies: []\ninputs:\n${inputs}outputs: []\nrequired_inputs:\n  - name: source\n    kind: document\nrequired_outputs:\n  - name: report\n    kind: document\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n---\n`,
       );
     await manualStep(1, "unknown", "  - artifact: document\n    slot: absent\n");
     await manualStep(2, "wrong-direction", "  - artifact: document\n    slot: report\n");
@@ -1149,8 +1222,8 @@ describe("artifacts, goals, and validation", () => {
     await writeStep(project, "first", 2);
     const mapDirectory = join(project, ".wayful", "maps", "plan");
     await writeFile(
-      join(mapDirectory, "artifacts", "existing.yaml"),
-      "format_version: 1\nname: existing\nkind: document\nref: git:existing\n",
+      join(mapDirectory, "artifacts", "1-existing.yaml"),
+      `format_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: existing\nkind: document\nref: git:existing\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n`,
     );
     const beforeFirst = await readFile(join(mapDirectory, "steps", "1-first.md"), "utf8");
     const beforeSecond = await readFile(join(mapDirectory, "steps", "2-first.md"), "utf8");
@@ -1186,7 +1259,9 @@ describe("artifacts, goals, and validation", () => {
     expect(await readFile(join(mapDirectory, "steps", "1-first.md"), "utf8")).toBe(beforeFirst);
     expect(await readFile(join(mapDirectory, "steps", "2-first.md"), "utf8")).toBe(beforeSecond);
     expect(await readFile(join(mapDirectory, "map.toml"), "utf8")).toBe(beforeMap);
-    await expect(readFile(join(mapDirectory, "artifacts", "proof.yaml"), "utf8")).rejects.toThrow();
+    await expect(
+      readFile(join(mapDirectory, "artifacts", "2-proof.yaml"), "utf8"),
+    ).rejects.toThrow();
     await expect(readFile(join(mapDirectory, "goals", "release.md"), "utf8")).rejects.toThrow();
     await expect(readFile(join(mapDirectory, "steps", "3-new-work.md"), "utf8")).rejects.toThrow();
   });

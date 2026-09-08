@@ -27,9 +27,10 @@ export const artifactsDir = (path: Path.Path, mapDirectory: string) =>
 export const artifactFile = (
   path: Path.Path,
   mapDirectory: string,
+  id: number,
   name: string,
   extension: "yaml" | "yml" = "yaml",
-) => path.join(artifactsDir(path, mapDirectory), `${name}.${extension}`);
+) => path.join(artifactsDir(path, mapDirectory), `${id}-${name}.${extension}`);
 
 export const goalsDir = (path: Path.Path, mapDirectory: string) => path.join(mapDirectory, "goals");
 

@@ -1,6 +1,7 @@
 import { BunServices } from "@effect/platform-bun";
 import { afterEach, describe, expect, test } from "bun:test";
 import { Effect, Layer, Option } from "effect";
+import { TestClock } from "effect/testing";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,9 +9,17 @@ import { join } from "node:path";
 import { WayfulBackend } from "../src/backend/Backend";
 import { FileSystemBackend } from "../src/backend/filesystem/layer";
 import { MapMetadataError, WayfulError } from "../src/domain/errors";
-import type { StepRecord } from "../src/domain/model";
+import { CURRENT_FORMAT_VERSION } from "../src/domain/model";
+import type { NewArtifactRecord, NewStepRecord } from "../src/domain/model";
 
-const TestLayer = FileSystemBackend.pipe(Layer.provide(BunServices.layer));
+// TestClock.layer overrides the ambient Clock.Clock reference for the whole
+// downstream effect, so every backend write inside a single `run`/`runFailure`
+// call reads timestamps from the (deterministic, explicitly-advanced) test
+// clock rather than the wall clock.
+const TestLayer = FileSystemBackend.pipe(
+  Layer.provide(BunServices.layer),
+  Layer.provideMerge(TestClock.layer()),
+);
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
@@ -43,9 +52,18 @@ function backend() {
   });
 }
 
-function step(overrides: Partial<StepRecord> & Pick<StepRecord, "id" | "name">): StepRecord {
+// The TestClock starts at the Unix epoch, so a backend write that never
+// advances the clock always produces this timestamp.
+const T0 = new Date(0).toISOString();
+// One hour past the epoch, used to assert that `updated_at` (and `closed_at`)
+// track an explicitly-advanced clock rather than staying pinned to `created_at`.
+const T1 = new Date(60 * 60 * 1000).toISOString();
+
+function newStep(
+  overrides: Partial<NewStepRecord> & Pick<NewStepRecord, "id" | "name">,
+): NewStepRecord {
   return {
-    format_version: 1,
+    format_version: CURRENT_FORMAT_VERSION,
     type: "task",
     description: "A step",
     status: "pending",
@@ -80,7 +98,7 @@ describe("FileSystemBackend: project and type round-trips", () => {
     );
     expect(types).toEqual([
       {
-        format_version: 1,
+        format_version: CURRENT_FORMAT_VERSION,
         name: "task",
         description: "A general-purpose work step.",
         required_inputs: [],
@@ -157,19 +175,24 @@ describe("FileSystemBackend: maps", () => {
       }),
     );
     expect(result.map.metadata).toEqual({
-      format_version: 1,
+      format_version: CURRENT_FORMAT_VERSION,
       name: "plan",
       start: "here",
       step_id_counter: 1,
+      artifact_id_counter: 1,
       allowed_step_types: undefined,
+      created_at: T0,
+      updated_at: T0,
     });
     expect(result.goals).toEqual([
       {
-        format_version: 1,
+        format_version: CURRENT_FORMAT_VERSION,
         name: "initial-goal",
         description: "done",
         evidence: [],
         body: "Notes.",
+        created_at: T0,
+        updated_at: T0,
       },
     ]);
   });
@@ -238,6 +261,21 @@ describe("FileSystemBackend: maps", () => {
     expect(counter).toBe(5);
   });
 
+  test("setArtifactIdCounter persists the new counter for subsequent opens", async () => {
+    const project = await initializedProject();
+    const counter = await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.createMap(project, { name: "plan", start: "here", goal: "done", goalBody: "" });
+        const map = yield* b.openMap(project, "plan");
+        yield* b.setArtifactIdCounter(map, 7);
+        const reopened = yield* b.openMap(project, "plan");
+        return reopened.metadata.artifact_id_counter;
+      }),
+    );
+    expect(counter).toBe(7);
+  });
+
   test("listMaps skips maps with malformed metadata rather than failing outright", async () => {
     const project = await initializedProject();
     await run(
@@ -275,7 +313,7 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
 
   test("createStep then listSteps round-trips and preserves the Markdown body", async () => {
     const map = await initializedMap();
-    const created = step({
+    const created = newStep({
       id: 1,
       name: "work",
       description: "Do it",
@@ -288,12 +326,12 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
         return yield* b.listSteps(map);
       }),
     );
-    expect(steps).toEqual([created]);
+    expect(steps).toEqual([{ ...created, created_at: T0, updated_at: T0 }]);
   });
 
   test("createStep refuses to overwrite an existing step file", async () => {
     const map = await initializedMap();
-    const created = step({ id: 1, name: "work" });
+    const created = newStep({ id: 1, name: "work" });
     await run(
       Effect.gen(function* () {
         const b = yield* backend();
@@ -310,26 +348,58 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
     expect((error as WayfulError).message).toContain("already exists");
   });
 
-  test("saveStep updates frontmatter while listSteps reflects the change and preserves the body", async () => {
+  test("saveStep preserves created_at, advances updated_at from the injected clock, and leaves closed_at unset for a non-terminal status", async () => {
     const map = await initializedMap();
-    const created = step({ id: 1, name: "work", body: "Original body." });
-    const updated: StepRecord = { ...created, description: "Updated description" };
+    const created = newStep({ id: 1, name: "work", body: "Original body." });
     const steps = await run(
       Effect.gen(function* () {
         const b = yield* backend();
         yield* b.createStep(map, created);
-        yield* b.saveStep(map, updated);
+        const [persisted] = yield* b.listSteps(map);
+        yield* TestClock.adjust("1 hour");
+        yield* b.saveStep(map, { ...persisted, description: "Updated description" });
         return yield* b.listSteps(map);
       }),
     );
-    expect(steps).toEqual([updated]);
+    expect(steps).toEqual([
+      { ...created, description: "Updated description", created_at: T0, updated_at: T1 },
+    ]);
+  });
+
+  test("saveStep sets closed_at from the injected clock when a step becomes complete", async () => {
+    const map = await initializedMap();
+    const created = newStep({ id: 1, name: "work" });
+    const steps = await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.createStep(map, created);
+        const [persisted] = yield* b.listSteps(map);
+        yield* TestClock.adjust("1 hour");
+        yield* b.saveStep(map, {
+          ...persisted,
+          status: "complete",
+          completion_summary: "done",
+        });
+        return yield* b.listSteps(map);
+      }),
+    );
+    expect(steps).toEqual([
+      {
+        ...created,
+        status: "complete",
+        completion_summary: "done",
+        created_at: T0,
+        updated_at: T1,
+        closed_at: T1,
+      },
+    ]);
   });
 
   test("listSteps reports a step whose filename does not match its frontmatter identity", async () => {
     const map = await initializedMap();
     await writeFile(
       join(map.dir, "steps", "1-wrong.md"),
-      "---\nformat_version: 1\nid: 1\nname: right\ntype: task\ndescription: Do it\nstatus: pending\ndependencies: []\ninputs: []\noutputs: []\nrequired_inputs: []\nrequired_outputs: []\n---\n",
+      `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: right\ntype: task\ndescription: Do it\nstatus: pending\ndependencies: []\ninputs: []\noutputs: []\nrequired_inputs: []\nrequired_outputs: []\ncreated_at: ${T0}\nupdated_at: ${T0}\n---\n`,
     );
     const error = await runFailure(
       Effect.gen(function* () {
@@ -343,39 +413,37 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
 
   test("createArtifact refuses a name already used by a .yml or .yaml record", async () => {
     const map = await initializedMap();
+    const artifact: NewArtifactRecord = {
+      format_version: CURRENT_FORMAT_VERSION,
+      id: 1,
+      name: "proof",
+      kind: "document",
+      ref: "git:one",
+    };
     await run(
       Effect.gen(function* () {
         const b = yield* backend();
-        yield* b.createArtifact(map, {
-          format_version: 1,
-          name: "proof",
-          kind: "document",
-          ref: "git:one",
-        });
+        yield* b.createArtifact(map, artifact);
       }),
     );
     const yamlError = await runFailure(
       Effect.gen(function* () {
         const b = yield* backend();
-        yield* b.createArtifact(map, {
-          format_version: 1,
-          name: "proof",
-          kind: "document",
-          ref: "git:two",
-        });
+        yield* b.createArtifact(map, { ...artifact, ref: "git:two" });
       }),
     );
     expect((yamlError as WayfulError).message).toContain("already exists");
 
     await writeFile(
-      join(map.dir, "artifacts", "other.yml"),
-      "format_version: 1\nname: other\nkind: document\nref: git:one\n",
+      join(map.dir, "artifacts", "2-other.yml"),
+      `format_version: ${CURRENT_FORMAT_VERSION}\nid: 2\nname: other\nkind: document\nref: git:one\ncreated_at: ${T0}\nupdated_at: ${T0}\n`,
     );
     const ymlError = await runFailure(
       Effect.gen(function* () {
         const b = yield* backend();
         yield* b.createArtifact(map, {
-          format_version: 1,
+          format_version: CURRENT_FORMAT_VERSION,
+          id: 2,
           name: "other",
           kind: "document",
           ref: "git:two",
@@ -385,13 +453,44 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
     expect((ymlError as WayfulError).message).toContain("already exists");
   });
 
+  test("createArtifact writes an id-prefixed filename and stamps timestamps from the injected clock", async () => {
+    const map = await initializedMap();
+    const artifacts = await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.createArtifact(map, {
+          format_version: CURRENT_FORMAT_VERSION,
+          id: 3,
+          name: "proof",
+          kind: "document",
+          ref: "git:abc",
+        });
+        return yield* b.listArtifacts(map);
+      }),
+    );
+    const entries = await readdir(join(map.dir, "artifacts"));
+    expect(entries).toContain("3-proof.yaml");
+    expect(artifacts).toEqual([
+      {
+        format_version: CURRENT_FORMAT_VERSION,
+        id: 3,
+        name: "proof",
+        kind: "document",
+        ref: "git:abc",
+        created_at: T0,
+        updated_at: T0,
+      },
+    ]);
+  });
+
   test("listArtifacts decodes both .yaml and .yml records sorted by name", async () => {
     const map = await initializedMap();
     await run(
       Effect.gen(function* () {
         const b = yield* backend();
         yield* b.createArtifact(map, {
-          format_version: 1,
+          format_version: CURRENT_FORMAT_VERSION,
+          id: 1,
           name: "zeta",
           kind: "document",
           ref: "git:z",
@@ -399,8 +498,8 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
       }),
     );
     await writeFile(
-      join(map.dir, "artifacts", "alpha.yml"),
-      "format_version: 1\nname: alpha\nkind: document\nref: git:a\n",
+      join(map.dir, "artifacts", "2-alpha.yml"),
+      `format_version: ${CURRENT_FORMAT_VERSION}\nid: 2\nname: alpha\nkind: document\nref: git:a\ncreated_at: ${T0}\nupdated_at: ${T0}\n`,
     );
     const artifacts = await run(
       Effect.gen(function* () {
@@ -411,36 +510,42 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
     expect(artifacts.map((a) => a.name)).toEqual(["alpha", "zeta"]);
   });
 
-  test("createGoal then listGoals round-trips and preserves the Markdown body, saveGoal updates it", async () => {
+  test("createGoal then listGoals round-trips and preserves the Markdown body, saveGoal advances updated_at from the injected clock", async () => {
     const map = await initializedMap();
     const goals = await run(
       Effect.gen(function* () {
         const b = yield* backend();
         yield* b.createGoal(map, {
-          format_version: 1,
+          format_version: CURRENT_FORMAT_VERSION,
           name: "release",
           description: "Ship it",
           evidence: [],
           body: "Acceptance notes.",
         });
-        yield* b.saveGoal(map, {
-          format_version: 1,
-          name: "release",
-          description: "Ship it",
-          evidence: ["proof"],
-          body: "Acceptance notes.",
-        });
+        const [, persisted] = yield* b.listGoals(map);
+        yield* TestClock.adjust("1 hour");
+        yield* b.saveGoal(map, { ...persisted, evidence: ["proof"] });
         return yield* b.listGoals(map);
       }),
     );
     expect(goals).toEqual([
-      { format_version: 1, name: "initial-goal", description: "done", evidence: [], body: "" },
       {
-        format_version: 1,
+        format_version: CURRENT_FORMAT_VERSION,
+        name: "initial-goal",
+        description: "done",
+        evidence: [],
+        body: "",
+        created_at: T0,
+        updated_at: T0,
+      },
+      {
+        format_version: CURRENT_FORMAT_VERSION,
         name: "release",
         description: "Ship it",
         evidence: ["proof"],
         body: "Acceptance notes.",
+        created_at: T0,
+        updated_at: T1,
       },
     ]);
   });
@@ -451,7 +556,7 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
       Effect.gen(function* () {
         const b = yield* backend();
         yield* b.createGoal(map, {
-          format_version: 1,
+          format_version: CURRENT_FORMAT_VERSION,
           name: "release",
           description: "Ship it",
           evidence: [],
@@ -463,7 +568,7 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
       Effect.gen(function* () {
         const b = yield* backend();
         yield* b.createGoal(map, {
-          format_version: 1,
+          format_version: CURRENT_FORMAT_VERSION,
           name: "release",
           description: "Ship it again",
           evidence: [],
@@ -489,6 +594,6 @@ describe("FileSystemBackend: atomic writes", () => {
     const mapDirEntries = await readdir(join(directory, ".wayful", "maps", "plan"));
     expect(mapDirEntries.some((entry) => entry.includes(".tmp-"))).toBe(false);
     const projectToml = await readFile(join(directory, ".wayful", "project.toml"), "utf8");
-    expect(projectToml).toContain("format_version = 1");
+    expect(projectToml).toContain(`format_version = ${CURRENT_FORMAT_VERSION}`);
   });
 });

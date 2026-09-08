@@ -1,0 +1,7 @@
+format_version: 2
+id: 1
+name: portability-findings
+kind: research-findings
+ref: docs/research/entrypoint-portability.md
+created_at: 2026-09-08T17:48:47.751Z
+updated_at: 2026-09-08T17:48:47.751Z

@@ -1,5 +1,5 @@
 ---
-format_version: 1
+format_version: 2
 name: grilling
 description: Resolve a decision through a live, structured conversation.
 required_inputs: []
