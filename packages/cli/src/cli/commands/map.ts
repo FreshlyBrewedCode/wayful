@@ -4,12 +4,18 @@ import { Command, Flag } from "effect/unstable/cli";
 import { WayfulBackend } from "../../backend/Backend";
 import { MapMetadataError } from "../../domain/errors";
 import { nextSteps } from "../../domain/graph";
+import type { DecodeError } from "../../domain/model";
 import { mapStatus } from "../../domain/status";
 import { validateMap } from "../../domain/validate";
 import { buildSnapshot, resolveMap, resolveProject } from "../../scope";
 import { jsonFlag, mapFlag } from "../flags";
 import { bodyLines, handle, printOutput } from "../render";
 import { wayfulRoot } from "../root";
+
+/** Renders decode errors as an explicit section — omitted entirely when there are none, so degraded output is never confused with the ordinary case. */
+function errorLines(errors: readonly DecodeError[]): string[] {
+  return errors.length ? ["Errors:", ...errors.map((e) => `- ${e.file}: ${e.message}`)] : [];
+}
 
 const mapCreateCommand = Command.make(
   "create",
@@ -49,7 +55,7 @@ const mapListCommand = Command.make("list", { json: jsonFlag }, ({ json }) =>
       const root = yield* wayfulRoot;
       const backend = yield* WayfulBackend;
       const p = yield* resolveProject(root.project);
-      const maps = yield* backend.listMaps(p);
+      const maps = (yield* backend.listMaps(p)).records;
       yield* printOutput(json, maps, maps.map((m) => `${m.name}: ${m.start}`).join("\n"));
     }),
   ),
@@ -77,7 +83,11 @@ const mapValidateCommand = Command.make(
           yield* reportValidation(json, [snapshotResult.failure.message]);
           return;
         }
-        const errors = validateMap(snapshotResult.success, { includeProgress: true });
+        const { snapshot, errors: readErrors } = snapshotResult.success;
+        // Decode errors are blocking here — unlike `map show`/`status`/`next` —
+        // and every malformed file is reported, not just the first.
+        const validationErrors = validateMap(snapshot, { includeProgress: true });
+        const errors = [...readErrors.map((e) => `${e.file}: ${e.message}`), ...validationErrors];
         yield* reportValidation(json, errors);
       }),
     ),
@@ -101,10 +111,16 @@ const mapShowCommand = Command.make("show", { map: mapFlag, json: jsonFlag }, ({
       const backend = yield* WayfulBackend;
       const p = yield* resolveProject(root.project);
       const m = yield* resolveMap(map, p);
-      const steps = yield* backend.listSteps(m);
-      const artifacts = yield* backend.listArtifacts(m);
-      const goals = yield* backend.listGoals(m);
-      const value = { ...m.metadata, goals, artifacts, steps };
+      const stepsRead = yield* backend.listSteps(m);
+      const artifactsRead = yield* backend.listArtifacts(m);
+      const goalsRead = yield* backend.listGoals(m);
+      const steps = stepsRead.records;
+      const artifacts = artifactsRead.records;
+      const goals = goalsRead.records;
+      // A broken sibling never hides a healthy one: render everything that
+      // decoded, and report everything that didn't, rather than failing.
+      const errors = [...stepsRead.errors, ...artifactsRead.errors, ...goalsRead.errors];
+      const value = { ...m.metadata, goals, artifacts, steps, errors };
       const human = [
         `Map ${m.name}`,
         `Start: ${m.metadata.start}`,
@@ -123,6 +139,7 @@ const mapShowCommand = Command.make("show", { map: mapFlag, json: jsonFlag }, ({
               ...bodyLines(s.body, "  "),
             ])
           : ["- none"]),
+        ...errorLines(errors),
       ].join("\n");
       yield* printOutput(json, value, human);
     }),
@@ -137,13 +154,17 @@ const mapNextCommand = Command.make("next", { map: mapFlag, json: jsonFlag }, ({
       const backend = yield* WayfulBackend;
       const p = yield* resolveProject(root.project);
       const m = yield* resolveMap(map, p);
-      const steps = yield* backend.listSteps(m);
-      const artifacts = yield* backend.listArtifacts(m);
-      const actionable = nextSteps(steps, artifacts);
+      const stepsRead = yield* backend.listSteps(m);
+      const artifactsRead = yield* backend.listArtifacts(m);
+      const errors = [...stepsRead.errors, ...artifactsRead.errors];
+      const actionable = nextSteps(stepsRead.records, artifactsRead.records);
       yield* printOutput(
         json,
-        actionable,
-        actionable.map((s) => `${s.id} ${s.name}: ${s.description}`).join("\n"),
+        { steps: actionable, errors },
+        [
+          ...actionable.map((s) => `${s.id} ${s.name}: ${s.description}`),
+          ...errorLines(errors),
+        ].join("\n"),
       );
     }),
   ),
@@ -157,10 +178,12 @@ const mapStatusCommand = Command.make("status", { map: mapFlag, json: jsonFlag }
       const backend = yield* WayfulBackend;
       const p = yield* resolveProject(root.project);
       const m = yield* resolveMap(map, p);
-      const steps = yield* backend.listSteps(m);
-      const artifacts = yield* backend.listArtifacts(m);
-      const goals = yield* backend.listGoals(m);
-      const status = mapStatus(m.metadata, steps, artifacts, goals);
+      const stepsRead = yield* backend.listSteps(m);
+      const artifactsRead = yield* backend.listArtifacts(m);
+      const goalsRead = yield* backend.listGoals(m);
+      const steps = stepsRead.records;
+      const errors = [...stepsRead.errors, ...artifactsRead.errors, ...goalsRead.errors];
+      const status = mapStatus(m.metadata, steps, artifactsRead.records, goalsRead.records);
       const human = [
         `Map ${status.map}`,
         `Goals: ${status.goals.satisfied}/${status.goals.total} satisfied`,
@@ -176,8 +199,9 @@ const mapStatusCommand = Command.make("status", { map: mapFlag, json: jsonFlag }
               return `- ${step.id} ${step.name}: ${step.description}`;
             })
           : ["- none"]),
+        ...errorLines(errors),
       ].join("\n");
-      yield* printOutput(json, status, human);
+      yield* printOutput(json, { ...status, errors }, human);
     }),
   ),
 ).pipe(Command.withDescription("Show map status"));

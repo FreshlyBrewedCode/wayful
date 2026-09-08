@@ -5,7 +5,7 @@ import { WayfulBackend } from "../../backend/Backend";
 import { liftSync } from "../../backend/filesystem/documents";
 import { identifier, nonEmpty } from "../../domain/identifier";
 import { CURRENT_FORMAT_VERSION } from "../../domain/model";
-import { assertWritableMapIntegrity, fail, resolveMap, resolveProject } from "../../scope";
+import { assertWritableMapIntegrity, fail, resolveMap, resolveProject, strict } from "../../scope";
 import { mapFlag } from "../flags";
 import { handle } from "../render";
 import { wayfulRoot } from "../root";
@@ -38,7 +38,7 @@ const artifactAddCommand = Command.make(
         const project = yield* resolveProject(root.project);
         const map = yield* resolveMap(parent.map, project);
         yield* assertWritableMapIntegrity(map);
-        const artifacts = yield* backend.listArtifacts(map);
+        const artifacts = yield* strict(yield* backend.listArtifacts(map));
         const resolvedName = yield* liftSync(() => identifier(name, "artifact name"));
         if (artifacts.some((a) => a.name === resolvedName))
           yield* fail(`artifact '${resolvedName}' already exists.`);

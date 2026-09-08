@@ -93,10 +93,10 @@ function readMap(map: MapHandle): Effect.Effect<MapSnapshot, WayfulError, Wayful
     const backend = yield* WayfulBackend;
     return {
       map: map.metadata,
-      steps: yield* backend.listSteps(map),
-      artifacts: yield* backend.listArtifacts(map),
-      goals: yield* backend.listGoals(map),
-      types: yield* backend.listTypes(map.project),
+      steps: (yield* backend.listSteps(map)).records,
+      artifacts: (yield* backend.listArtifacts(map)).records,
+      goals: (yield* backend.listGoals(map)).records,
+      types: (yield* backend.listTypes(map.project)).records,
     };
   });
 }
@@ -135,7 +135,7 @@ export function overview(hint: ProjectHint): Api<OverviewPayload> {
     const maps = yield* Effect.result(backend.listMaps(project));
     const types = yield* Effect.result(backend.listTypes(project));
     const summaries: MapSummaryPayload[] = [];
-    for (const metadata of Result.isSuccess(maps) ? maps.success : []) {
+    for (const metadata of Result.isSuccess(maps) ? maps.success.records : []) {
       // A map that has become unreadable since it was listed still belongs on
       // screen; it reports no status rather than sinking the whole overview.
       const snapshot = yield* Effect.result(
@@ -149,7 +149,7 @@ export function overview(hint: ProjectHint): Api<OverviewPayload> {
     return {
       project: { root: project.root, description: project.description },
       maps: summaries,
-      types: Result.isSuccess(types) ? types.success : [],
+      types: Result.isSuccess(types) ? types.success.records : [],
       error: Result.isFailure(maps) ? maps.failure.message : undefined,
     };
   });
@@ -185,7 +185,7 @@ export function stepDetail(
       const backend = yield* WayfulBackend;
       const project = yield* openProject(hint);
       const map = yield* openMap(project, mapName);
-      const steps = yield* backend.listSteps(map);
+      const steps = (yield* backend.listSteps(map)).records;
       const target = /^\d+$/.test(reference)
         ? steps.find((step) => step.id === Number(reference))
         : steps.find((step) => step.name === reference);

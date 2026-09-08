@@ -5,7 +5,7 @@ import { WayfulBackend } from "../../backend/Backend";
 import { liftSync } from "../../backend/filesystem/documents";
 import { identifier, nonEmpty } from "../../domain/identifier";
 import { assertSameMap, describeToken, expectArtifact, resolveToken } from "../../domain/reference";
-import { assertWritableMapIntegrity, fail, resolveMap, resolveProject } from "../../scope";
+import { assertWritableMapIntegrity, fail, resolveMap, resolveProject, strict } from "../../scope";
 import { jsonFlag, mapFlag } from "../flags";
 import { bodyLines, handle, printOutput } from "../render";
 import { wayfulRoot } from "../root";
@@ -24,7 +24,7 @@ const goalListCommand = Command.make("list", { json: jsonFlag }, ({ json }) =>
       const root = yield* wayfulRoot;
       const project = yield* resolveProject(root.project);
       const map = yield* resolveMap(parent.map, project);
-      const goals = yield* backend.listGoals(map);
+      const goals = yield* strict(yield* backend.listGoals(map));
       const human = goals
         .flatMap((g) => [`${g.name}: ${g.description}`, ...bodyLines(g.body)])
         .join("\n");
@@ -104,14 +104,14 @@ const goalSatisfyCommand = Command.make(
         const map = yield* resolveMap(parent.map, project);
         yield* assertWritableMapIntegrity(map);
         const resolvedGoalName = yield* liftSync(() => identifier(goal, "goal name"));
-        const goals = yield* backend.listGoals(map);
+        const goals = yield* strict(yield* backend.listGoals(map));
         const target = goals.find((g) => g.name === resolvedGoalName);
         if (!target) return yield* fail(`goal '${resolvedGoalName}' does not exist.`);
         if (target.evidence.length)
           return yield* fail(`goal '${resolvedGoalName}' is already satisfied.`);
         const combinedEvidence = [...artifact, ...evidence];
         if (!combinedEvidence.length) yield* fail("at least one evidence artifact is required.");
-        const artifacts = yield* backend.listArtifacts(map);
+        const artifacts = yield* strict(yield* backend.listArtifacts(map));
         const resolvedEvidence: string[] = [];
         for (const raw of combinedEvidence) {
           const ref = yield* liftSync(() => expectArtifact(raw));
