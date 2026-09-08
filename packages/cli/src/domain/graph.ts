@@ -7,6 +7,34 @@ function requiredSlots(step: StepRecord, direction: Direction) {
   return direction === "inputs" ? step.required_inputs : step.required_outputs;
 }
 
+/** A single valid attachment, normalized out of a step's raw `inputs`/`outputs`. */
+export interface AttachmentView {
+  readonly slot: string | undefined;
+  readonly artifactName: string;
+}
+
+/**
+ * Normalizes a step's raw `inputs`/`outputs` into the attachments that decode
+ * validly, silently dropping malformed entries — `attachmentErrors` below is
+ * what reports those, for `map validate`. Used by `context` step and
+ * artifact scope (issue #8) to read attachments without re-deriving their
+ * shape, and to build the artifact reverse index.
+ */
+export function normalizedAttachments(attachments: readonly unknown[]): readonly AttachmentView[] {
+  return attachments
+    .filter(
+      (candidate): candidate is { artifact: string; slot?: unknown } =>
+        !!candidate &&
+        typeof candidate === "object" &&
+        !Array.isArray(candidate) &&
+        typeof (candidate as any).artifact === "string",
+    )
+    .map((candidate) => ({
+      artifactName: candidate.artifact,
+      slot: typeof candidate.slot === "string" ? candidate.slot : undefined,
+    }));
+}
+
 /** Finds the attachment (if any) filling `slotName` among a step's raw `inputs`/`outputs`. */
 function findAttachment(
   attachments: StepRecord["inputs"] | StepRecord["outputs"],
