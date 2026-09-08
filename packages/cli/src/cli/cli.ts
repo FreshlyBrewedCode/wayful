@@ -1,6 +1,7 @@
 import { Command } from "effect/unstable/cli";
 
 import { artifactCommand } from "./commands/artifact";
+import { contextCommand } from "./commands/context";
 import { goalCommand } from "./commands/goal";
 import { initCommand } from "./commands/init";
 import { mapCommand } from "./commands/map";
@@ -12,6 +13,7 @@ import { wayfulRoot } from "./root";
 export const cli = wayfulRoot.pipe(
   Command.withSubcommands([
     initCommand,
+    contextCommand,
     mapCommand,
     stepCommand,
     artifactCommand,
