@@ -1,5 +1,5 @@
 ---
-format_version: 1
+format_version: 2
 name: prototype
 description: Use a cheap concrete artifact to resolve a design or behaviour decision with a human.
 required_inputs: []

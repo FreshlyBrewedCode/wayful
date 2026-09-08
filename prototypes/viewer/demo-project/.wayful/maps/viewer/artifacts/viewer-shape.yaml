@@ -1,4 +1,0 @@
-format_version: 1
-name: viewer-shape
-kind: wayfinder-resolution
-ref: docs/decisions/viewer-shape.md

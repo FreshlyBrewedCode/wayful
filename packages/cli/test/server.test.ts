@@ -7,6 +7,7 @@ import { join } from "node:path";
 
 import { FileSystemBackend } from "../src/backend/filesystem/layer";
 import type { WayfulError } from "../src/domain/errors";
+import { CURRENT_FORMAT_VERSION } from "../src/domain/model";
 import { clientDirectory, resolveClientAssets } from "../src/server/client";
 import { EMBEDDED_ASSETS } from "../src/server/embedded-ui";
 import { startServer, type RunningServer, type ServerConfig } from "../src/server/http";
@@ -30,6 +31,11 @@ async function temporaryDirectory() {
   return directory;
 }
 
+// A fixed timestamp for these hand-authored fixtures, so structural
+// assertions below can compare exact `created_at`/`updated_at` values rather
+// than merely their shape.
+const FIXTURE_TIME = "2024-01-01T00:00:00.000Z";
+
 /**
  * Writes documented on-disk input directly; the server under test is the only
  * thing that reads it, so a fixture bug cannot be hidden by the code it tests.
@@ -43,31 +49,31 @@ async function projectFixture() {
   await mkdir(join(project, ".wayful", "types"), { recursive: true });
   await writeFile(
     join(project, ".wayful", "project.toml"),
-    'format_version = 1\ndescription = "Fixture project"\n',
+    `format_version = ${CURRENT_FORMAT_VERSION}\ndescription = "Fixture project"\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
   );
   await writeFile(
     join(map, "map.toml"),
-    'format_version = 1\nname = "plan"\nstart = "here"\nstep_id_counter = 3\n',
+    `format_version = ${CURRENT_FORMAT_VERSION}\nname = "plan"\nstart = "here"\nstep_id_counter = 3\nartifact_id_counter = 2\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
   );
   await writeFile(
     join(project, ".wayful", "types", "task.md"),
-    "---\nformat_version: 1\nname: task\ndescription: Fixture type\nrequired_inputs: []\nrequired_outputs: []\n---\nUse primary sources.\n",
+    `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nname: task\ndescription: Fixture type\nrequired_inputs: []\nrequired_outputs: []\n---\nUse primary sources.\n`,
   );
   await writeFile(
     join(map, "steps", "1-work.md"),
-    "---\nformat_version: 1\nid: 1\nname: work\ntype: task\ndescription: Do it\nstatus: pending\ndependencies: []\ninputs: []\noutputs: []\nrequired_inputs: []\nrequired_outputs: []\n---\nStep narrative.\n",
+    `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: work\ntype: task\ndescription: Do it\nstatus: pending\ndependencies: []\ninputs: []\noutputs: []\nrequired_inputs: []\nrequired_outputs: []\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n---\nStep narrative.\n`,
   );
   await writeFile(
     join(map, "steps", "2-waiting.md"),
-    "---\nformat_version: 1\nid: 2\nname: waiting\ntype: task\ndescription: Wait\nstatus: blocked\nblock_reason: Awaiting approval\ndependencies: []\ninputs: []\noutputs: []\nrequired_inputs: []\nrequired_outputs: []\n---\n",
+    `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nid: 2\nname: waiting\ntype: task\ndescription: Wait\nstatus: blocked\nblock_reason: Awaiting approval\ndependencies: []\ninputs: []\noutputs: []\nrequired_inputs: []\nrequired_outputs: []\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n---\n`,
   );
   await writeFile(
-    join(map, "artifacts", "proof.yaml"),
-    "format_version: 1\nname: proof\nkind: document\nref: git:abc\n",
+    join(map, "artifacts", "1-proof.yaml"),
+    `format_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: proof\nkind: document\nref: git:abc\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n`,
   );
   await writeFile(
     join(map, "goals", "initial-goal.md"),
-    "---\nformat_version: 1\nname: initial-goal\ndescription: Ship it\nevidence: []\n---\nAcceptance notes.\n",
+    `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nname: initial-goal\ndescription: Ship it\nevidence: []\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n---\nAcceptance notes.\n`,
   );
   return project;
 }
@@ -100,10 +106,13 @@ describe("the JSON API the viewer requires", () => {
     expect(overview.project).toEqual({ root: project, description: "Fixture project" });
     expect(overview.maps).toEqual([
       {
-        format_version: 1,
+        format_version: CURRENT_FORMAT_VERSION,
         name: "plan",
         start: "here",
         step_id_counter: 3,
+        artifact_id_counter: 2,
+        created_at: FIXTURE_TIME,
+        updated_at: FIXTURE_TIME,
         status: {
           map: "plan",
           goals: { satisfied: 0, total: 1 },
@@ -115,7 +124,7 @@ describe("the JSON API the viewer requires", () => {
     ]);
     expect(overview.types).toEqual([
       {
-        format_version: 1,
+        format_version: CURRENT_FORMAT_VERSION,
         name: "task",
         description: "Fixture type",
         required_inputs: [],
@@ -135,15 +144,25 @@ describe("the JSON API the viewer requires", () => {
     expect(detail.map.start).toBe("here");
     expect(detail.map.goals).toEqual([
       {
-        format_version: 1,
+        format_version: CURRENT_FORMAT_VERSION,
         name: "initial-goal",
         description: "Ship it",
         evidence: [],
         body: "Acceptance notes.\n",
+        created_at: FIXTURE_TIME,
+        updated_at: FIXTURE_TIME,
       },
     ]);
     expect(detail.map.artifacts).toEqual([
-      { format_version: 1, name: "proof", kind: "document", ref: "git:abc" },
+      {
+        format_version: CURRENT_FORMAT_VERSION,
+        id: 1,
+        name: "proof",
+        kind: "document",
+        ref: "git:abc",
+        created_at: FIXTURE_TIME,
+        updated_at: FIXTURE_TIME,
+      },
     ]);
     expect(detail.map.steps.map((step: { id: number }) => step.id)).toEqual([1, 2]);
     expect(detail.status.steps).toEqual({ pending: 1, blocked: 1, complete: 0, cancelled: 0 });
@@ -164,7 +183,7 @@ describe("the JSON API the viewer requires", () => {
     const project = await projectFixture();
     await writeFile(
       join(project, ".wayful", "maps", "plan", "steps", "1-work.md"),
-      "---\nformat_version: 1\nid: 1\nname: work\ntype: task\ndescription: Do it\nstatus: pending\ndependencies: []\ninputs:\n  - artifact: missing\noutputs: []\nrequired_inputs: []\nrequired_outputs: []\n---\n",
+      `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: work\ntype: task\ndescription: Do it\nstatus: pending\ndependencies: []\ninputs:\n  - artifact: missing\noutputs: []\nrequired_inputs: []\nrequired_outputs: []\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n---\n`,
     );
     const server = await serve({ project });
 

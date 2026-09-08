@@ -1,5 +1,5 @@
 ---
-format_version: 1
+format_version: 2
 id: 2
 name: decide-version-gate
 type: grilling
@@ -17,4 +17,6 @@ required_outputs:
   - name: spec
     kind: spec
     description: The record capturing all decisions in a specification
+created_at: 2026-09-08T17:48:48.219Z
+updated_at: 2026-09-08T17:48:48.369Z
 ---

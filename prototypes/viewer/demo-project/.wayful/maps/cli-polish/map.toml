@@ -1,4 +1,7 @@
-format_version = 1
+format_version = 2
 name = "cli-polish"
 start = "CLI passes its own suite but assumes a Debian-shaped host"
 step_id_counter = 4
+artifact_id_counter = 2
+created_at = "2026-09-08T17:48:47.598Z"
+updated_at = "2026-09-08T17:48:48.519Z"

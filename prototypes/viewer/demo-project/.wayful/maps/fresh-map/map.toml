@@ -1,4 +1,7 @@
-format_version = 1
+format_version = 2
 name = "fresh-map"
 start = "Nothing charted yet"
 step_id_counter = 1
+artifact_id_counter = 1
+created_at = "2026-09-08T17:48:48.823Z"
+updated_at = "2026-09-08T17:48:48.823Z"

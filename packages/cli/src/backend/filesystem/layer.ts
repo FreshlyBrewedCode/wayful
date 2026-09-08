@@ -2,12 +2,17 @@ import { Effect, FileSystem, Layer, Option, Path } from "effect";
 
 import { MapMetadataError, WayfulError } from "../../domain/errors";
 import { identifier, nonEmpty } from "../../domain/identifier";
-import type {
-  ArtifactRecord,
-  GoalRecord,
-  MapMetadata,
-  StepRecord,
-  TypeDefinition,
+import {
+  closesStep,
+  CURRENT_FORMAT_VERSION,
+  type ArtifactRecord,
+  type GoalRecord,
+  type MapMetadata,
+  type NewArtifactRecord,
+  type NewGoalRecord,
+  type NewStepRecord,
+  type StepRecord,
+  type TypeDefinition,
 } from "../../domain/model";
 import { WayfulBackend, type MapHandle, type ProjectHandle } from "../Backend";
 import {
@@ -21,6 +26,7 @@ import {
 import {
   buildMarkdown,
   liftSync,
+  nowISO,
   parseFrontmatter,
   parseToml,
   parseYaml,
@@ -57,6 +63,9 @@ function mapMetadataToToml(metadata: MapMetadata): Record<string, unknown> {
     name: metadata.name,
     start: metadata.start,
     step_id_counter: metadata.step_id_counter,
+    artifact_id_counter: metadata.artifact_id_counter,
+    created_at: metadata.created_at,
+    updated_at: metadata.updated_at,
   };
   if (metadata.allowed_step_types !== undefined)
     record.allowed_step_types = metadata.allowed_step_types;
@@ -65,7 +74,7 @@ function mapMetadataToToml(metadata: MapMetadata): Record<string, unknown> {
 
 function stepToDocument(step: StepRecord): Record<string, unknown> {
   const document: Record<string, unknown> = {
-    format_version: 1,
+    format_version: CURRENT_FORMAT_VERSION,
     id: step.id,
     name: step.name,
     type: step.type,
@@ -76,20 +85,25 @@ function stepToDocument(step: StepRecord): Record<string, unknown> {
     outputs: step.outputs,
     required_inputs: step.required_inputs,
     required_outputs: step.required_outputs,
+    created_at: step.created_at,
+    updated_at: step.updated_at,
   };
   if (step.completion_summary !== undefined) document.completion_summary = step.completion_summary;
   if (step.cancellation_reason !== undefined)
     document.cancellation_reason = step.cancellation_reason;
   if (step.block_reason !== undefined) document.block_reason = step.block_reason;
+  if (step.closed_at !== undefined) document.closed_at = step.closed_at;
   return document;
 }
 
 function goalToDocument(goal: GoalRecord): Record<string, unknown> {
   return {
-    format_version: 1,
+    format_version: CURRENT_FORMAT_VERSION,
     name: goal.name,
     description: goal.description,
     evidence: goal.evidence,
+    created_at: goal.created_at,
+    updated_at: goal.updated_at,
   };
 }
 
@@ -159,16 +173,22 @@ export const FileSystemBackend = Layer.effect(
           yield* fs
             .makeDirectory(typesDir(path, root), { recursive: true })
             .pipe(Effect.mapError(() => onCreateError));
+          const now = yield* nowISO();
           yield* writeAtomic(
             fs,
             projectFile(path, root),
-            stringifyToml({ format_version: 1, description }),
+            stringifyToml({
+              format_version: CURRENT_FORMAT_VERSION,
+              description,
+              created_at: now,
+              updated_at: now,
+            }),
           );
           yield* writeAtomic(
             fs,
             typeFile(path, root, "task"),
             buildMarkdown({
-              format_version: 1,
+              format_version: CURRENT_FORMAT_VERSION,
               name: "task",
               description: "A general-purpose work step.",
               required_inputs: [],
@@ -248,16 +268,32 @@ export const FileSystemBackend = Layer.effect(
           yield* fs
             .makeDirectory(goalsDir(path, dir), { recursive: true })
             .pipe(Effect.mapError(() => onCreateError));
+          const now = yield* nowISO();
           yield* writeAtomic(
             fs,
             mapFile(path, dir),
-            stringifyToml({ format_version: 1, name, start: trimmedStart, step_id_counter: 1 }),
+            stringifyToml({
+              format_version: CURRENT_FORMAT_VERSION,
+              name,
+              start: trimmedStart,
+              step_id_counter: 1,
+              artifact_id_counter: 1,
+              created_at: now,
+              updated_at: now,
+            }),
           );
           yield* writeAtomic(
             fs,
             goalFile(path, dir, "initial-goal"),
             buildMarkdown(
-              { format_version: 1, name: "initial-goal", description: trimmedGoal, evidence: [] },
+              {
+                format_version: CURRENT_FORMAT_VERSION,
+                name: "initial-goal",
+                description: trimmedGoal,
+                evidence: [],
+                created_at: now,
+                updated_at: now,
+              },
               goalBody,
             ),
           );
@@ -266,11 +302,28 @@ export const FileSystemBackend = Layer.effect(
       openMap: (project, name) => openMapHandle(project, name),
 
       setStepIdCounter: (map, next) =>
-        writeAtomic(
-          fs,
-          mapFile(path, map.dir),
-          stringifyToml(mapMetadataToToml({ ...map.metadata, step_id_counter: next })),
-        ),
+        Effect.gen(function* () {
+          const now = yield* nowISO();
+          yield* writeAtomic(
+            fs,
+            mapFile(path, map.dir),
+            stringifyToml(
+              mapMetadataToToml({ ...map.metadata, step_id_counter: next, updated_at: now }),
+            ),
+          );
+        }),
+
+      setArtifactIdCounter: (map, next) =>
+        Effect.gen(function* () {
+          const now = yield* nowISO();
+          yield* writeAtomic(
+            fs,
+            mapFile(path, map.dir),
+            stringifyToml(
+              mapMetadataToToml({ ...map.metadata, artifact_id_counter: next, updated_at: now }),
+            ),
+          );
+        }),
 
       listSteps: (map) =>
         Effect.gen(function* () {
@@ -289,20 +342,35 @@ export const FileSystemBackend = Layer.effect(
           return steps.toSorted((a, b) => a.id - b.id);
         }),
 
-      createStep: (map, step) =>
+      createStep: (map, step: NewStepRecord) =>
         Effect.gen(function* () {
           const file = stepFile(path, map.dir, step.id, step.name);
           const exists = yield* fs.exists(file).pipe(Effect.mapError(accessError));
           if (exists) yield* fail(`step '${step.name}' already exists.`);
-          yield* writeAtomic(fs, file, buildMarkdown(stepToDocument(step), step.body));
+          const now = yield* nowISO();
+          const record: StepRecord = {
+            ...step,
+            created_at: now,
+            updated_at: now,
+            closed_at: closesStep(step.status) ? now : undefined,
+          };
+          yield* writeAtomic(fs, file, buildMarkdown(stepToDocument(record), record.body));
         }),
 
       saveStep: (map, step) =>
-        writeAtomic(
-          fs,
-          stepFile(path, map.dir, step.id, step.name),
-          buildMarkdown(stepToDocument(step), step.body),
-        ),
+        Effect.gen(function* () {
+          const now = yield* nowISO();
+          const record: StepRecord = {
+            ...step,
+            updated_at: now,
+            closed_at: closesStep(step.status) ? now : undefined,
+          };
+          yield* writeAtomic(
+            fs,
+            stepFile(path, map.dir, record.id, record.name),
+            buildMarkdown(stepToDocument(record), record.body),
+          );
+        }),
 
       listArtifacts: (map) =>
         Effect.gen(function* () {
@@ -321,21 +389,25 @@ export const FileSystemBackend = Layer.effect(
           return artifacts.toSorted((a, b) => a.name.localeCompare(b.name));
         }),
 
-      createArtifact: (map, artifact) =>
+      createArtifact: (map, artifact: NewArtifactRecord) =>
         Effect.gen(function* () {
-          const yamlFile = artifactFile(path, map.dir, artifact.name, "yaml");
-          const ymlFile = artifactFile(path, map.dir, artifact.name, "yml");
+          const yamlFile = artifactFile(path, map.dir, artifact.id, artifact.name, "yaml");
+          const ymlFile = artifactFile(path, map.dir, artifact.id, artifact.name, "yml");
           const yamlExists = yield* fs.exists(yamlFile).pipe(Effect.mapError(accessError));
           const ymlExists = yield* fs.exists(ymlFile).pipe(Effect.mapError(accessError));
           if (yamlExists || ymlExists) yield* fail(`artifact '${artifact.name}' already exists.`);
+          const now = yield* nowISO();
           yield* writeAtomic(
             fs,
             yamlFile,
             stringifyYaml({
-              format_version: 1,
+              format_version: CURRENT_FORMAT_VERSION,
+              id: artifact.id,
               name: artifact.name,
               kind: artifact.kind,
               ref: artifact.ref,
+              created_at: now,
+              updated_at: now,
             }),
           );
         }),
@@ -357,20 +429,26 @@ export const FileSystemBackend = Layer.effect(
           return goals.toSorted((a, b) => a.name.localeCompare(b.name));
         }),
 
-      createGoal: (map, goal) =>
+      createGoal: (map, goal: NewGoalRecord) =>
         Effect.gen(function* () {
           const file = goalFile(path, map.dir, goal.name);
           const exists = yield* fs.exists(file).pipe(Effect.mapError(accessError));
           if (exists) yield* fail(`goal '${goal.name}' already exists.`);
-          yield* writeAtomic(fs, file, buildMarkdown(goalToDocument(goal), goal.body));
+          const now = yield* nowISO();
+          const record: GoalRecord = { ...goal, created_at: now, updated_at: now };
+          yield* writeAtomic(fs, file, buildMarkdown(goalToDocument(record), record.body));
         }),
 
       saveGoal: (map, goal) =>
-        writeAtomic(
-          fs,
-          goalFile(path, map.dir, goal.name),
-          buildMarkdown(goalToDocument(goal), goal.body),
-        ),
+        Effect.gen(function* () {
+          const now = yield* nowISO();
+          const record: GoalRecord = { ...goal, updated_at: now };
+          yield* writeAtomic(
+            fs,
+            goalFile(path, map.dir, record.name),
+            buildMarkdown(goalToDocument(record), record.body),
+          );
+        }),
     });
   }),
 );

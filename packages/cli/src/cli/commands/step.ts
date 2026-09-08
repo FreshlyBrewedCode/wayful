@@ -7,7 +7,12 @@ import { WayfulError } from "../../domain/errors";
 import { attachmentOK, reaches } from "../../domain/graph";
 import { identifier, nonEmpty, slots } from "../../domain/identifier";
 import type { Slot } from "../../domain/identifier";
-import type { StepRecord } from "../../domain/model";
+import {
+  closesStep,
+  CURRENT_FORMAT_VERSION,
+  type NewStepRecord,
+  type StepRecord,
+} from "../../domain/model";
 import { assertWritableMapIntegrity, fail, resolveMap, resolveProject } from "../../scope";
 import { jsonFlag, mapFlag } from "../flags";
 import { handle, printOutput } from "../render";
@@ -58,8 +63,7 @@ function findStep(
 
 function assertNotTerminal(step: StepRecord): Effect.Effect<void, WayfulError> {
   return Effect.gen(function* () {
-    if (step.status === "complete" || step.status === "cancelled")
-      yield* fail("terminal steps cannot be changed.");
+    if (closesStep(step.status)) yield* fail("terminal steps cannot be changed.");
   });
 }
 
@@ -126,8 +130,8 @@ const stepCreateCommand = Command.make(
         const resolvedDescription = yield* liftSync(() =>
           nonEmpty(description, "step description"),
         );
-        const step: StepRecord = {
-          format_version: 1,
+        const step: NewStepRecord = {
+          format_version: CURRENT_FORMAT_VERSION,
           id,
           name: stepName,
           type: typeName,

@@ -1,5 +1,5 @@
 ---
-format_version: 1
+format_version: 2
 id: 4
 name: step-detail-panel
 type: task
@@ -17,4 +17,6 @@ required_outputs:
   - name: resolution
     kind: markdown
     description: A description of how the task was resolved
+created_at: 2026-09-08T17:48:46.038Z
+updated_at: 2026-09-08T17:48:46.197Z
 ---

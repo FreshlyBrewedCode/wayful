@@ -1,5 +1,5 @@
 ---
-format_version: 1
+format_version: 2
 name: task
 description: Perform a generic task not covered by any other available type 
 required_inputs: []

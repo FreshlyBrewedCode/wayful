@@ -1,5 +1,5 @@
 ---
-format_version: 1
+format_version: 2
 name: wayfinder-research
 description: Resolve a decision-blocking question through independent research.
 required_inputs: []

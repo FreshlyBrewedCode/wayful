@@ -1,5 +1,5 @@
 ---
-format_version: 1
+format_version: 2
 name: wayfinder-task
 description: Complete a prerequisite action that unblocks a later decision.
 required_inputs: []

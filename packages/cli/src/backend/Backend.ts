@@ -5,6 +5,9 @@ import type {
   ArtifactRecord,
   GoalRecord,
   MapMetadata,
+  NewArtifactRecord,
+  NewGoalRecord,
+  NewStepRecord,
   StepRecord,
   TypeDefinition,
 } from "../domain/model";
@@ -58,9 +61,13 @@ export class WayfulBackend extends Context.Service<
       name: string,
     ) => Effect.Effect<MapHandle, WayfulError | MapMetadataError>;
     readonly setStepIdCounter: (map: MapHandle, next: number) => Effect.Effect<void, WayfulError>;
+    readonly setArtifactIdCounter: (
+      map: MapHandle,
+      next: number,
+    ) => Effect.Effect<void, WayfulError>;
 
     readonly listSteps: (map: MapHandle) => Effect.Effect<readonly StepRecord[], WayfulError>;
-    readonly createStep: (map: MapHandle, step: StepRecord) => Effect.Effect<void, WayfulError>;
+    readonly createStep: (map: MapHandle, step: NewStepRecord) => Effect.Effect<void, WayfulError>;
     readonly saveStep: (map: MapHandle, step: StepRecord) => Effect.Effect<void, WayfulError>;
 
     readonly listArtifacts: (
@@ -68,11 +75,11 @@ export class WayfulBackend extends Context.Service<
     ) => Effect.Effect<readonly ArtifactRecord[], WayfulError>;
     readonly createArtifact: (
       map: MapHandle,
-      artifact: ArtifactRecord,
+      artifact: NewArtifactRecord,
     ) => Effect.Effect<void, WayfulError>;
 
     readonly listGoals: (map: MapHandle) => Effect.Effect<readonly GoalRecord[], WayfulError>;
-    readonly createGoal: (map: MapHandle, goal: GoalRecord) => Effect.Effect<void, WayfulError>;
+    readonly createGoal: (map: MapHandle, goal: NewGoalRecord) => Effect.Effect<void, WayfulError>;
     readonly saveGoal: (map: MapHandle, goal: GoalRecord) => Effect.Effect<void, WayfulError>;
   }
 >()("wayful/Backend") {}
