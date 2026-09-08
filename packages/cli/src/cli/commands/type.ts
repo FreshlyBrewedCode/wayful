@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { Argument, Command } from "effect/unstable/cli";
 
 import { WayfulBackend } from "../../backend/Backend";
-import { resolveProject } from "../../context";
+import { resolveProject } from "../../scope";
 import { jsonFlag } from "../flags";
 import { handle, printOutput } from "../render";
 import { wayfulRoot } from "../root";

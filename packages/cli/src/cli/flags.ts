@@ -1,7 +1,7 @@
 import { Flag } from "effect/unstable/cli";
 
 // `--project`/`--map` resolve against WAYFUL_PROJECT/WAYFUL_MAP with the flag
-// taking precedence, replicated manually in cli/context.ts so the exact
+// taking precedence, replicated manually in cli/scope.ts so the exact
 // "map context is required; pass --map or set WAYFUL_MAP." message survives
 // rather than a framework-generated missing-option error.
 export const projectFlag = Flag.string("project").pipe(

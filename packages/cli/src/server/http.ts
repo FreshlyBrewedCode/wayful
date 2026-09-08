@@ -7,7 +7,7 @@ import { watch, type FSWatcher } from "node:fs";
 import { join, resolve } from "node:path";
 
 import type { WayfulBackend } from "../backend/Backend";
-import { resolveProject } from "../context";
+import { resolveProject } from "../scope";
 import { WayfulError } from "../domain/errors";
 import { mapDetail, overview, stepDetail } from "./api";
 
