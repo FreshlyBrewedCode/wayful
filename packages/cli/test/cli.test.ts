@@ -151,6 +151,18 @@ async function breakStep(project: string, filename: string) {
   await writeFile(file, (await readFile(file, "utf8")).replace("status: pending", "status: bogus"));
 }
 
+/** Corrupts a persisted artifact file so it fails to decode, mirroring `breakStep`. */
+async function breakArtifact(project: string, filename: string) {
+  const file = join(project, ".wayful", "maps", "plan", "artifacts", filename);
+  await writeFile(
+    file,
+    (await readFile(file, "utf8")).replace(
+      `format_version: ${CURRENT_FORMAT_VERSION}`,
+      `format_version: ${CURRENT_FORMAT_VERSION + 1}`,
+    ),
+  );
+}
+
 async function writeStep(
   project: string,
   name: string,
@@ -1263,6 +1275,85 @@ describe("artifacts, goals, and validation", () => {
     }
   });
 
+  test("artifact show prints an artifact's full record by reference, accepting the full reference grammar", async () => {
+    const project = await projectFixture();
+    await writeArtifact(project, "brief", 1, { kind: "document", ref: "docs/brief.md" });
+    await mkdir(join(project, ".wayful", "maps", "elsewhere", "steps"), { recursive: true });
+    await mkdir(join(project, ".wayful", "maps", "elsewhere", "artifacts"), { recursive: true });
+    await mkdir(join(project, ".wayful", "maps", "elsewhere", "goals"), { recursive: true });
+    await writeFile(
+      join(project, ".wayful", "maps", "elsewhere", "map.toml"),
+      `format_version = ${CURRENT_FORMAT_VERSION}\nname = "elsewhere"\nstart = "here"\nstep_id_counter = 1\nartifact_id_counter = 2\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
+    );
+    await writeArtifact(project, "other-map-doc", 1, {
+      map: "elsewhere",
+      kind: "document",
+      ref: "x",
+    });
+
+    for (const args of [
+      ["artifact", "show", "@1", "--map", "plan"],
+      ["artifact", "show", "@brief", "--map", "plan"],
+      ["artifact", "show", "plan/@1"],
+      ["artifact", "show", "plan/@brief"],
+    ]) {
+      const result = invoke([...args, "--json"], project);
+      expect(result.exitCode).toBe(0);
+      const view = JSON.parse(result.stdout);
+      expect(view.id).toBe("plan/@1");
+      expect(view.name).toBe("brief");
+      expect(view.kind).toBe("document");
+      expect(view.ref).toBe("docs/brief.md");
+      expectTimestamps(view);
+    }
+
+    // A map prefix on the reference overrides --map/WAYFUL_MAP.
+    const crossMap = invoke(
+      ["artifact", "show", "elsewhere/@1", "--map", "plan", "--json"],
+      project,
+    );
+    expect(crossMap.exitCode).toBe(0);
+    expect(JSON.parse(crossMap.stdout).id).toBe("elsewhere/@1");
+
+    const human = invoke(["artifact", "show", "@1", "--map", "plan"], project).stdout;
+    expect(human).toContain("plan/@1 brief");
+    expect(human).toContain("Kind: document");
+    expect(human).toContain("Reference: docs/brief.md");
+
+    expectCommandError(invoke(["artifact", "show", "@does-not-exist", "--map", "plan"], project));
+  });
+
+  test("artifact list prints every artifact on a map, uncapped, with fully-qualified ids", async () => {
+    const project = await projectFixture();
+    await writeArtifact(project, "alpha", 1, { kind: "document", ref: "a" });
+    await writeArtifact(project, "beta", 2, { kind: "document", ref: "b" });
+
+    const result = invoke(["artifact", "list", "--map", "plan", "--json"], project);
+    expect(result.exitCode).toBe(0);
+    const list = JSON.parse(result.stdout);
+    expect(list.map((a: { id: string; name: string }) => [a.id, a.name])).toEqual([
+      ["plan/@1", "alpha"],
+      ["plan/@2", "beta"],
+    ]);
+
+    const human = invoke(["artifact", "list", "--map", "plan"], project).stdout;
+    expect(human).toContain("- plan/@1 alpha (document): a");
+    expect(human).toContain("- plan/@2 beta (document): b");
+
+    const empty = invoke(["artifact", "list", "--map", "plan"], await projectFixture()).stdout;
+    expect(empty).toContain("- none");
+  });
+
+  test("artifact list and artifact show reject a broken sibling and address a malformed artifact as an error", async () => {
+    const project = await projectFixture();
+    await writeArtifact(project, "good", 1);
+    await writeArtifact(project, "bad", 2);
+    await breakArtifact(project, "2-bad.yaml");
+
+    expectCommandError(invoke(["artifact", "list", "--map", "plan"], project));
+    expectCommandError(invoke(["artifact", "show", "@2", "--map", "plan"], project));
+  });
+
   test("adds, lists, and satisfies named goals only with existing evidence and no re-satisfaction", async () => {
     const project = await projectFixture();
     expectCommandError(
@@ -2172,15 +2263,365 @@ describe("wayful context", () => {
     expectCommandError(invoke(["context", "plan"], project));
   });
 
-  test("a step or artifact reference, or a map-qualified name, is rejected rather than silently rendering project scope", async () => {
+  test("a step or artifact reference without a map in context fails loudly rather than silently rendering project scope", async () => {
     const project = await projectFixture();
 
-    for (const ref of ["#1", "@1", "plan/other"]) {
+    for (const ref of ["#1", "@1"]) {
       const result = invoke(["context", ref], project);
       expect(result.exitCode).toBe(2);
       expect(result.stderr).toMatch(/^wayful: /);
-      expect(result.stderr).toContain("does not yet support");
+      expect(result.stderr).toContain("map context is required");
       expect(result.stdout).not.toContain("Scope: project");
     }
+  });
+
+  test("a map-qualified bare name is rejected as ambiguous rather than silently rendering project scope", async () => {
+    const project = await projectFixture();
+
+    const result = invoke(["context", "plan/other"], project);
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toMatch(/^wayful: /);
+    expect(result.stderr).toContain("ambiguous");
+    expect(result.stdout).not.toContain("Scope: project");
+  });
+
+  test("an unquoted shell-mangled '#1' (zero arguments) still renders project scope, not an error", async () => {
+    // This documents the shell hazard the bare-integer grammar exists to
+    // avoid: an unquoted `#1` never reaches the CLI at all in `bash -c`, so
+    // the only thing under test here is that *passing zero arguments*
+    // behaves exactly like bare `wayful context` — proving there is no
+    // special-cased "look like a mangled reference" detection to get wrong.
+    const project = await projectFixture();
+    const result = invoke(["context"], project);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Scope: project");
+  });
+
+  describe("step scope", () => {
+    // `context` has no `--map` flag (verified above); every case here relies
+    // on WAYFUL_MAP or a map-qualified reference to supply the map, exactly
+    // like the reference grammar's own contract.
+    const withMap = { WAYFUL_MAP: "plan" };
+
+    test("shows id, name, type, status, description, and timestamps", async () => {
+      const project = await projectFixture();
+      await writeStepFixture(project, { id: 1, name: "alpha" });
+
+      const result = invoke(["context", "#1", "--json"], project, withMap);
+      expect(result.exitCode).toBe(0);
+      const view = JSON.parse(result.stdout);
+      expect(view.scope).toBe("step");
+      expect(view.map).toBe("plan");
+      expect(view.id).toBe("plan/#1");
+      expect(view.name).toBe("alpha");
+      expect(view.type).toEqual({ name: "task", description: "Fixture type" });
+      expect(view.status).toBe("pending");
+      expect(view.description).toBe("Original description");
+      expectTimestamps(view);
+      expect(view.closed_at).toBeUndefined();
+      expect(view).not.toHaveProperty("body");
+      expect(JSON.stringify(view)).not.toContain("Narrative that must survive");
+
+      const human = invoke(["context", "#1"], project, withMap).stdout;
+      expect(human).toContain("Scope: step");
+      expect(human).toContain("Step: plan/#1 alpha");
+      expect(human).toContain("Type: task: Fixture type");
+      expect(human).toContain("Status: pending");
+      expect(human).not.toContain("Narrative that must survive");
+    });
+
+    test("addresses a step by bare integer id when WAYFUL_MAP is set", async () => {
+      const project = await projectFixture();
+      await writeStepFixture(project, { id: 1, name: "alpha" });
+
+      const result = invoke(["context", "1", "--json"], project, withMap);
+      expect(result.exitCode).toBe(0);
+      expect(JSON.parse(result.stdout).id).toBe("plan/#1");
+    });
+
+    test("reports closed_at once a step is complete", async () => {
+      const project = await projectFixture();
+      await writeStepFixture(project, {
+        id: 1,
+        name: "done",
+        status: "complete",
+        completionSummary: "Finished",
+        closedAt: "2024-06-01T00:00:00.000Z",
+      });
+
+      const result = invoke(["context", "#done", "--json"], project, withMap);
+      const view = JSON.parse(result.stdout);
+      expect(view.closed_at).toBe("2024-06-01T00:00:00.000Z");
+
+      const human = invoke(["context", "#done"], project, withMap).stdout;
+      expect(human).toContain("Closed: 2024-06-01T00:00:00.000Z");
+    });
+
+    test("shows upstream dependencies with their current status, including a missing dependency", async () => {
+      const project = await projectFixture();
+      await writeStepFixture(project, { id: 1, name: "upstream-pending" });
+      await writeStepFixture(project, {
+        id: 2,
+        name: "upstream-complete",
+        status: "complete",
+        completionSummary: "Done",
+      });
+      await writeStepFixture(project, {
+        id: 3,
+        name: "downstream",
+        dependencies: [1, 2],
+      });
+
+      const result = invoke(["context", "#downstream", "--json"], project, withMap);
+      const view = JSON.parse(result.stdout);
+      expect(view.dependencies).toEqual([
+        { id: "plan/#1", name: "upstream-pending", status: "pending" },
+        { id: "plan/#2", name: "upstream-complete", status: "complete" },
+      ]);
+
+      const human = invoke(["context", "#downstream"], project, withMap).stdout;
+      expect(human).toContain("plan/#1 upstream-pending [pending]");
+      expect(human).toContain("plan/#2 upstream-complete [complete]");
+    });
+
+    test("shows downstream dependents — steps waiting on this one", async () => {
+      const project = await projectFixture();
+      await writeStepFixture(project, { id: 1, name: "base" });
+      await writeStepFixture(project, { id: 2, name: "waiter-a", dependencies: [1] });
+      await writeStepFixture(project, { id: 3, name: "waiter-b", dependencies: [1] });
+      await writeStepFixture(project, { id: 4, name: "unrelated" });
+
+      const result = invoke(["context", "#1", "--json"], project, withMap);
+      const view = JSON.parse(result.stdout);
+      expect(view.dependents).toEqual([
+        { id: "plan/#2", name: "waiter-a", status: "pending" },
+        { id: "plan/#3", name: "waiter-b", status: "pending" },
+      ]);
+
+      const human = invoke(["context", "#1"], project, withMap).stdout;
+      expect(human).toContain("Dependents:");
+      expect(human).toContain("plan/#2 waiter-a [pending]");
+      expect(human).toContain("plan/#3 waiter-b [pending]");
+      expect(human).not.toContain("plan/#4");
+    });
+
+    test("shows input artifacts with kind, reference, and presence, including a missing attachment", async () => {
+      const project = await projectFixture();
+      await writeArtifact(project, "brief", 1, { kind: "document", ref: "docs/brief.md" });
+      await writeStepFixture(project, {
+        id: 1,
+        name: "consumer",
+        requiredInputs: [{ name: "brief-slot", kind: "document" }],
+        inputs: [{ artifact: "brief", slot: "brief-slot" }, { artifact: "ghost-artifact" }],
+      });
+
+      const result = invoke(["context", "#1", "--json"], project, withMap);
+      const view = JSON.parse(result.stdout);
+      expect(view.inputs).toEqual([
+        {
+          slot: "brief-slot",
+          artifact: "plan/@1",
+          kind: "document",
+          ref: "docs/brief.md",
+          present: true,
+        },
+        {
+          slot: undefined,
+          artifact: "ghost-artifact",
+          kind: undefined,
+          ref: undefined,
+          present: false,
+        },
+      ]);
+
+      const human = invoke(["context", "#1"], project, withMap).stdout;
+      expect(human).toContain("[brief-slot] plan/@1 (document): docs/brief.md [present]");
+      expect(human).toContain("ghost-artifact [missing]");
+    });
+
+    test("shows recorded outputs alongside required output slots still unfilled", async () => {
+      const project = await projectFixture();
+      await writeArtifact(project, "result", 1, { kind: "document" });
+      await writeStepFixture(project, {
+        id: 1,
+        name: "producer",
+        requiredOutputs: [
+          { name: "result-slot", kind: "document" },
+          { name: "review-slot", kind: "verdict" },
+        ],
+        outputs: [{ artifact: "result", slot: "result-slot" }],
+      });
+
+      const result = invoke(["context", "#1", "--json"], project, withMap);
+      const view = JSON.parse(result.stdout);
+      expect(view.outputs.recorded).toEqual([
+        {
+          slot: "result-slot",
+          artifact: "plan/@1",
+          kind: "document",
+          ref: "path/result",
+          present: true,
+        },
+      ]);
+      expect(view.outputs.unfulfilled).toEqual([{ name: "review-slot", kind: "verdict" }]);
+
+      const human = invoke(["context", "#1"], project, withMap).stdout;
+      expect(human).toContain("Outputs:");
+      expect(human).toContain("[result-slot] plan/@1 (document): path/result [present]");
+      expect(human).toContain("Unfulfilled output slots:");
+      expect(human).toContain("- review-slot (verdict)");
+    });
+
+    test("tolerates a broken sibling step and reports it as a problem, but exits zero", async () => {
+      const project = await projectFixture();
+      await writeStep(project, "good", 1);
+      await writeStep(project, "bad", 2);
+      await breakStep(project, "2-bad.md");
+
+      const result = invoke(["context", "#1", "--json"], project, withMap);
+      expect(result.exitCode).toBe(0);
+      const view = JSON.parse(result.stdout);
+      expect(view.scope).toBe("step");
+      expect(view.problems).toHaveLength(1);
+      expect(view.problems[0].file).toContain("2-bad.md");
+    });
+
+    test("addressing a step reference that does not exist is an error", async () => {
+      const project = await projectFixture();
+      await writeStepFixture(project, { id: 1, name: "alpha" });
+      expectCommandError(invoke(["context", "#not-a-step"], project, withMap));
+    });
+
+    test("addressing a malformed step directly remains an error rather than an empty answer", async () => {
+      const project = await projectFixture();
+      await writeStep(project, "good", 1);
+      await writeStep(project, "bad", 2);
+      await breakStep(project, "2-bad.md");
+
+      expectCommandError(invoke(["context", "#2"], project, withMap));
+    });
+
+    test("accepts a map-qualified step reference regardless of WAYFUL_MAP", async () => {
+      const project = await projectFixture({ map: "other" });
+      await writeStepFixture(project, { id: 1, name: "alpha", map: "other" });
+
+      const result = invoke(["context", "other/#1", "--json"], project, { WAYFUL_MAP: "plan" });
+      expect(result.exitCode).toBe(0);
+      const view = JSON.parse(result.stdout);
+      expect(view.map).toBe("other");
+      expect(view.id).toBe("other/#1");
+    });
+  });
+
+  describe("artifact scope", () => {
+    const withMap = { WAYFUL_MAP: "plan" };
+
+    test("shows id, name, kind, reference, and timestamps", async () => {
+      const project = await projectFixture();
+      await writeArtifact(project, "doc", 1, { kind: "document", ref: "docs/doc.md" });
+
+      const result = invoke(["context", "@1", "--json"], project, withMap);
+      expect(result.exitCode).toBe(0);
+      const view = JSON.parse(result.stdout);
+      expect(view.scope).toBe("artifact");
+      expect(view.map).toBe("plan");
+      expect(view.id).toBe("plan/@1");
+      expect(view.name).toBe("doc");
+      expect(view.kind).toBe("document");
+      expect(view.ref).toBe("docs/doc.md");
+      expectTimestamps(view);
+
+      const human = invoke(["context", "@1"], project, withMap).stdout;
+      expect(human).toContain("Scope: artifact");
+      expect(human).toContain("Artifact: plan/@1 doc (document): docs/doc.md");
+    });
+
+    test("shows the reverse index: producing steps, consuming steps, and citing goals", async () => {
+      const project = await projectFixture();
+      await writeArtifact(project, "shared-doc", 1);
+      await writeStepFixture(project, {
+        id: 1,
+        name: "producer",
+        requiredOutputs: [{ name: "doc-slot", kind: "document" }],
+        outputs: [{ artifact: "shared-doc", slot: "doc-slot" }],
+      });
+      await writeStepFixture(project, {
+        id: 2,
+        name: "consumer-a",
+        requiredInputs: [{ name: "doc-slot", kind: "document" }],
+        inputs: [{ artifact: "shared-doc", slot: "doc-slot" }],
+      });
+      await writeStepFixture(project, {
+        id: 3,
+        name: "consumer-b",
+        requiredInputs: [{ name: "doc-slot", kind: "document" }],
+        inputs: [{ artifact: "shared-doc", slot: "doc-slot" }],
+      });
+      await writeStepFixture(project, { id: 4, name: "unrelated" });
+      await writeGoal(project, "ship-it", { evidence: ["shared-doc"] });
+      await writeGoal(project, "other-goal");
+
+      const result = invoke(["context", "@1", "--json"], project, withMap);
+      const view = JSON.parse(result.stdout);
+      expect(view.producedBy).toEqual([{ id: "plan/#1", name: "producer" }]);
+      expect(view.consumedBy).toEqual([
+        { id: "plan/#2", name: "consumer-a" },
+        { id: "plan/#3", name: "consumer-b" },
+      ]);
+      expect(view.citedByGoals).toEqual(["ship-it"]);
+
+      const human = invoke(["context", "@1"], project, withMap).stdout;
+      expect(human).toContain("Produced by:");
+      expect(human).toContain("- plan/#1 producer");
+      expect(human).toContain("Consumed by:");
+      expect(human).toContain("- plan/#2 consumer-a");
+      expect(human).toContain("- plan/#3 consumer-b");
+      expect(human).toContain("Cited by goals:");
+      expect(human).toContain("- ship-it");
+      expect(human).not.toContain("plan/#4");
+    });
+
+    test("addresses an artifact by name, and reports empty reverse-index sections as none", async () => {
+      const project = await projectFixture();
+      await writeArtifact(project, "lonely-doc", 1);
+
+      const result = invoke(["context", "@lonely-doc", "--json"], project, withMap);
+      const view = JSON.parse(result.stdout);
+      expect(view.producedBy).toEqual([]);
+      expect(view.consumedBy).toEqual([]);
+      expect(view.citedByGoals).toEqual([]);
+
+      const human = invoke(["context", "@lonely-doc"], project, withMap).stdout;
+      expect(human).toContain("Produced by:\n- none");
+      expect(human).toContain("Consumed by:\n- none");
+      expect(human).toContain("Cited by goals:\n- none");
+    });
+
+    test("addressing an artifact reference that does not exist is an error", async () => {
+      const project = await projectFixture();
+      expectCommandError(invoke(["context", "@does-not-exist"], project, withMap));
+    });
+
+    test("addressing a malformed artifact directly remains an error rather than an empty answer", async () => {
+      const project = await projectFixture();
+      await writeArtifact(project, "good", 1);
+      await writeArtifact(project, "bad", 2);
+      await breakArtifact(project, "2-bad.yaml");
+
+      expectCommandError(invoke(["context", "@2"], project, withMap));
+    });
+
+    test("tolerates a broken sibling artifact and reports it as a problem, but exits zero", async () => {
+      const project = await projectFixture();
+      await writeArtifact(project, "good", 1);
+      await writeArtifact(project, "bad", 2);
+      await breakArtifact(project, "2-bad.yaml");
+
+      const result = invoke(["context", "@1", "--json"], project, withMap);
+      expect(result.exitCode).toBe(0);
+      const view = JSON.parse(result.stdout);
+      expect(view.scope).toBe("artifact");
+      expect(view.problems.some((p: { file: string }) => p.file.includes("2-bad.yaml"))).toBe(true);
+    });
   });
 });

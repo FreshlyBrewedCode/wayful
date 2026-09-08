@@ -22,10 +22,19 @@ The CLI is the primary way to interact with wayful primitives.
 
 ## Quickstart
 
-Use the `context` command to quickly gather context for a project, map, step, or artifact:
+Use the `context` command to quickly gather context for a project, map, step, or artifact. Bare `context` starts at project scope; drill into a map, then a step or an artifact, by passing a reference:
 ```sh
 wayful context
+wayful context redesign
+wayful context 'redesign/#3'
+wayful context 'redesign/@5'
 ```
+With `--map`/`WAYFUL_MAP` already set, the map-qualified prefix can be dropped:
+```sh
+wayful context '#3'
+wayful context @5
+```
+Quote or escape `#` references so the shell does not treat them as a comment.
 
 ## Create and inspect work
 

@@ -38,6 +38,31 @@ wayful step complete 2 --summary "Proposal approved"
 
 An explicit `--project` or `--map` takes precedence over its corresponding environment variable. `wayful map next` returns steps that are currently actionable: their dependencies are satisfied and their required input artifacts are available. Treat this as guidance rather than a mandate. If the map is incomplete, add or revise steps before proceeding.
 
+## Orient with context
+
+`context` answers "what's here, and what's next" at any scope, without a second command. Bare `context` is project scope; a bare map name drills into that map; a step or artifact reference drills further still — into what that one primitive connects to:
+
+```sh
+wayful context
+wayful context redesign
+wayful context 'redesign/#3'
+wayful context 'redesign/@5'
+```
+
+With `--map`/`WAYFUL_MAP` already set, the map-qualified prefix can be dropped (`context` reads that context but has no `--map` flag of its own):
+
+```sh
+export WAYFUL_MAP=redesign
+wayful context '#3'
+wayful context @5
+```
+
+Step scope shows the step's type, status, and description; its upstream dependencies with their current status; the downstream steps waiting on it (no other command answers this); its input artifacts with presence; and its recorded outputs alongside any required output slots still unfilled. It deliberately omits the step body and the full type instructions — that's what `step show` and `type show` are for; `context` shows how a thing connects, `show` shows what it says.
+
+Artifact scope shows the artifact's kind and reference plus a reverse index: which steps produced it, which steps consume it as input, and which goals cite it as evidence — the answer to "where did this come from and what relies on it?" without reading every step by hand.
+
+Add `--json` to any `context` call for the same information as stable output for scripting. Add `--since 7d` (a duration) or `--since 2026-08-01` (an absolute date) to trim recent activity and the completed-steps tail at project and map scope, without ever hiding actionable or blocked work.
+
 ## Define steps and their relationships
 
 ### Inspect step types

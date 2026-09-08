@@ -1,4 +1,11 @@
-import type { Capped, MapContextView, ProjectContextView } from "../domain/context";
+import type {
+  ArtifactContextView,
+  Capped,
+  MapContextView,
+  ProjectContextView,
+  StepAttachmentView,
+  StepContextView,
+} from "../domain/context";
 import type { DecodeError } from "../domain/model";
 
 /** Appends an omitted-count line — but only when something was actually omitted, so an uncapped section never claims otherwise. */
@@ -88,6 +95,61 @@ export function renderMapContext(view: MapContextView): string {
       view.artifacts,
       (a) => `- ${a.id} ${a.name} (${a.kind}): ${a.ref}`,
     ),
+    ...problemLines(view.problems),
+  ].join("\n");
+}
+
+function attachmentLine(attachment: StepAttachmentView): string {
+  const slotPart = attachment.slot ? `[${attachment.slot}] ` : "";
+  const kindPart = attachment.kind ? ` (${attachment.kind})` : "";
+  const refPart = attachment.ref ? `: ${attachment.ref}` : "";
+  return `- ${slotPart}${attachment.artifact}${kindPart}${refPart} [${
+    attachment.present ? "present" : "missing"
+  }]`;
+}
+
+export function renderStepContext(view: StepContextView): string {
+  return [
+    "Scope: step",
+    `Step: ${view.id} ${view.name}`,
+    `Type: ${view.type.name}: ${view.type.description}`,
+    `Status: ${view.status}`,
+    `Description: ${view.description}`,
+    "Dependencies:",
+    ...(view.dependencies.length
+      ? view.dependencies.map((d) => `- ${d.id} ${d.name} [${d.status}]`)
+      : ["- none"]),
+    "Dependents:",
+    ...(view.dependents.length
+      ? view.dependents.map((d) => `- ${d.id} ${d.name} [${d.status}]`)
+      : ["- none"]),
+    "Inputs:",
+    ...(view.inputs.length ? view.inputs.map(attachmentLine) : ["- none"]),
+    "Outputs:",
+    ...(view.outputs.recorded.length ? view.outputs.recorded.map(attachmentLine) : ["- none"]),
+    "Unfulfilled output slots:",
+    ...(view.outputs.unfulfilled.length
+      ? view.outputs.unfulfilled.map((slot) => `- ${slot.name} (${slot.kind})`)
+      : ["- none"]),
+    `Created: ${view.created_at}`,
+    `Updated: ${view.updated_at}`,
+    ...(view.closed_at ? [`Closed: ${view.closed_at}`] : []),
+    ...problemLines(view.problems),
+  ].join("\n");
+}
+
+export function renderArtifactContext(view: ArtifactContextView): string {
+  return [
+    "Scope: artifact",
+    `Artifact: ${view.id} ${view.name} (${view.kind}): ${view.ref}`,
+    `Created: ${view.created_at}`,
+    `Updated: ${view.updated_at}`,
+    "Produced by:",
+    ...(view.producedBy.length ? view.producedBy.map((s) => `- ${s.id} ${s.name}`) : ["- none"]),
+    "Consumed by:",
+    ...(view.consumedBy.length ? view.consumedBy.map((s) => `- ${s.id} ${s.name}`) : ["- none"]),
+    "Cited by goals:",
+    ...(view.citedByGoals.length ? view.citedByGoals.map((name) => `- ${name}`) : ["- none"]),
     ...problemLines(view.problems),
   ].join("\n");
 }
