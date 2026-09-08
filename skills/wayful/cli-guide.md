@@ -52,7 +52,9 @@ wayful type list
 wayful type show research
 ```
 
-Add steps using a type supported by the project's or map's configuration. Give each step a concise description of the result it should achieve, rather than a rigid implementation plan. Every step also receives an automatically generated integer ID, starting at `1` and increasing for each new step. Commands accept either the step's name or its ID.
+Add steps using a type supported by the project's or map's configuration. Give each step a concise description of the result it should achieve, rather than a rigid implementation plan. Every step also receives an automatically generated integer ID, starting at `1` and increasing for each new step.
+
+Once a step exists, address it with a reference: a bare integer id (`1`), or `#` followed by its id or name (`#1`, `#research-users`). The bare-integer form only ever means a step id — reserve the `#`/`@` sigils for by-name addressing, since a bare name would otherwise be ambiguous with a map name. Artifacts always require the `@` sigil (`@5`, `@user-interviews`); there is no bare-artifact form. A reference can be map-qualified with a `map/` prefix (e.g. `redesign/#1`) to address a step or artifact outside the current `--map`/`WAYFUL_MAP` context.
 
 ```sh
 wayful step create research-users \
@@ -66,10 +68,10 @@ wayful step create design-proposal \
   --type design \
   --description "Produce a redesign proposal informed by research"
 
-wayful step depends design-proposal --map redesign --on research-users
+wayful step depends #design-proposal --map redesign --on #research-users
 ```
 
-For example, if `research-users` has ID `1` and `design-proposal` has ID `2`, the dependency can also be expressed as:
+For example, if `research-users` has ID `1` and `design-proposal` has ID `2`, the dependency can also be expressed with bare ids:
 
 ```sh
 wayful step depends 2 --map redesign --on 1
@@ -79,11 +81,13 @@ Use dependencies to express ordering or prerequisites, not to force the entire f
 
 ```sh
 wayful step create accessibility-review --map redesign --type review
-wayful step depends accessibility-review --map redesign --on design-proposal
-wayful step update design-proposal --map redesign --description "Produce an approved responsive proposal"
-wayful step update design-proposal --map redesign --body "Use the approved mobile-first design direction."
-wayful step cancel obsolete-wireframes --map redesign --reason "Superseded by the design proposal"
+wayful step depends #accessibility-review --map redesign --on #design-proposal
+wayful step update #design-proposal --map redesign --description "Produce an approved responsive proposal"
+wayful step update #design-proposal --map redesign --body "Use the approved mobile-first design direction."
+wayful step cancel #obsolete-wireframes --map redesign --reason "Superseded by the design proposal"
 ```
+
+A dependency (`--on`) or artifact attachment (`--artifact`, `--evidence`) may itself be map-qualified, but only to the map already being addressed — cross-map dependencies, inputs, outputs, and evidence are rejected explicitly rather than silently allowed.
 
 ## Record artifacts and progress
 
@@ -94,22 +98,22 @@ wayful artifact add user-interviews \
   --map redesign \
   --kind document \
   --ref "docs/research/interviews.md"
-wayful step input research-users --map redesign --artifact user-interviews
+wayful step input #research-users --map redesign --artifact @user-interviews
 
 # Perform the research outside the CLI, then record its result.
 wayful artifact add research-summary \
   --map redesign \
   --kind document \
   --ref "docs/research/summary.md"
-wayful step output research-users --map redesign --artifact research-summary
-wayful step complete research-users --map redesign --summary "Findings documented in research-summary"
+wayful step output #research-users --map redesign --artifact @research-summary
+wayful step complete #research-users --map redesign --summary "Findings documented in research-summary"
 ```
 
 Mark a step `blocked` when it cannot proceed and include the reason. Mark it complete only after its promised outputs have been recorded. If a completed step changes the understanding of the map, update the map before selecting the next step.
 
 ```sh
-wayful step block design-proposal --map redesign --reason "Awaiting brand direction"
-wayful step unblock design-proposal --map redesign
+wayful step block #design-proposal --map redesign --reason "Awaiting brand direction"
+wayful step unblock #design-proposal --map redesign
 wayful map next --map redesign
 ```
 
@@ -121,7 +125,7 @@ Maps may have more than one goal. Add, inspect, and mark goals as satisfied as e
 wayful goal add --map redesign --name accessible --description "Design is accessible" \
   --body "Meet the documented WCAG acceptance criteria."
 wayful goal list --map redesign
-wayful goal satisfy --map redesign --goal accessible --evidence accessibility-report
+wayful goal satisfy --map redesign --goal accessible --evidence @accessibility-report
 ```
 
 Before considering a map complete, run `wayful map validate --map redesign` and confirm that every goal has supporting evidence, required steps are complete, and no unresolved blockers remain.

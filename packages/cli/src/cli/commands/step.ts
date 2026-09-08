@@ -1,9 +1,9 @@
 import { Console, Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 
-import { WayfulBackend } from "../../backend/Backend";
+import { WayfulBackend, type MapHandle, type ProjectHandle } from "../../backend/Backend";
 import { liftSync } from "../../backend/filesystem/documents";
-import { WayfulError } from "../../domain/errors";
+import { MapMetadataError, WayfulError } from "../../domain/errors";
 import { attachmentOK, reaches } from "../../domain/graph";
 import { identifier, nonEmpty, slots } from "../../domain/identifier";
 import type { Slot } from "../../domain/identifier";
@@ -13,14 +13,30 @@ import {
   type NewStepRecord,
   type StepRecord,
 } from "../../domain/model";
-import { assertWritableMapIntegrity, fail, resolveMap, resolveProject } from "../../scope";
+import {
+  assertSameMap,
+  describeToken,
+  expectArtifact,
+  expectStep,
+  resolveToken,
+  type ReferenceToken,
+} from "../../domain/reference";
+import {
+  assertWritableMapIntegrity,
+  fail,
+  resolveMap,
+  resolveReferencedMap,
+  resolveProject,
+} from "../../scope";
 import { jsonFlag, mapFlag } from "../flags";
 import { handle, printOutput } from "../render";
 import { wayfulRoot } from "../root";
 
 const stepArgument = Argument.string("step").pipe(
   Argument.withMetavar("STEP"),
-  Argument.withDescription("Step name or numeric ID"),
+  Argument.withDescription(
+    "Step reference: a name, numeric id, '#id', '#name', or map-qualified ('map/name')",
+  ),
 );
 
 const stepParent = Command.make("step").pipe(
@@ -50,14 +66,33 @@ function resolveSlotOverride(
 
 function findStep(
   steps: readonly StepRecord[],
-  reference: string,
+  token: ReferenceToken,
 ): Effect.Effect<StepRecord, WayfulError> {
   return Effect.gen(function* () {
-    const found = /^\d+$/.test(reference)
-      ? steps.find((s) => s.id === Number(reference))
-      : steps.find((s) => s.name === reference);
-    if (!found) return yield* fail(`step '${reference}' does not exist.`);
+    const found = resolveToken(token, steps);
+    if (!found) return yield* fail(`step '${describeToken(token)}' does not exist.`);
     return found;
+  });
+}
+
+/**
+ * Parses a step reference and resolves the map it addresses: a map prefix on
+ * the reference overrides `--map`/`WAYFUL_MAP`, since it unambiguously names
+ * the map to target.
+ */
+function resolveStepTarget(
+  reference: string,
+  contextMap: Option.Option<string>,
+  project: ProjectHandle,
+): Effect.Effect<
+  { readonly map: MapHandle; readonly token: ReferenceToken },
+  WayfulError | MapMetadataError,
+  WayfulBackend
+> {
+  return Effect.gen(function* () {
+    const ref = yield* liftSync(() => expectStep(reference));
+    const map = yield* resolveReferencedMap(ref.map, contextMap, project);
+    return { map, token: ref.token };
   });
 }
 
@@ -162,9 +197,9 @@ const stepShowCommand = Command.make(
         const backend = yield* WayfulBackend;
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
-        const map = yield* resolveMap(parent.map, project);
+        const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
         const steps = yield* backend.listSteps(map);
-        const target = yield* findStep(steps, reference);
+        const target = yield* findStep(steps, token);
         const instructions = yield* backend.getType(project, target.type).pipe(
           Effect.map((type) => type.instructions),
           Effect.catch(() =>
@@ -207,10 +242,10 @@ const stepUpdateCommand = Command.make(
         const backend = yield* WayfulBackend;
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
-        const map = yield* resolveMap(parent.map, project);
+        const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
         yield* assertWritableMapIntegrity(map);
         const steps = yield* backend.listSteps(map);
-        const target = yield* findStep(steps, reference);
+        const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         if (target.status !== "pending") yield* fail("only pending steps can be updated.");
         if (Option.isNone(description) && Option.isNone(body))
@@ -242,10 +277,10 @@ const stepBlockCommand = Command.make(
         const backend = yield* WayfulBackend;
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
-        const map = yield* resolveMap(parent.map, project);
+        const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
         yield* assertWritableMapIntegrity(map);
         const steps = yield* backend.listSteps(map);
-        const target = yield* findStep(steps, reference);
+        const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         if (target.status !== "pending") yield* fail("only pending steps can be blocked.");
         const blockReason = yield* liftSync(() => nonEmpty(reason, "block reason"));
@@ -263,10 +298,10 @@ const stepUnblockCommand = Command.make("unblock", { step: stepArgument }, ({ st
       const backend = yield* WayfulBackend;
       const root = yield* wayfulRoot;
       const project = yield* resolveProject(root.project);
-      const map = yield* resolveMap(parent.map, project);
+      const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
       yield* assertWritableMapIntegrity(map);
       const steps = yield* backend.listSteps(map);
-      const target = yield* findStep(steps, reference);
+      const target = yield* findStep(steps, token);
       yield* assertNotTerminal(target);
       if (target.status !== "blocked") yield* fail("only blocked steps can be unblocked.");
       const { block_reason: _blockReason, ...rest } = target;
@@ -293,10 +328,10 @@ const stepCompleteCommand = Command.make(
         const backend = yield* WayfulBackend;
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
-        const map = yield* resolveMap(parent.map, project);
+        const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
         yield* assertWritableMapIntegrity(map);
         const steps = yield* backend.listSteps(map);
-        const target = yield* findStep(steps, reference);
+        const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         const completionSummary = yield* liftSync(() => nonEmpty(summary, "completion summary"));
         const artifacts = yield* backend.listArtifacts(map);
@@ -329,10 +364,10 @@ const stepCancelCommand = Command.make(
         const backend = yield* WayfulBackend;
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
-        const map = yield* resolveMap(parent.map, project);
+        const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
         yield* assertWritableMapIntegrity(map);
         const steps = yield* backend.listSteps(map);
-        const target = yield* findStep(steps, reference);
+        const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         const cancellationReason = yield* liftSync(() => nonEmpty(reason, "cancellation reason"));
         yield* backend.saveStep(map, {
@@ -351,7 +386,9 @@ const stepDependsCommand = Command.make(
     step: stepArgument,
     on: Flag.string("on").pipe(
       Flag.withMetavar("STEP"),
-      Flag.withDescription("Prerequisite step name or numeric ID"),
+      Flag.withDescription(
+        "Prerequisite step reference (name, '#id', or '#name'); cannot cross maps",
+      ),
     ),
   },
   ({ step: reference, on }) =>
@@ -362,12 +399,14 @@ const stepDependsCommand = Command.make(
         const backend = yield* WayfulBackend;
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
-        const map = yield* resolveMap(parent.map, project);
+        const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
         yield* assertWritableMapIntegrity(map);
         const steps = yield* backend.listSteps(map);
-        const target = yield* findStep(steps, reference);
+        const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
-        const prerequisite = yield* findStep(steps, on);
+        const onRef = yield* liftSync(() => expectStep(on));
+        yield* liftSync(() => assertSameMap(onRef.map, map.metadata.name, "a dependency"));
+        const prerequisite = yield* findStep(steps, onRef.token);
         if (target.id === prerequisite.id) yield* fail("a step cannot depend on itself.");
         if (target.dependencies.includes(prerequisite.id)) yield* fail("duplicate dependency.");
         if (prerequisite.status === "cancelled") yield* fail("cannot depend on a cancelled step.");
@@ -388,8 +427,10 @@ function makeAttachCommand(name: "input" | "output", direction: "inputs" | "outp
     {
       step: stepArgument,
       artifact: Flag.string("artifact").pipe(
-        Flag.withMetavar("NAME"),
-        Flag.withDescription("Existing artifact name"),
+        Flag.withMetavar("ARTIFACT"),
+        Flag.withDescription(
+          "Existing artifact reference (name, '@id', or '@name'); cannot cross maps",
+        ),
       ),
       slot: Flag.string("slot").pipe(
         Flag.withMetavar("NAME"),
@@ -405,17 +446,18 @@ function makeAttachCommand(name: "input" | "output", direction: "inputs" | "outp
           const backend = yield* WayfulBackend;
           const root = yield* wayfulRoot;
           const project = yield* resolveProject(root.project);
-          const map = yield* resolveMap(parent.map, project);
+          const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
           yield* assertWritableMapIntegrity(map);
           const steps = yield* backend.listSteps(map);
-          const target = yield* findStep(steps, reference);
+          const target = yield* findStep(steps, token);
           yield* assertNotTerminal(target);
-          const resolvedArtifactName = yield* liftSync(() =>
-            identifier(artifactName, "artifact name"),
-          );
+          const artifactRef = yield* liftSync(() => expectArtifact(artifactName));
+          yield* liftSync(() => assertSameMap(artifactRef.map, map.metadata.name, "an artifact"));
           const artifacts = yield* backend.listArtifacts(map);
-          const artifact = artifacts.find((candidate) => candidate.name === resolvedArtifactName);
-          if (!artifact) return yield* fail(`artifact '${resolvedArtifactName}' does not exist.`);
+          const artifact = resolveToken(artifactRef.token, artifacts);
+          if (!artifact)
+            return yield* fail(`artifact '${describeToken(artifactRef.token)}' does not exist.`);
+          const resolvedArtifactName = artifact.name;
           let attachment: { readonly artifact: string; readonly slot?: string } = {
             artifact: resolvedArtifactName,
           };
