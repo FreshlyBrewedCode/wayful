@@ -1,3 +1,4 @@
+import type { Slot } from "./identifier";
 import type { ArtifactRecord, StepRecord } from "./model";
 
 type Direction = "inputs" | "outputs";
@@ -6,28 +7,61 @@ function requiredSlots(step: StepRecord, direction: Direction) {
   return direction === "inputs" ? step.required_inputs : step.required_outputs;
 }
 
+/** Finds the attachment (if any) filling `slotName` among a step's raw `inputs`/`outputs`. */
+function findAttachment(
+  attachments: StepRecord["inputs"] | StepRecord["outputs"],
+  slotName: string,
+): { artifact: string; slot: string } | undefined {
+  return attachments.find(
+    (candidate): candidate is { artifact: string; slot: string } =>
+      !!candidate &&
+      typeof candidate === "object" &&
+      !Array.isArray(candidate) &&
+      (candidate as any).slot === slotName,
+  );
+}
+
+/** Whether a required slot is filled by an attachment naming an artifact of the matching kind. */
+function slotFulfilled(
+  slot: Slot,
+  attachments: StepRecord["inputs"] | StepRecord["outputs"],
+  artifacts: readonly ArtifactRecord[],
+): boolean {
+  const attachment = findAttachment(attachments, slot.name);
+  return (
+    attachment !== undefined &&
+    artifacts.some(
+      (artifact) => artifact.name === attachment.artifact && artifact.kind === slot.kind,
+    )
+  );
+}
+
+/**
+ * The required slots in `direction` that are not yet fulfilled by a
+ * correctly-kinded attachment — the per-slot detail `attachmentOK` collapses
+ * into a single boolean. Used by `context` map scope to explain *which*
+ * input a pending-not-actionable step is still missing.
+ */
+export function unfulfilledSlots(
+  step: StepRecord,
+  direction: Direction,
+  artifacts: readonly ArtifactRecord[],
+): Slot[] {
+  const attachments = step[direction];
+  return requiredSlots(step, direction).filter(
+    (slot) => !slotFulfilled(slot, attachments, artifacts),
+  );
+}
+
 export function attachmentOK(
   step: StepRecord,
   direction: Direction,
   artifacts: readonly ArtifactRecord[],
 ): boolean {
-  const required = requiredSlots(step, direction);
   const attachments = step[direction];
-  return required.every((slot) => {
-    const attachment = attachments.find(
-      (candidate): candidate is { artifact: string; slot: string } =>
-        !!candidate &&
-        typeof candidate === "object" &&
-        !Array.isArray(candidate) &&
-        (candidate as any).slot === slot.name,
-    );
-    return (
-      attachment !== undefined &&
-      artifacts.some(
-        (artifact) => artifact.name === attachment.artifact && artifact.kind === slot.kind,
-      )
-    );
-  });
+  return requiredSlots(step, direction).every((slot) =>
+    slotFulfilled(slot, attachments, artifacts),
+  );
 }
 
 export function attachmentErrors(

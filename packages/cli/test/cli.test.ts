@@ -151,19 +151,171 @@ async function breakStep(project: string, filename: string) {
   await writeFile(file, (await readFile(file, "utf8")).replace("status: pending", "status: bogus"));
 }
 
-async function writeStep(project: string, name: string, id: number, fields = "") {
+async function writeStep(
+  project: string,
+  name: string,
+  id: number,
+  fields = "",
+  options: { map?: string; createdAt?: string; updatedAt?: string } = {},
+) {
+  const map = options.map ?? "plan";
+  const createdAt = options.createdAt ?? FIXTURE_TIME;
+  const updatedAt = options.updatedAt ?? FIXTURE_TIME;
   const requirements = fields || "required_inputs: []\nrequired_outputs: []\n";
   await writeFile(
-    join(project, ".wayful", "maps", "plan", "steps", `${id}-${name}.md`),
-    `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nid: ${id}\nname: ${name}\ntype: task\ndescription: Original description\nstatus: pending\ndependencies: []\ninputs: []\noutputs: []\n${requirements}created_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n---\nNarrative that must survive frontmatter updates.\n`,
+    join(project, ".wayful", "maps", map, "steps", `${id}-${name}.md`),
+    `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nid: ${id}\nname: ${name}\ntype: task\ndescription: Original description\nstatus: pending\ndependencies: []\ninputs: []\noutputs: []\n${requirements}created_at: ${createdAt}\nupdated_at: ${updatedAt}\n---\nNarrative that must survive frontmatter updates.\n`,
   );
-  const mapFile = join(project, ".wayful", "maps", "plan", "map.toml");
+  const mapFile = join(project, ".wayful", "maps", map, "map.toml");
   const metadata = await readFile(mapFile, "utf8");
   const stepIDCounter = Number(metadata.match(/^step_id_counter = (\d+)$/m)?.[1] ?? 1);
   if (stepIDCounter <= id)
     await writeFile(
       mapFile,
       metadata.replace(/^step_id_counter = \d+$/m, `step_id_counter = ${id + 1}`),
+    );
+}
+
+/** Writes an artifact record directly on disk, mirroring `writeStep`. */
+async function writeArtifact(
+  project: string,
+  name: string,
+  id: number,
+  options: {
+    map?: string;
+    kind?: string;
+    ref?: string;
+    createdAt?: string;
+    updatedAt?: string;
+  } = {},
+) {
+  const map = options.map ?? "plan";
+  const kind = options.kind ?? "document";
+  const ref = options.ref ?? `path/${name}`;
+  const createdAt = options.createdAt ?? FIXTURE_TIME;
+  const updatedAt = options.updatedAt ?? FIXTURE_TIME;
+  await writeFile(
+    join(project, ".wayful", "maps", map, "artifacts", `${id}-${name}.yaml`),
+    `format_version: ${CURRENT_FORMAT_VERSION}\nid: ${id}\nname: ${name}\nkind: ${kind}\nref: ${ref}\ncreated_at: ${createdAt}\nupdated_at: ${updatedAt}\n`,
+  );
+  const mapFile = join(project, ".wayful", "maps", map, "map.toml");
+  const metadata = await readFile(mapFile, "utf8");
+  const artifactIDCounter = Number(metadata.match(/^artifact_id_counter = (\d+)$/m)?.[1] ?? 1);
+  if (artifactIDCounter <= id)
+    await writeFile(
+      mapFile,
+      metadata.replace(/^artifact_id_counter = \d+$/m, `artifact_id_counter = ${id + 1}`),
+    );
+}
+
+/** Writes a goal record directly on disk, mirroring `writeStep`. */
+async function writeGoal(
+  project: string,
+  name: string,
+  options: {
+    map?: string;
+    description?: string;
+    evidence?: string[];
+    createdAt?: string;
+    updatedAt?: string;
+  } = {},
+) {
+  const map = options.map ?? "plan";
+  const description = options.description ?? "Original description";
+  const evidence = options.evidence ?? [];
+  const createdAt = options.createdAt ?? FIXTURE_TIME;
+  const updatedAt = options.updatedAt ?? FIXTURE_TIME;
+  const evidenceYaml = evidence.length
+    ? `evidence:\n${evidence.map((e) => `  - ${e}`).join("\n")}\n`
+    : "evidence: []\n";
+  await writeFile(
+    join(project, ".wayful", "maps", map, "goals", `${name}.md`),
+    `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nname: ${name}\ndescription: ${description}\n${evidenceYaml}created_at: ${createdAt}\nupdated_at: ${updatedAt}\n---\n`,
+  );
+}
+
+/**
+ * Writes a step record directly on disk with full control over status,
+ * dependencies, and input/output attachments — `writeStep` above only ever
+ * produces a bare pending step, which cannot exercise `context` map scope's
+ * blocked/pending-not-actionable/completed sections. Conditional fields
+ * (`block_reason`, `completion_summary`, `cancellation_reason`, `closed_at`)
+ * follow decode.ts's exact validation: required when the status demands it,
+ * absent otherwise. Arrays are written as JSON, a valid subset of the YAML
+ * Bun's decoder (`Bun.YAML.parse`) accepts, per the existing
+ * `dependencies: [4, 4]` fixture elsewhere in this file.
+ */
+async function writeStepFixture(
+  project: string,
+  options: {
+    map?: string;
+    id: number;
+    name: string;
+    status?: "pending" | "blocked" | "complete" | "cancelled";
+    dependencies?: number[];
+    inputs?: Array<{ artifact: string; slot?: string }>;
+    outputs?: Array<{ artifact: string; slot?: string }>;
+    requiredInputs?: Array<{ name: string; kind: string }>;
+    requiredOutputs?: Array<{ name: string; kind: string }>;
+    blockReason?: string;
+    completionSummary?: string;
+    cancellationReason?: string;
+    createdAt?: string;
+    updatedAt?: string;
+    closedAt?: string;
+  },
+) {
+  const map = options.map ?? "plan";
+  const status = options.status ?? "pending";
+  const dependencies = options.dependencies ?? [];
+  const inputs = options.inputs ?? [];
+  const outputs = options.outputs ?? [];
+  const requiredInputs = options.requiredInputs ?? [];
+  const requiredOutputs = options.requiredOutputs ?? [];
+  const createdAt = options.createdAt ?? FIXTURE_TIME;
+  const updatedAt = options.updatedAt ?? FIXTURE_TIME;
+  const closesStep = status === "complete" || status === "cancelled";
+  const closedAt = options.closedAt ?? (closesStep ? updatedAt : undefined);
+
+  const lines = [
+    "---",
+    `format_version: ${CURRENT_FORMAT_VERSION}`,
+    `id: ${options.id}`,
+    `name: ${options.name}`,
+    "type: task",
+    "description: Original description",
+    `status: ${status}`,
+    `dependencies: ${JSON.stringify(dependencies)}`,
+    `inputs: ${JSON.stringify(inputs)}`,
+    `outputs: ${JSON.stringify(outputs)}`,
+    `required_inputs: ${JSON.stringify(requiredInputs)}`,
+    `required_outputs: ${JSON.stringify(requiredOutputs)}`,
+  ];
+  if (status === "blocked")
+    lines.push(`block_reason: ${JSON.stringify(options.blockReason ?? "Blocked reason")}`);
+  if (status === "complete")
+    lines.push(
+      `completion_summary: ${JSON.stringify(options.completionSummary ?? "Completion summary")}`,
+    );
+  if (status === "cancelled")
+    lines.push(
+      `cancellation_reason: ${JSON.stringify(options.cancellationReason ?? "Cancellation reason")}`,
+    );
+  lines.push(`created_at: ${createdAt}`, `updated_at: ${updatedAt}`);
+  if (closedAt) lines.push(`closed_at: ${closedAt}`);
+  lines.push("---", "Narrative that must survive frontmatter updates.", "");
+
+  await writeFile(
+    join(project, ".wayful", "maps", map, "steps", `${options.id}-${options.name}.md`),
+    lines.join("\n"),
+  );
+  const mapFile = join(project, ".wayful", "maps", map, "map.toml");
+  const metadata = await readFile(mapFile, "utf8");
+  const stepIDCounter = Number(metadata.match(/^step_id_counter = (\d+)$/m)?.[1] ?? 1);
+  if (stepIDCounter <= options.id)
+    await writeFile(
+      mapFile,
+      metadata.replace(/^step_id_counter = \d+$/m, `step_id_counter = ${options.id + 1}`),
     );
 }
 
@@ -1619,5 +1771,416 @@ describe("read resilience: skip-and-collect on malformed records", () => {
     expect(validation.valid).toBe(false);
     expect(validation.errors.some((e: string) => e.includes("1-one.md"))).toBe(true);
     expect(validation.errors.some((e: string) => e.includes("2-two.md"))).toBe(true);
+  });
+});
+
+describe("wayful context", () => {
+  test("bare context always renders project scope, even with a map named in the environment", async () => {
+    const project = await projectFixture();
+    await writeStep(project, "alpha", 1);
+
+    const jsonResult = invoke(["context", "--json"], project, { WAYFUL_MAP: "plan" });
+    expect(jsonResult.exitCode).toBe(0);
+    expect(JSON.parse(jsonResult.stdout).scope).toBe("project");
+
+    const humanResult = invoke(["context"], project, { WAYFUL_MAP: "plan" });
+    expect(humanResult.exitCode).toBe(0);
+    expect(humanResult.stdout).toContain("Scope: project");
+  });
+
+  test("project scope with zero maps renders an empty, non-failing view", async () => {
+    const empty = await temporaryDirectory();
+    await mkdir(join(empty, ".wayful", "types"), { recursive: true });
+    await writeFile(
+      join(empty, ".wayful", "project.toml"),
+      `format_version = ${CURRENT_FORMAT_VERSION}\ndescription = "Empty project"\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
+    );
+
+    const result = invoke(["context", "--json"], empty);
+    expect(result.exitCode).toBe(0);
+    const view = JSON.parse(result.stdout);
+    expect(view.scope).toBe("project");
+    expect(view.maps).toEqual([]);
+    expect(view.types).toEqual([]);
+    expect(view.problems).toEqual([]);
+
+    const human = invoke(["context"], empty).stdout;
+    expect(human).toContain("Maps:\n- none");
+  });
+
+  test("context --help documents no --map flag and no --limit flag", async () => {
+    const project = await temporaryDirectory();
+    const result = invoke(["context", "--help"], project);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).not.toContain("--map ");
+    expect(result.stdout).not.toContain("--limit");
+    expect(result.stdout).toContain("--since");
+    expect(result.stdout).toContain("--json");
+  });
+
+  test("project scope reports description, root, per-map progress, derived last activity, and step types", async () => {
+    const project = await projectFixture();
+    await writeStep(project, "alpha", 1, "", { updatedAt: "2024-06-01T00:00:00.000Z" });
+    await writeArtifact(project, "doc", 1);
+
+    const result = invoke(["context", "--json"], project);
+    expect(result.exitCode).toBe(0);
+    const view = JSON.parse(result.stdout);
+    expect(view.project).toEqual({ description: "Fixture project", root: project });
+    expect(view.maps).toHaveLength(1);
+    const map = view.maps[0];
+    expect(map.map).toBe("plan");
+    expect(map.start).toBe("here");
+    expect(map.goals).toEqual({ satisfied: 0, total: 0 });
+    expect(map.steps).toEqual({ pending: 1, blocked: 0, complete: 0, cancelled: 0 });
+    expect(map.lastActivity).toBe("2024-06-01T00:00:00.000Z");
+    expect(view.types).toEqual([{ name: "task", description: "Fixture type" }]);
+    expect(view.problems).toEqual([]);
+
+    const human = invoke(["context"], project).stdout;
+    expect(human).toContain("Scope: project");
+    expect(human).toContain("Fixture project");
+    expect(human).toContain(project);
+    expect(human).toContain("plan: here");
+    expect(human).toContain("task: Fixture type");
+  });
+
+  test("project scope orders maps by last activity descending, ties by name, no-activity last", async () => {
+    const project = await projectFixture({ map: "b-map" });
+    await mkdir(join(project, ".wayful", "maps", "a-map", "steps"), { recursive: true });
+    await mkdir(join(project, ".wayful", "maps", "a-map", "artifacts"), { recursive: true });
+    await mkdir(join(project, ".wayful", "maps", "a-map", "goals"), { recursive: true });
+    await writeFile(
+      join(project, ".wayful", "maps", "a-map", "map.toml"),
+      `format_version = ${CURRENT_FORMAT_VERSION}\nname = "a-map"\nstart = "here"\nstep_id_counter = 1\nartifact_id_counter = 1\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
+    );
+    await mkdir(join(project, ".wayful", "maps", "c-map", "steps"), { recursive: true });
+    await mkdir(join(project, ".wayful", "maps", "c-map", "artifacts"), { recursive: true });
+    await mkdir(join(project, ".wayful", "maps", "c-map", "goals"), { recursive: true });
+    await writeFile(
+      join(project, ".wayful", "maps", "c-map", "map.toml"),
+      `format_version = ${CURRENT_FORMAT_VERSION}\nname = "c-map"\nstart = "here"\nstep_id_counter = 1\nartifact_id_counter = 1\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
+    );
+    // b-map and a two-way tie between a-map/c-map (no activity, so tie broken
+    // by name); b-map has a single step giving it activity, sorting it first.
+    await writeStep(project, "alpha", 1, "", {
+      map: "b-map",
+      updatedAt: "2024-06-01T00:00:00.000Z",
+    });
+
+    const result = invoke(["context", "--json"], project);
+    expect(result.exitCode).toBe(0);
+    const view = JSON.parse(result.stdout);
+    expect(view.maps.map((m: { map: string }) => m.map)).toEqual(["b-map", "a-map", "c-map"]);
+    expect(view.maps[0].lastActivity).toBe("2024-06-01T00:00:00.000Z");
+    expect(view.maps[1].lastActivity).toBeUndefined();
+    expect(view.maps[2].lastActivity).toBeUndefined();
+  });
+
+  test("map scope reports start, goals with satisfied state and qualified evidence, and one-line progress", async () => {
+    const project = await projectFixture();
+    await writeArtifact(project, "spec", 1);
+    await writeGoal(project, "ship-it", { description: "Ship the thing", evidence: ["spec"] });
+    await writeGoal(project, "polish", { description: "Polish it" });
+    await writeStep(project, "alpha", 1);
+
+    const result = invoke(["context", "plan", "--json"], project);
+    expect(result.exitCode).toBe(0);
+    const view = JSON.parse(result.stdout);
+    expect(view.scope).toBe("map");
+    expect(view.map).toBe("plan");
+    expect(view.start).toBe("here");
+    expect(view.goals).toEqual([
+      { name: "polish", description: "Polish it", satisfied: false, evidence: [] },
+      {
+        name: "ship-it",
+        description: "Ship the thing",
+        satisfied: true,
+        evidence: ["plan/@1"],
+      },
+    ]);
+    expect(view.progress).toEqual({ pending: 1, blocked: 0, complete: 0, cancelled: 0 });
+
+    const human = invoke(["context", "plan"], project).stdout;
+    expect(human).toContain("Scope: map");
+    expect(human).toContain("ship-it: Ship the thing [satisfied] (evidence: plan/@1)");
+    expect(human).toContain("polish: Polish it [not satisfied]");
+    expect(human).toContain("Progress: 1 pending, 0 blocked, 0 complete, 0 cancelled");
+  });
+
+  test("actionable steps are listed first and are never capped", async () => {
+    const project = await projectFixture();
+    for (let i = 1; i <= 25; i++) await writeStepFixture(project, { id: i, name: `step-${i}` });
+
+    const result = invoke(["context", "plan", "--json"], project);
+    const view = JSON.parse(result.stdout);
+    expect(view.actionable).toHaveLength(25);
+    expect(view.actionable[0]).toEqual({
+      id: "plan/#1",
+      name: "step-1",
+      description: "Original description",
+    });
+    expect(view.actionable.omitted).toBeUndefined();
+  });
+
+  test("blocked steps show their recorded reason and are capped with an omitted count", async () => {
+    const project = await projectFixture();
+    for (let i = 1; i <= 25; i++)
+      await writeStepFixture(project, {
+        id: i,
+        name: `blocked-${i}`,
+        status: "blocked",
+        blockReason: `Waiting on external input #${i}`,
+      });
+
+    const result = invoke(["context", "plan", "--json"], project);
+    const view = JSON.parse(result.stdout);
+    expect(view.blocked.items).toHaveLength(20);
+    expect(view.blocked.omitted).toBe(5);
+    expect(view.blocked.items[0]).toEqual({
+      id: "plan/#1",
+      name: "blocked-1",
+      reason: "Waiting on external input #1",
+    });
+
+    const human = invoke(["context", "plan"], project).stdout;
+    expect(human).toContain("blocked-1: Waiting on external input #1");
+    expect(human).toContain("(5 more omitted)");
+  });
+
+  test("pending-not-actionable steps distinguish an unmet dependency from a missing input", async () => {
+    const project = await projectFixture();
+    await writeStepFixture(project, { id: 1, name: "alpha" }); // pending, actionable
+    await writeStepFixture(project, {
+      id: 2,
+      name: "needs-dep",
+      dependencies: [1],
+    });
+    await writeStepFixture(project, {
+      id: 3,
+      name: "needs-input",
+      requiredInputs: [{ name: "brief", kind: "document" }],
+    });
+
+    const result = invoke(["context", "plan", "--json"], project);
+    const view = JSON.parse(result.stdout);
+    expect(view.actionable.map((s: { id: string }) => s.id)).toEqual(["plan/#1"]);
+
+    const byId = (id: string) =>
+      view.pendingNotActionable.items.find((s: { id: string }) => s.id === id);
+    const needsDep = byId("plan/#2");
+    expect(needsDep.reason).toBe("waiting on plan/#1 (pending)");
+    expect(needsDep.unmetDependencies).toEqual([
+      { id: "plan/#1", name: "alpha", status: "pending" },
+    ]);
+    expect(needsDep.missingInputs).toEqual([]);
+
+    const needsInput = byId("plan/#3");
+    expect(needsInput.reason).toBe("missing input slot 'brief'");
+    expect(needsInput.unmetDependencies).toEqual([]);
+    expect(needsInput.missingInputs).toEqual(["brief"]);
+
+    const human = invoke(["context", "plan"], project).stdout;
+    expect(human).toContain("needs-dep: waiting on plan/#1 (pending)");
+    expect(human).toContain("needs-input: missing input slot 'brief'");
+  });
+
+  test("recent activity covers steps, artifacts, and goals, sorted last-modified descending and capped", async () => {
+    const project = await projectFixture();
+    for (let i = 1; i <= 15; i++)
+      await writeStepFixture(project, {
+        id: i,
+        name: `step-${i}`,
+        updatedAt: `2024-01-01T00:${String(i).padStart(2, "0")}:00.000Z`,
+      });
+
+    const result = invoke(["context", "plan", "--json"], project);
+    const view = JSON.parse(result.stdout);
+    expect(view.recentActivity.items).toHaveLength(10);
+    expect(view.recentActivity.omitted).toBe(5);
+    // Most recently updated (step-15) sorts first.
+    expect(view.recentActivity.items[0]).toEqual({
+      kind: "step",
+      id: "plan/#15",
+      name: "step-15",
+      event: "updated",
+      at: "2024-01-01T00:15:00.000Z",
+    });
+    expect(view.recentActivity.items.at(-1)?.id).toBe("plan/#6");
+
+    const human = invoke(["context", "plan"], project).stdout;
+    expect(human).toContain("Recent activity:");
+    expect(human).toContain("(5 more omitted)");
+  });
+
+  test("--since filters recent activity and the completed tail, but never actionable or blocked, and sorting stays descending", async () => {
+    const project = await projectFixture();
+    await writeStepFixture(project, { id: 1, name: "actionable-step" }); // never touched by --since
+    await writeStepFixture(project, {
+      id: 2,
+      name: "blocked-step",
+      status: "blocked",
+      blockReason: "still blocked",
+      updatedAt: "2024-12-01T00:00:00.000Z",
+    });
+    await writeStepFixture(project, {
+      id: 3,
+      name: "completed-step",
+      status: "complete",
+      completionSummary: "Done",
+      updatedAt: "2024-06-01T00:00:00.000Z",
+      closedAt: "2024-06-01T00:00:00.000Z",
+    });
+
+    // An absolute-date cutoff after the completed step's closed_at, but
+    // before the blocked step's last update.
+    const absolute = invoke(["context", "plan", "--since", "2024-07-01", "--json"], project);
+    expect(absolute.exitCode).toBe(0);
+    const absoluteView = JSON.parse(absolute.stdout);
+    expect(absoluteView.actionable.map((s: { id: string }) => s.id)).toEqual(["plan/#1"]);
+    expect(absoluteView.blocked.items.map((s: { id: string }) => s.id)).toEqual(["plan/#2"]);
+    expect(absoluteView.completed.total).toBe(1); // unfiltered total
+    expect(absoluteView.completed.recent.items).toEqual([]); // filtered tail
+    expect(absoluteView.recentActivity.items.map((e: { id: string }) => e.id)).toEqual(["plan/#2"]);
+
+    // An invalid --since is rejected with the documented failure contract.
+    const invalid = invoke(["context", "plan", "--since", "not-a-window"], project);
+    expectCommandError(invalid);
+    expect(invalid.stderr).toContain("--since must be a duration");
+
+    // A duration wide enough to cover every fixture timestamp (all from
+    // 2024, computed relative to the real wall clock) includes everything.
+    const wide = invoke(["context", "plan", "--since", "9999d", "--json"], project);
+    const wideView = JSON.parse(wide.stdout);
+    expect(wideView.completed.total).toBe(1);
+    expect(wideView.completed.recent.items).toHaveLength(1);
+    expect(wideView.recentActivity.items).toHaveLength(3);
+    // Descending order is always on, regardless of --since.
+    expect(wideView.recentActivity.items[0].id).toBe("plan/#2");
+    expect(wideView.recentActivity.items.at(-1)?.id).toBe("plan/#1");
+  });
+
+  test("completed steps report an unfiltered total plus a capped, most-recent tail", async () => {
+    const project = await projectFixture();
+    for (let i = 1; i <= 8; i++)
+      await writeStepFixture(project, {
+        id: i,
+        name: `done-${i}`,
+        status: "complete",
+        completionSummary: `Finished step ${i}`,
+        updatedAt: `2024-01-01T00:${String(i).padStart(2, "0")}:00.000Z`,
+        closedAt: `2024-01-01T00:${String(i).padStart(2, "0")}:00.000Z`,
+      });
+
+    const result = invoke(["context", "plan", "--json"], project);
+    const view = JSON.parse(result.stdout);
+    expect(view.completed.total).toBe(8);
+    expect(view.completed.recent.items).toHaveLength(5);
+    expect(view.completed.recent.omitted).toBe(3);
+    expect(view.completed.recent.items[0]).toEqual({
+      id: "plan/#8",
+      name: "done-8",
+      summary: "Finished step 8",
+      closedAt: "2024-01-01T00:08:00.000Z",
+    });
+
+    const human = invoke(["context", "plan"], project).stdout;
+    expect(human).toContain("Completed steps: 8 total");
+    expect(human).toContain("done-8: Finished step 8 (closed 2024-01-01T00:08:00.000Z)");
+    expect(human).toContain("(3 more omitted)");
+  });
+
+  test("artifacts are listed fully qualified and capped with an omitted count", async () => {
+    const project = await projectFixture();
+    for (let i = 1; i <= 25; i++) await writeArtifact(project, `doc-${i}`, i);
+
+    const result = invoke(["context", "plan", "--json"], project);
+    const view = JSON.parse(result.stdout);
+    expect(view.artifacts.items).toHaveLength(20);
+    expect(view.artifacts.omitted).toBe(5);
+    expect(view.artifacts.items[0]).toEqual({
+      id: "plan/@1",
+      name: "doc-1",
+      kind: "document",
+      ref: "path/doc-1",
+    });
+
+    const human = invoke(["context", "plan"], project).stdout;
+    expect(human).toContain("plan/@1 doc-1 (document): path/doc-1");
+    expect(human).toContain("(5 more omitted)");
+  });
+
+  test("--json emits the same derived view as Markdown, never the raw snapshot (no step bodies at map scope)", async () => {
+    const project = await projectFixture();
+    await writeStepFixture(project, { id: 1, name: "alpha" });
+
+    const jsonResult = invoke(["context", "plan", "--json"], project);
+    const view = JSON.parse(jsonResult.stdout);
+    expect(view.actionable[0]).not.toHaveProperty("body");
+    expect(JSON.stringify(view)).not.toContain("Narrative that must survive");
+
+    const humanResult = invoke(["context", "plan"], project);
+    expect(humanResult.stdout).not.toContain("Narrative that must survive");
+    expect(humanResult.stdout).toContain("plan/#1 alpha: Original description");
+  });
+
+  test("a missing map fails with the documented contract", async () => {
+    const project = await projectFixture();
+
+    const human = invoke(["context", "does-not-exist"], project);
+    expectCommandError(human);
+
+    const json = invoke(["context", "does-not-exist", "--json"], project);
+    expect(json.exitCode).toBe(2);
+    expect(JSON.parse(json.stdout)).toHaveProperty("error");
+  });
+
+  test("a degraded map read renders healthy records, lists the broken file as a problem, and exits zero", async () => {
+    const project = await projectFixture();
+    await writeStep(project, "good", 1);
+    await writeStep(project, "bad", 2);
+    await breakStep(project, "2-bad.md");
+
+    const jsonResult = invoke(["context", "plan", "--json"], project);
+    expect(jsonResult.exitCode).toBe(0);
+    const view = JSON.parse(jsonResult.stdout);
+    expect(view.actionable.map((s: { id: string }) => s.id)).toEqual(["plan/#1"]);
+    expect(view.problems).toHaveLength(1);
+    expect(view.problems[0].file).toContain("2-bad.md");
+
+    const humanResult = invoke(["context", "plan"], project);
+    expect(humanResult.exitCode).toBe(0);
+    expect(humanResult.stdout).toContain("Problems:");
+    expect(humanResult.stdout).toContain("2-bad.md");
+  });
+
+  test("project scope tolerates a broken sibling map, but addressing a map with malformed metadata directly is fatal", async () => {
+    const project = await projectFixture();
+    await writeStep(project, "alpha", 1);
+    const mapFile = join(project, ".wayful", "maps", "plan", "map.toml");
+    await writeFile(mapFile, (await readFile(mapFile, "utf8")).replace('start = "here"', ""));
+
+    // Project scope: the broken map is skipped and reported as a problem —
+    // the whole scope does not abort.
+    const projectResult = invoke(["context", "--json"], project);
+    expect(projectResult.exitCode).toBe(0);
+    const projectView = JSON.parse(projectResult.stdout);
+    expect(projectView.maps).toEqual([]);
+    expect(projectView.problems.length).toBeGreaterThan(0);
+
+    // Map scope: addressing the same broken map directly is fatal.
+    expectCommandError(invoke(["context", "plan"], project));
+  });
+
+  test("a step or artifact reference, or a map-qualified name, is rejected rather than silently rendering project scope", async () => {
+    const project = await projectFixture();
+
+    for (const ref of ["#1", "@1", "plan/other"]) {
+      const result = invoke(["context", ref], project);
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toMatch(/^wayful: /);
+      expect(result.stderr).toContain("does not yet support");
+      expect(result.stdout).not.toContain("Scope: project");
+    }
   });
 });
