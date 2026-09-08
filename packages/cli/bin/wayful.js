@@ -22,12 +22,17 @@ if (process.platform === "win32") {
 
 // glibc always exposes its runtime version through `process.report`; musl
 // (Alpine and friends) does not. There is no direct "is this musl" check, so
-// the absence of the field is read as the signal.
-const glibcVersion = process.report?.getReport?.()?.header?.glibcVersionRuntime;
-if (!glibcVersion) {
-  fail(
-    "Alpine and other musl systems are not yet supported; run under Bun directly, or use a glibc-based image.",
-  );
+// the absence of the field is read as the signal — but only on Linux. Node
+// fills that field from a `dlsym` lookup of `gnu_get_libc_version`, which
+// resolves under no non-glibc libc at all, so testing it unconditionally
+// rejected every macOS machine (no glibc there by design) as an Alpine box.
+if (process.platform === "linux") {
+  const glibcVersion = process.report?.getReport?.()?.header?.glibcVersionRuntime;
+  if (!glibcVersion) {
+    fail(
+      "Alpine and other musl systems are not yet supported; run under Bun directly, or use a glibc-based image.",
+    );
+  }
 }
 
 const platformPackage = `@wayful/cli-${process.platform}-${process.arch}`;
