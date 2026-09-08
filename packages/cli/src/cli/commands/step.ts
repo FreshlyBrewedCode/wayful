@@ -27,6 +27,7 @@ import {
   resolveMap,
   resolveReferencedMap,
   resolveProject,
+  strict,
 } from "../../scope";
 import { jsonFlag, mapFlag } from "../flags";
 import { handle, printOutput } from "../render";
@@ -140,7 +141,7 @@ const stepCreateCommand = Command.make(
         const project = yield* resolveProject(root.project);
         const map = yield* resolveMap(parent.map, project);
         yield* assertWritableMapIntegrity(map);
-        const steps = yield* backend.listSteps(map);
+        const steps = yield* strict(yield* backend.listSteps(map));
         const stepName = yield* liftSync(() => identifier(name, "step name", true));
         if (steps.some((s) => s.name === stepName))
           yield* fail(`step '${stepName}' already exists.`);
@@ -198,7 +199,7 @@ const stepShowCommand = Command.make(
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
-        const steps = yield* backend.listSteps(map);
+        const steps = yield* strict(yield* backend.listSteps(map));
         const target = yield* findStep(steps, token);
         const instructions = yield* backend.getType(project, target.type).pipe(
           Effect.map((type) => type.instructions),
@@ -244,7 +245,7 @@ const stepUpdateCommand = Command.make(
         const project = yield* resolveProject(root.project);
         const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
         yield* assertWritableMapIntegrity(map);
-        const steps = yield* backend.listSteps(map);
+        const steps = yield* strict(yield* backend.listSteps(map));
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         if (target.status !== "pending") yield* fail("only pending steps can be updated.");
@@ -279,7 +280,7 @@ const stepBlockCommand = Command.make(
         const project = yield* resolveProject(root.project);
         const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
         yield* assertWritableMapIntegrity(map);
-        const steps = yield* backend.listSteps(map);
+        const steps = yield* strict(yield* backend.listSteps(map));
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         if (target.status !== "pending") yield* fail("only pending steps can be blocked.");
@@ -300,7 +301,7 @@ const stepUnblockCommand = Command.make("unblock", { step: stepArgument }, ({ st
       const project = yield* resolveProject(root.project);
       const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
       yield* assertWritableMapIntegrity(map);
-      const steps = yield* backend.listSteps(map);
+      const steps = yield* strict(yield* backend.listSteps(map));
       const target = yield* findStep(steps, token);
       yield* assertNotTerminal(target);
       if (target.status !== "blocked") yield* fail("only blocked steps can be unblocked.");
@@ -330,11 +331,11 @@ const stepCompleteCommand = Command.make(
         const project = yield* resolveProject(root.project);
         const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
         yield* assertWritableMapIntegrity(map);
-        const steps = yield* backend.listSteps(map);
+        const steps = yield* strict(yield* backend.listSteps(map));
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         const completionSummary = yield* liftSync(() => nonEmpty(summary, "completion summary"));
-        const artifacts = yield* backend.listArtifacts(map);
+        const artifacts = yield* strict(yield* backend.listArtifacts(map));
         if (!attachmentOK(target, "outputs", artifacts))
           yield* fail("required output slots are not fulfilled.");
         yield* backend.saveStep(map, {
@@ -366,7 +367,7 @@ const stepCancelCommand = Command.make(
         const project = yield* resolveProject(root.project);
         const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
         yield* assertWritableMapIntegrity(map);
-        const steps = yield* backend.listSteps(map);
+        const steps = yield* strict(yield* backend.listSteps(map));
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         const cancellationReason = yield* liftSync(() => nonEmpty(reason, "cancellation reason"));
@@ -401,7 +402,7 @@ const stepDependsCommand = Command.make(
         const project = yield* resolveProject(root.project);
         const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
         yield* assertWritableMapIntegrity(map);
-        const steps = yield* backend.listSteps(map);
+        const steps = yield* strict(yield* backend.listSteps(map));
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         const onRef = yield* liftSync(() => expectStep(on));
@@ -448,12 +449,12 @@ function makeAttachCommand(name: "input" | "output", direction: "inputs" | "outp
           const project = yield* resolveProject(root.project);
           const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
           yield* assertWritableMapIntegrity(map);
-          const steps = yield* backend.listSteps(map);
+          const steps = yield* strict(yield* backend.listSteps(map));
           const target = yield* findStep(steps, token);
           yield* assertNotTerminal(target);
           const artifactRef = yield* liftSync(() => expectArtifact(artifactName));
           yield* liftSync(() => assertSameMap(artifactRef.map, map.metadata.name, "an artifact"));
-          const artifacts = yield* backend.listArtifacts(map);
+          const artifacts = yield* strict(yield* backend.listArtifacts(map));
           const artifact = resolveToken(artifactRef.token, artifacts);
           if (!artifact)
             return yield* fail(`artifact '${describeToken(artifactRef.token)}' does not exist.`);

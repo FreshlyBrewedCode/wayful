@@ -96,7 +96,8 @@ describe("FileSystemBackend: project and type round-trips", () => {
         return yield* b.listTypes(reopened);
       }),
     );
-    expect(types).toEqual([
+    expect(types.errors).toEqual([]);
+    expect(types.records).toEqual([
       {
         format_version: CURRENT_FORMAT_VERSION,
         name: "task",
@@ -184,7 +185,8 @@ describe("FileSystemBackend: maps", () => {
       created_at: T0,
       updated_at: T0,
     });
-    expect(result.goals).toEqual([
+    expect(result.goals.errors).toEqual([]);
+    expect(result.goals.records).toEqual([
       {
         format_version: CURRENT_FORMAT_VERSION,
         name: "initial-goal",
@@ -293,7 +295,8 @@ describe("FileSystemBackend: maps", () => {
         return yield* b.listMaps(project);
       }),
     );
-    expect(maps.map((m) => m.name)).toEqual(["plan"]);
+    expect(maps.records.map((m) => m.name)).toEqual(["plan"]);
+    expect(maps.errors).toEqual([{ file: "invalid/map.toml", message: expect.any(String) }]);
   });
 });
 
@@ -326,7 +329,28 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
         return yield* b.listSteps(map);
       }),
     );
-    expect(steps).toEqual([{ ...created, created_at: T0, updated_at: T0 }]);
+    expect(steps.errors).toEqual([]);
+    expect(steps.records).toEqual([{ ...created, created_at: T0, updated_at: T0 }]);
+  });
+
+  test("listSteps returns a healthy step alongside a decode error for a broken sibling, rather than failing outright", async () => {
+    const map = await initializedMap();
+    const created = newStep({ id: 1, name: "work" });
+    await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.createStep(map, created);
+      }),
+    );
+    await writeFile(join(map.dir, "steps", "2-broken.md"), "---\nname: broken\n");
+    const steps = await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        return yield* b.listSteps(map);
+      }),
+    );
+    expect(steps.records).toEqual([{ ...created, created_at: T0, updated_at: T0 }]);
+    expect(steps.errors).toEqual([{ file: "2-broken.md", message: expect.any(String) }]);
   });
 
   test("createStep refuses to overwrite an existing step file", async () => {
@@ -355,13 +379,14 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
       Effect.gen(function* () {
         const b = yield* backend();
         yield* b.createStep(map, created);
-        const [persisted] = yield* b.listSteps(map);
+        const [persisted] = (yield* b.listSteps(map)).records;
         yield* TestClock.adjust("1 hour");
         yield* b.saveStep(map, { ...persisted, description: "Updated description" });
         return yield* b.listSteps(map);
       }),
     );
-    expect(steps).toEqual([
+    expect(steps.errors).toEqual([]);
+    expect(steps.records).toEqual([
       { ...created, description: "Updated description", created_at: T0, updated_at: T1 },
     ]);
   });
@@ -373,7 +398,7 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
       Effect.gen(function* () {
         const b = yield* backend();
         yield* b.createStep(map, created);
-        const [persisted] = yield* b.listSteps(map);
+        const [persisted] = (yield* b.listSteps(map)).records;
         yield* TestClock.adjust("1 hour");
         yield* b.saveStep(map, {
           ...persisted,
@@ -383,7 +408,8 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
         return yield* b.listSteps(map);
       }),
     );
-    expect(steps).toEqual([
+    expect(steps.errors).toEqual([]);
+    expect(steps.records).toEqual([
       {
         ...created,
         status: "complete",
@@ -401,14 +427,15 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
       join(map.dir, "steps", "1-wrong.md"),
       `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: right\ntype: task\ndescription: Do it\nstatus: pending\ndependencies: []\ninputs: []\noutputs: []\nrequired_inputs: []\nrequired_outputs: []\ncreated_at: ${T0}\nupdated_at: ${T0}\n---\n`,
     );
-    const error = await runFailure(
+    const steps = await run(
       Effect.gen(function* () {
         const b = yield* backend();
-        yield* b.listSteps(map);
+        return yield* b.listSteps(map);
       }),
     );
-    expect(error).toBeInstanceOf(WayfulError);
-    expect((error as WayfulError).message).toContain("does not match identity");
+    expect(steps.records).toEqual([]);
+    expect(steps.errors).toHaveLength(1);
+    expect(steps.errors[0]?.message).toContain("does not match identity");
   });
 
   test("createArtifact refuses a name already used by a .yml or .yaml record", async () => {
@@ -470,7 +497,8 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
     );
     const entries = await readdir(join(map.dir, "artifacts"));
     expect(entries).toContain("3-proof.yaml");
-    expect(artifacts).toEqual([
+    expect(artifacts.errors).toEqual([]);
+    expect(artifacts.records).toEqual([
       {
         format_version: CURRENT_FORMAT_VERSION,
         id: 3,
@@ -507,7 +535,8 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
         return yield* b.listArtifacts(map);
       }),
     );
-    expect(artifacts.map((a) => a.name)).toEqual(["alpha", "zeta"]);
+    expect(artifacts.errors).toEqual([]);
+    expect(artifacts.records.map((a) => a.name)).toEqual(["alpha", "zeta"]);
   });
 
   test("createGoal then listGoals round-trips and preserves the Markdown body, saveGoal advances updated_at from the injected clock", async () => {
@@ -522,13 +551,14 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
           evidence: [],
           body: "Acceptance notes.",
         });
-        const [, persisted] = yield* b.listGoals(map);
+        const [, persisted] = (yield* b.listGoals(map)).records;
         yield* TestClock.adjust("1 hour");
         yield* b.saveGoal(map, { ...persisted, evidence: ["proof"] });
         return yield* b.listGoals(map);
       }),
     );
-    expect(goals).toEqual([
+    expect(goals.errors).toEqual([]);
+    expect(goals.records).toEqual([
       {
         format_version: CURRENT_FORMAT_VERSION,
         name: "initial-goal",

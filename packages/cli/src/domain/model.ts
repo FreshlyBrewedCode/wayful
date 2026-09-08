@@ -102,3 +102,22 @@ export interface MapSnapshot {
   readonly goals: readonly GoalRecord[];
   readonly types: readonly TypeDefinition[];
 }
+
+/** A single record within a collection that failed to decode, and why. */
+export interface DecodeError {
+  /** The record's filename, relative to its own collection directory. */
+  readonly file: string;
+  readonly message: string;
+}
+
+/**
+ * The shape every filesystem-backend collection read returns: the records
+ * that decoded successfully, together with the ones that didn't. A broken
+ * sibling never hides a healthy one — callers that need the old
+ * abort-on-first-failure behaviour instead can fold this back with
+ * `scope.ts`'s `strict()`.
+ */
+export interface CollectionRead<T> {
+  readonly records: readonly T[];
+  readonly errors: readonly DecodeError[];
+}

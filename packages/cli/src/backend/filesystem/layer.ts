@@ -1,11 +1,12 @@
-import { Effect, FileSystem, Layer, Option, Path } from "effect";
+import { Effect, FileSystem, Layer, Option, Path, Result } from "effect";
 
 import { MapMetadataError, WayfulError } from "../../domain/errors";
 import { identifier, nonEmpty } from "../../domain/identifier";
 import {
   closesStep,
   CURRENT_FORMAT_VERSION,
-  type ArtifactRecord,
+  type CollectionRead,
+  type DecodeError,
   type GoalRecord,
   type MapMetadata,
   type NewArtifactRecord,
@@ -56,6 +57,30 @@ import {
 const fail = (message: string) => Effect.fail(new WayfulError({ message }));
 
 const accessError = () => new WayfulError({ message: "cannot access filesystem." });
+
+/**
+ * Runs `decode` for each item in `items`, collecting successes and turning
+ * any failure into a `DecodeError` keyed by `fileFor(item)` instead of
+ * aborting the whole read. This is the skip-and-collect contract every
+ * collection read shares: a broken sibling never hides a healthy one.
+ */
+function collect<I, T, E extends { readonly message: string }>(
+  items: readonly I[],
+  fileFor: (item: I) => string,
+  decode: (item: I) => Effect.Effect<T, E>,
+): Effect.Effect<CollectionRead<T>, never> {
+  return Effect.gen(function* () {
+    const records: T[] = [];
+    const errors: DecodeError[] = [];
+    for (const item of items) {
+      const result = yield* Effect.result(decode(item));
+      if (Result.isFailure(result))
+        errors.push({ file: fileFor(item), message: result.failure.message });
+      else records.push(result.success);
+    }
+    return { records, errors };
+  });
+}
 
 function mapMetadataToToml(metadata: MapMetadata): Record<string, unknown> {
   const record: Record<string, unknown> = {
@@ -220,9 +245,11 @@ export const FileSystemBackend = Layer.effect(
             .filter((file) => file.endsWith(".md"))
             .map((file) => file.slice(0, -3))
             .toSorted();
-          const types: TypeDefinition[] = [];
-          for (const name of names) types.push(yield* readType(project, name));
-          return types;
+          return yield* collect(
+            names,
+            (name) => `${name}.md`,
+            (name) => readType(project, name),
+          );
         }),
 
       getType: (project, name) => readType(project, name),
@@ -231,23 +258,26 @@ export const FileSystemBackend = Layer.effect(
         Effect.gen(function* () {
           const dir = mapsDir(path, project.root);
           const exists = yield* fs.exists(dir).pipe(Effect.mapError(accessError));
-          if (!exists) return [];
+          if (!exists) return { records: [], errors: [] };
           const entries = yield* fs
             .readDirectory(dir)
             .pipe(Effect.mapError(() => new WayfulError({ message: "cannot read project maps." })));
-          const names = entries.toSorted();
-          const maps: MapMetadata[] = [];
-          for (const name of names) {
+          const names: string[] = [];
+          for (const name of entries.toSorted()) {
             const stat = yield* fs
               .stat(path.join(dir, name))
               .pipe(Effect.catch(() => Effect.succeed(undefined)));
-            if (!stat || stat.type !== "Directory") continue;
-            const handle = yield* openMapHandle(project, name).pipe(
-              Effect.catch(() => Effect.succeed(undefined)),
-            );
-            if (handle) maps.push(handle.metadata);
+            if (stat && stat.type === "Directory") names.push(name);
           }
-          return maps;
+          const result = yield* collect(
+            names,
+            (name) => `${name}/map.toml`,
+            (name) => openMapHandle(project, name),
+          );
+          return {
+            records: result.records.map((handle) => handle.metadata),
+            errors: result.errors,
+          };
         }),
 
       createMap: (project, { name, start, goal, goalBody }) =>
@@ -336,14 +366,21 @@ export const FileSystemBackend = Layer.effect(
             .readDirectory(dir)
             .pipe(Effect.mapError(() => new WayfulError({ message: "cannot read steps." })));
           const filenames = files.filter((file) => file.endsWith(".md")).toSorted();
-          const steps: StepRecord[] = [];
-          for (const filename of filenames) {
-            const file = path.join(dir, filename);
-            const text = yield* readTextFile(fs, file, `cannot read ${file}.`);
-            const { data, body } = yield* liftSync(() => parseFrontmatter(text, file));
-            steps.push(yield* liftSync(() => decodeStep(filename, data, body)));
-          }
-          return steps.toSorted((a, b) => a.id - b.id);
+          const result = yield* collect(
+            filenames,
+            (filename) => filename,
+            (filename) =>
+              Effect.gen(function* () {
+                const file = path.join(dir, filename);
+                const text = yield* readTextFile(fs, file, `cannot read ${file}.`);
+                const { data, body } = yield* liftSync(() => parseFrontmatter(text, file));
+                return yield* liftSync(() => decodeStep(filename, data, body));
+              }),
+          );
+          return {
+            records: result.records.toSorted((a, b) => a.id - b.id),
+            errors: result.errors,
+          };
         }),
 
       createStep: (map, step: NewStepRecord) =>
@@ -383,14 +420,21 @@ export const FileSystemBackend = Layer.effect(
             .readDirectory(dir)
             .pipe(Effect.mapError(() => new WayfulError({ message: "cannot read artifacts." })));
           const filenames = files.filter((file) => /\.ya?ml$/.test(file));
-          const artifacts: ArtifactRecord[] = [];
-          for (const filename of filenames) {
-            const file = path.join(dir, filename);
-            const text = yield* readTextFile(fs, file, `cannot read ${file}.`);
-            const data = yield* liftSync(() => parseYaml(text, file));
-            artifacts.push(yield* liftSync(() => decodeArtifact(filename, data)));
-          }
-          return artifacts.toSorted((a, b) => a.name.localeCompare(b.name));
+          const result = yield* collect(
+            filenames,
+            (filename) => filename,
+            (filename) =>
+              Effect.gen(function* () {
+                const file = path.join(dir, filename);
+                const text = yield* readTextFile(fs, file, `cannot read ${file}.`);
+                const data = yield* liftSync(() => parseYaml(text, file));
+                return yield* liftSync(() => decodeArtifact(filename, data));
+              }),
+          );
+          return {
+            records: result.records.toSorted((a, b) => a.name.localeCompare(b.name)),
+            errors: result.errors,
+          };
         }),
 
       createArtifact: (map, artifact: NewArtifactRecord) =>
@@ -423,14 +467,21 @@ export const FileSystemBackend = Layer.effect(
             .readDirectory(dir)
             .pipe(Effect.mapError(() => new WayfulError({ message: "cannot read goals." })));
           const filenames = files.filter((file) => file.endsWith(".md")).toSorted();
-          const goals: GoalRecord[] = [];
-          for (const filename of filenames) {
-            const file = path.join(dir, filename);
-            const text = yield* readTextFile(fs, file, `cannot read ${file}.`);
-            const { data, body } = yield* liftSync(() => parseFrontmatter(text, file));
-            goals.push(yield* liftSync(() => decodeGoal(filename, data, body)));
-          }
-          return goals.toSorted((a, b) => a.name.localeCompare(b.name));
+          const result = yield* collect(
+            filenames,
+            (filename) => filename,
+            (filename) =>
+              Effect.gen(function* () {
+                const file = path.join(dir, filename);
+                const text = yield* readTextFile(fs, file, `cannot read ${file}.`);
+                const { data, body } = yield* liftSync(() => parseFrontmatter(text, file));
+                return yield* liftSync(() => decodeGoal(filename, data, body));
+              }),
+          );
+          return {
+            records: result.records.toSorted((a, b) => a.name.localeCompare(b.name)),
+            errors: result.errors,
+          };
         }),
 
       createGoal: (map, goal: NewGoalRecord) =>
