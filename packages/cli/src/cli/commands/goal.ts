@@ -4,6 +4,7 @@ import { Command, Flag, Param } from "effect/unstable/cli";
 import { WayfulBackend } from "../../backend/Backend";
 import { liftSync } from "../../backend/filesystem/documents";
 import { identifier, nonEmpty } from "../../domain/identifier";
+import { assertSameMap, describeToken, expectArtifact, resolveToken } from "../../domain/reference";
 import { assertWritableMapIntegrity, fail, resolveMap, resolveProject } from "../../scope";
 import { jsonFlag, mapFlag } from "../flags";
 import { bodyLines, handle, printOutput } from "../render";
@@ -72,20 +73,23 @@ const goalAddCommand = Command.make(
     ),
 ).pipe(Command.withDescription("Add a goal"));
 
+const evidenceDescription =
+  "Evidence artifact reference (name, '@id', or '@name'); repeat for additional evidence; cannot cross maps";
+
 const goalSatisfyCommand = Command.make(
   "satisfy",
   {
     goal: Flag.string("goal").pipe(Flag.withMetavar("NAME"), Flag.withDescription("Goal name")),
     artifact: Param.variadic(
       Flag.string("artifact").pipe(
-        Flag.withMetavar("NAME"),
-        Flag.withDescription("Evidence artifact (repeat for additional evidence)"),
+        Flag.withMetavar("ARTIFACT"),
+        Flag.withDescription(evidenceDescription),
       ),
     ),
     evidence: Param.variadic(
       Flag.string("evidence").pipe(
-        Flag.withMetavar("NAME"),
-        Flag.withDescription("Alias for --artifact"),
+        Flag.withMetavar("ARTIFACT"),
+        Flag.withDescription(`${evidenceDescription} (alias for --artifact)`),
       ),
     ),
   },
@@ -108,12 +112,16 @@ const goalSatisfyCommand = Command.make(
         const combinedEvidence = [...artifact, ...evidence];
         if (!combinedEvidence.length) yield* fail("at least one evidence artifact is required.");
         const artifacts = yield* backend.listArtifacts(map);
-        for (const evidenceName of combinedEvidence) {
-          yield* liftSync(() => identifier(evidenceName, "artifact name"));
-          if (!artifacts.some((a) => a.name === evidenceName))
-            yield* fail(`artifact '${evidenceName}' does not exist.`);
+        const resolvedEvidence: string[] = [];
+        for (const raw of combinedEvidence) {
+          const ref = yield* liftSync(() => expectArtifact(raw));
+          yield* liftSync(() => assertSameMap(ref.map, map.metadata.name, "evidence"));
+          const resolvedArtifact = resolveToken(ref.token, artifacts);
+          if (!resolvedArtifact)
+            return yield* fail(`artifact '${describeToken(ref.token)}' does not exist.`);
+          resolvedEvidence.push(resolvedArtifact.name);
         }
-        yield* backend.saveGoal(map, { ...target, evidence: combinedEvidence });
+        yield* backend.saveGoal(map, { ...target, evidence: resolvedEvidence });
         yield* Console.log(`Satisfied goal '${resolvedGoalName}'.`);
       }),
     ),

@@ -193,12 +193,13 @@ describe("project and context contracts", () => {
       [["step", "cancel", "--help"], "--reason TEXT"],
       [["step", "depends", "--help"], "--on STEP"],
       [["step", "input", "--help"], "--slot NAME"],
-      [["step", "output", "--help"], "--artifact NAME"],
+      [["step", "output", "--help"], "--artifact ARTIFACT"],
       [["artifact", "add", "--help"], "--ref REF"],
       [["goal", "list", "--help"], "--json"],
       [["goal", "add", "--help"], "--description TEXT"],
       [["goal", "add", "--help"], "--body TEXT"],
-      [["goal", "satisfy", "--help"], "--artifact NAME"],
+      [["goal", "satisfy", "--help"], "--artifact ARTIFACT"],
+      [["goal", "satisfy", "--help"], "--evidence ARTIFACT"],
       [["type", "list", "--help"], "--project DIR"],
       [["type", "show", "--help"], "ARGUMENTS"],
       [["serve", "--help"], "--port PORT"],
@@ -773,6 +774,75 @@ describe("steps and graph integrity", () => {
     expectCommandError(invoke(["step", "depends", "a", "--map", "plan", "--on", "b"], project));
     expectCommandError(invoke(["step", "depends", "b", "--map", "plan", "--on", "a"], project));
   });
+
+  test("accepts a bare numeric id in a sigil'd slot, unqualified or map-qualified", async () => {
+    const project = await projectFixture();
+    await writeStep(project, "a", 1);
+    await writeStep(project, "b", 2);
+    // Bare integers are decidable without a sigil everywhere the grammar is
+    // accepted, including flags like --on: only a name needs '#'.
+    expect(invoke(["step", "depends", "2", "--map", "plan", "--on", "1"], project).exitCode).toBe(
+      0,
+    );
+    expect(invoke(["step", "show", "plan/#1", "--map", "plan", "--json"], project).exitCode).toBe(
+      0,
+    );
+  });
+
+  test("rejects an unrecognized reference sigil", async () => {
+    const project = await projectFixture();
+    await writeStep(project, "a", 1);
+    expectCommandError(invoke(["step", "show", "%a", "--map", "plan"], project));
+  });
+
+  test("resolves a map-qualified step reference without --map or WAYFUL_MAP", async () => {
+    const project = await projectFixture();
+    await writeStep(project, "a", 1);
+    const result = invoke(["step", "show", "plan/#a", "--json"], project);
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout).name).toBe("a");
+  });
+
+  test("rejects a dependency or artifact attachment that crosses maps", async () => {
+    const project = await projectFixture();
+    await writeStep(project, "a", 1);
+    await writeStep(project, "b", 2);
+    await mkdir(join(project, ".wayful", "maps", "other", "steps"), { recursive: true });
+    await mkdir(join(project, ".wayful", "maps", "other", "artifacts"), { recursive: true });
+    await writeFile(
+      join(project, ".wayful", "maps", "other", "map.toml"),
+      `format_version = ${CURRENT_FORMAT_VERSION}\nname = "other"\nstart = "there"\nstep_id_counter = 1\nartifact_id_counter = 1\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
+    );
+    await writeFile(
+      join(project, ".wayful", "maps", "other", "steps", "1-c.md"),
+      `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: c\ntype: task\ndescription: Original description\nstatus: pending\ndependencies: []\ninputs: []\noutputs: []\nrequired_inputs: []\nrequired_outputs: []\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n---\n`,
+    );
+    const dependsAcrossMaps = invoke(
+      ["step", "depends", "#a", "--map", "plan", "--on", "other/#c"],
+      project,
+    );
+    expectCommandError(dependsAcrossMaps);
+    expect(dependsAcrossMaps.stderr).toContain("cannot cross maps");
+    expect(
+      await readFile(join(project, ".wayful", "maps", "plan", "steps", "1-a.md"), "utf8"),
+    ).toContain("dependencies: []");
+  });
+
+  test("passes an unquoted bare integer step id through a shell intact", async () => {
+    const project = await projectFixture();
+    await writeStep(project, "work", 1);
+    const result = Bun.spawnSync({
+      cmd: [
+        "sh",
+        "-c",
+        `${process.execPath} ${entrypoint} step show 1 --map plan --project ${project} --json`,
+      ],
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(decoder.decode(result.stdout)).id).toBe(1);
+  });
 });
 
 describe("artifacts, goals, and validation", () => {
@@ -822,6 +892,105 @@ describe("artifacts, goals, and validation", () => {
     expect(
       await readFile(join(project, ".wayful", "maps", "plan", "goals", "release.md"), "utf8"),
     ).toContain("Acceptance details.\nSecond line.");
+  });
+
+  test("accepts sigil'd '#name' and '@name' forms at every migrated reference slot", async () => {
+    // Bare-name forms stay covered by the tests above and below (additivity);
+    // this exercises the sigil'd alternative at every slot that accepts the
+    // shared reference grammar, so both spellings are proven at each one.
+    const project = await projectFixture();
+    await writeStep(project, "alpha", 1);
+    await writeStep(project, "beta", 2);
+    await writeStep(project, "gamma", 3);
+
+    expect(invoke(["step", "show", "#alpha", "--map", "plan", "--json"], project).exitCode).toBe(0);
+    expect(
+      invoke(
+        ["step", "update", "#alpha", "--map", "plan", "--description", "Updated via sigil"],
+        project,
+      ).exitCode,
+    ).toBe(0);
+    expect(
+      invoke(["step", "block", "#gamma", "--map", "plan", "--reason", "Waiting"], project).exitCode,
+    ).toBe(0);
+    expect(invoke(["step", "unblock", "#gamma", "--map", "plan"], project).exitCode).toBe(0);
+    expect(
+      invoke(["step", "cancel", "#gamma", "--map", "plan", "--reason", "Not needed"], project)
+        .exitCode,
+    ).toBe(0);
+    expect(
+      invoke(["step", "depends", "#alpha", "--map", "plan", "--on", "#beta"], project).exitCode,
+    ).toBe(0);
+
+    expect(
+      invoke(
+        ["artifact", "add", "evidence", "--map", "plan", "--kind", "document", "--ref", "git:sig"],
+        project,
+      ).exitCode,
+    ).toBe(0);
+    expect(
+      invoke(["step", "output", "#beta", "--map", "plan", "--artifact", "@evidence"], project)
+        .exitCode,
+    ).toBe(0);
+    expect(
+      invoke(["step", "input", "#alpha", "--map", "plan", "--artifact", "@evidence"], project)
+        .exitCode,
+    ).toBe(0);
+
+    expect(
+      invoke(["step", "complete", "#beta", "--map", "plan", "--summary", "Done via sigil"], project)
+        .exitCode,
+    ).toBe(0);
+    expect(
+      invoke(
+        ["step", "complete", "#alpha", "--map", "plan", "--summary", "Done via sigil too"],
+        project,
+      ).exitCode,
+    ).toBe(0);
+
+    expect(
+      invoke(
+        ["goal", "add", "--map", "plan", "--name", "ship", "--description", "Ship it"],
+        project,
+      ).exitCode,
+    ).toBe(0);
+    expect(
+      invoke(
+        ["goal", "satisfy", "--map", "plan", "--goal", "ship", "--artifact", "@evidence"],
+        project,
+      ).exitCode,
+    ).toBe(0);
+
+    // --evidence is a peer spelling of --artifact, not a replacement; prove it
+    // also accepts the sigil'd grammar, on a second goal and artifact.
+    expect(
+      invoke(
+        [
+          "artifact",
+          "add",
+          "evidence-two",
+          "--map",
+          "plan",
+          "--kind",
+          "document",
+          "--ref",
+          "git:2",
+        ],
+        project,
+      ).exitCode,
+    ).toBe(0);
+    expect(
+      invoke(
+        ["goal", "add", "--map", "plan", "--name", "ship-two", "--description", "Ship it too"],
+        project,
+      ).exitCode,
+    ).toBe(0);
+    expect(
+      invoke(
+        ["goal", "satisfy", "--map", "plan", "--goal", "ship-two", "--evidence", "@evidence-two"],
+        project,
+      ).exitCode,
+    ).toBe(0);
   });
 
   test("registers opaque artifacts once and attaches them by explicit matching slots or supplementarily", async () => {

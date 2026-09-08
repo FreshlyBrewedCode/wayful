@@ -45,6 +45,21 @@ export function resolveMap(
   });
 }
 
+/**
+ * Resolves the map a reference addresses: an explicit map prefix on the
+ * reference always wins over `--map`/`WAYFUL_MAP`, since a map-qualified
+ * reference is unambiguous about which map it names.
+ */
+export function resolveReferencedMap(
+  refMap: string | undefined,
+  mapFlag: Option.Option<string>,
+  project: ProjectHandle,
+): Effect.Effect<MapHandle, WayfulError | MapMetadataError, WayfulBackend> {
+  return refMap !== undefined
+    ? resolveMap(Option.some(refMap), project)
+    : resolveMap(mapFlag, project);
+}
+
 export function buildSnapshot(
   map: MapHandle,
 ): Effect.Effect<MapSnapshot, WayfulError, WayfulBackend> {

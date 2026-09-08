@@ -252,7 +252,11 @@ export const FileSystemBackend = Layer.effect(
 
       createMap: (project, { name, start, goal, goalBody }) =>
         Effect.gen(function* () {
-          yield* liftSync(() => identifier(name, "map name"));
+          // A map name can never be purely numeric: the reference grammar
+          // distinguishes a bare integer (a step id) from a bare kebab-case
+          // name (a map) without a backend lookup, which only holds if no
+          // map can ever be named e.g. "123".
+          yield* liftSync(() => identifier(name, "map name", true));
           const trimmedStart = yield* liftSync(() => nonEmpty(start, "map start"));
           const trimmedGoal = yield* liftSync(() => nonEmpty(goal, "map goal"));
           const dir = mapDir(path, project.root, name);
