@@ -1,0 +1,329 @@
+import { describe, expect, test } from "bun:test";
+import { Effect, Option } from "effect";
+import { TestClock } from "effect/testing";
+import { readdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
+import { WayfulError } from "../../src/domain/errors";
+import { CURRENT_FORMAT_VERSION, type NewArtifactRecord } from "../../src/domain/model";
+import {
+  T0,
+  T1,
+  backend,
+  makeTemporaryDirectory,
+  newStep,
+  run,
+  runFailure,
+} from "./support/harness";
+
+const temporaryDirectory = makeTemporaryDirectory();
+
+describe("FileSystemBackend: steps, artifacts, and goals", () => {
+  async function initializedMap() {
+    const directory = await temporaryDirectory();
+    return run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.initProject({ directory, description: "" });
+        const project = yield* b.openProject(Option.some(directory));
+        yield* b.createMap(project, { name: "plan", start: "here", goal: "done", goalBody: "" });
+        return yield* b.openMap(project, "plan");
+      }),
+    );
+  }
+
+  test("createStep then listSteps round-trips and preserves the Markdown body", async () => {
+    const map = await initializedMap();
+    const created = newStep({
+      id: 1,
+      name: "work",
+      description: "Do it",
+      body: "Line one.\nLine two.",
+    });
+    const steps = await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.createStep(map, created);
+        return yield* b.listSteps(map);
+      }),
+    );
+    expect(steps.errors).toEqual([]);
+    expect(steps.records).toEqual([{ ...created, created_at: T0, updated_at: T0 }]);
+  });
+
+  test("listSteps returns a healthy step alongside a decode error for a broken sibling, rather than failing outright", async () => {
+    const map = await initializedMap();
+    const created = newStep({ id: 1, name: "work" });
+    await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.createStep(map, created);
+      }),
+    );
+    await writeFile(join(map.dir, "steps", "2-broken.md"), "---\nname: broken\n");
+    const steps = await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        return yield* b.listSteps(map);
+      }),
+    );
+    expect(steps.records).toEqual([{ ...created, created_at: T0, updated_at: T0 }]);
+    expect(steps.errors).toEqual([{ file: "2-broken.md", message: expect.any(String) }]);
+  });
+
+  test("createStep refuses to overwrite an existing step file", async () => {
+    const map = await initializedMap();
+    const created = newStep({ id: 1, name: "work" });
+    await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.createStep(map, created);
+      }),
+    );
+    const error = await runFailure(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.createStep(map, created);
+      }),
+    );
+    expect(error).toBeInstanceOf(WayfulError);
+    expect((error as WayfulError).message).toContain("already exists");
+  });
+
+  test("saveStep preserves created_at, advances updated_at from the injected clock, and leaves closed_at unset for a non-terminal status", async () => {
+    const map = await initializedMap();
+    const created = newStep({ id: 1, name: "work", body: "Original body." });
+    const steps = await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.createStep(map, created);
+        const [persisted] = (yield* b.listSteps(map)).records;
+        yield* TestClock.adjust("1 hour");
+        yield* b.saveStep(map, { ...persisted, description: "Updated description" });
+        return yield* b.listSteps(map);
+      }),
+    );
+    expect(steps.errors).toEqual([]);
+    expect(steps.records).toEqual([
+      { ...created, description: "Updated description", created_at: T0, updated_at: T1 },
+    ]);
+  });
+
+  test("saveStep sets closed_at from the injected clock when a step becomes complete", async () => {
+    const map = await initializedMap();
+    const created = newStep({ id: 1, name: "work" });
+    const steps = await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.createStep(map, created);
+        const [persisted] = (yield* b.listSteps(map)).records;
+        yield* TestClock.adjust("1 hour");
+        yield* b.saveStep(map, {
+          ...persisted,
+          status: "complete",
+          completion_summary: "done",
+        });
+        return yield* b.listSteps(map);
+      }),
+    );
+    expect(steps.errors).toEqual([]);
+    expect(steps.records).toEqual([
+      {
+        ...created,
+        status: "complete",
+        completion_summary: "done",
+        created_at: T0,
+        updated_at: T1,
+        closed_at: T1,
+      },
+    ]);
+  });
+
+  test("listSteps reports a step whose filename does not match its frontmatter identity", async () => {
+    const map = await initializedMap();
+    await writeFile(
+      join(map.dir, "steps", "1-wrong.md"),
+      `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: right\ntype: task\ndescription: Do it\nstatus: pending\ndependencies: []\ninputs: []\noutputs: []\nrequired_inputs: []\nrequired_outputs: []\ncreated_at: ${T0}\nupdated_at: ${T0}\n---\n`,
+    );
+    const steps = await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        return yield* b.listSteps(map);
+      }),
+    );
+    expect(steps.records).toEqual([]);
+    expect(steps.errors).toHaveLength(1);
+    expect(steps.errors[0]?.message).toContain("does not match identity");
+  });
+
+  test("createArtifact refuses a name already used by a .yml or .yaml record", async () => {
+    const map = await initializedMap();
+    const artifact: NewArtifactRecord = {
+      format_version: CURRENT_FORMAT_VERSION,
+      id: 1,
+      name: "proof",
+      kind: "document",
+      ref: "git:one",
+    };
+    await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.createArtifact(map, artifact);
+      }),
+    );
+    const yamlError = await runFailure(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.createArtifact(map, { ...artifact, ref: "git:two" });
+      }),
+    );
+    expect((yamlError as WayfulError).message).toContain("already exists");
+
+    await writeFile(
+      join(map.dir, "artifacts", "2-other.yml"),
+      `format_version: ${CURRENT_FORMAT_VERSION}\nid: 2\nname: other\nkind: document\nref: git:one\ncreated_at: ${T0}\nupdated_at: ${T0}\n`,
+    );
+    const ymlError = await runFailure(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.createArtifact(map, {
+          format_version: CURRENT_FORMAT_VERSION,
+          id: 2,
+          name: "other",
+          kind: "document",
+          ref: "git:two",
+        });
+      }),
+    );
+    expect((ymlError as WayfulError).message).toContain("already exists");
+  });
+
+  test("createArtifact writes an id-prefixed filename and stamps timestamps from the injected clock", async () => {
+    const map = await initializedMap();
+    const artifacts = await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.createArtifact(map, {
+          format_version: CURRENT_FORMAT_VERSION,
+          id: 3,
+          name: "proof",
+          kind: "document",
+          ref: "git:abc",
+        });
+        return yield* b.listArtifacts(map);
+      }),
+    );
+    const entries = await readdir(join(map.dir, "artifacts"));
+    expect(entries).toContain("3-proof.yaml");
+    expect(artifacts.errors).toEqual([]);
+    expect(artifacts.records).toEqual([
+      {
+        format_version: CURRENT_FORMAT_VERSION,
+        id: 3,
+        name: "proof",
+        kind: "document",
+        ref: "git:abc",
+        created_at: T0,
+        updated_at: T0,
+      },
+    ]);
+  });
+
+  test("listArtifacts decodes both .yaml and .yml records sorted by name", async () => {
+    const map = await initializedMap();
+    await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.createArtifact(map, {
+          format_version: CURRENT_FORMAT_VERSION,
+          id: 1,
+          name: "zeta",
+          kind: "document",
+          ref: "git:z",
+        });
+      }),
+    );
+    await writeFile(
+      join(map.dir, "artifacts", "2-alpha.yml"),
+      `format_version: ${CURRENT_FORMAT_VERSION}\nid: 2\nname: alpha\nkind: document\nref: git:a\ncreated_at: ${T0}\nupdated_at: ${T0}\n`,
+    );
+    const artifacts = await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        return yield* b.listArtifacts(map);
+      }),
+    );
+    expect(artifacts.errors).toEqual([]);
+    expect(artifacts.records.map((a) => a.name)).toEqual(["alpha", "zeta"]);
+  });
+
+  test("createGoal then listGoals round-trips and preserves the Markdown body, saveGoal advances updated_at from the injected clock", async () => {
+    const map = await initializedMap();
+    const goals = await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.createGoal(map, {
+          format_version: CURRENT_FORMAT_VERSION,
+          name: "release",
+          description: "Ship it",
+          evidence: [],
+          body: "Acceptance notes.",
+        });
+        const [, persisted] = (yield* b.listGoals(map)).records;
+        yield* TestClock.adjust("1 hour");
+        yield* b.saveGoal(map, { ...persisted, evidence: ["proof"] });
+        return yield* b.listGoals(map);
+      }),
+    );
+    expect(goals.errors).toEqual([]);
+    expect(goals.records).toEqual([
+      {
+        format_version: CURRENT_FORMAT_VERSION,
+        name: "initial-goal",
+        description: "done",
+        evidence: [],
+        body: "",
+        created_at: T0,
+        updated_at: T0,
+      },
+      {
+        format_version: CURRENT_FORMAT_VERSION,
+        name: "release",
+        description: "Ship it",
+        evidence: ["proof"],
+        body: "Acceptance notes.",
+        created_at: T0,
+        updated_at: T1,
+      },
+    ]);
+  });
+
+  test("createGoal refuses to overwrite an existing goal", async () => {
+    const map = await initializedMap();
+    await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.createGoal(map, {
+          format_version: CURRENT_FORMAT_VERSION,
+          name: "release",
+          description: "Ship it",
+          evidence: [],
+          body: "",
+        });
+      }),
+    );
+    const error = await runFailure(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.createGoal(map, {
+          format_version: CURRENT_FORMAT_VERSION,
+          name: "release",
+          description: "Ship it again",
+          evidence: [],
+          body: "",
+        });
+      }),
+    );
+    expect((error as WayfulError).message).toContain("already exists");
+  });
+});
