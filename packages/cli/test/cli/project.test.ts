@@ -1,0 +1,169 @@
+import { describe, expect, test } from "bun:test";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
+import { CURRENT_FORMAT_VERSION } from "../../src/domain/model";
+import { FIXTURE_TIME, expectCommandError, makeCliHarness } from "../support/cli-harness";
+
+const { temporaryDirectory, invoke, projectFixture } = makeCliHarness();
+
+describe("project and context contracts", () => {
+  test("provides root and command-group help plus a root version", async () => {
+    const project = await temporaryDirectory();
+    for (const args of [["--help"], ["map", "--help"], ["step", "--help"], ["--version"]]) {
+      const result = invoke(args, project);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).not.toBe("");
+    }
+  });
+
+  test("documents each command's required arguments and available flags in help", async () => {
+    const project = await temporaryDirectory();
+    const cases: [string[], string][] = [
+      [["init", "--help"], "--description TEXT"],
+      [["map", "create", "--help"], "--goal TEXT"],
+      [["map", "create", "--help"], "--goal-body TEXT"],
+      [["map", "list", "--help"], "--project DIR"],
+      [["map", "validate", "--help"], "--json"],
+      [["map", "show", "--help"], "FLAGS"],
+      [["map", "next", "--help"], "--map NAME"],
+      [["map", "status", "--help"], "--project DIR"],
+      [["step", "create", "--help"], "--required-outputs JSON"],
+      [["step", "create", "--help"], "--body TEXT"],
+      [["step", "show", "--help"], "STEP"],
+      [["step", "update", "--help"], "--description TEXT"],
+      [["step", "update", "--help"], "--body TEXT"],
+      [["step", "block", "--help"], "--reason TEXT"],
+      [["step", "unblock", "--help"], "--map NAME"],
+      [["step", "complete", "--help"], "--summary TEXT"],
+      [["step", "cancel", "--help"], "--reason TEXT"],
+      [["step", "depends", "--help"], "--on STEP"],
+      [["step", "input", "--help"], "--slot NAME"],
+      [["step", "output", "--help"], "--artifact ARTIFACT"],
+      [["artifact", "add", "--help"], "--ref REF"],
+      [["goal", "list", "--help"], "--json"],
+      [["goal", "add", "--help"], "--description TEXT"],
+      [["goal", "add", "--help"], "--body TEXT"],
+      [["goal", "satisfy", "--help"], "--artifact ARTIFACT"],
+      [["goal", "satisfy", "--help"], "--evidence ARTIFACT"],
+      [["type", "list", "--help"], "--project DIR"],
+      [["type", "show", "--help"], "ARGUMENTS"],
+      [["serve", "--help"], "--port PORT"],
+      [["serve", "--help"], "--host ADDR"],
+      [["serve", "--help"], "--project DIR"],
+      [["ui", "--help"], "--port PORT"],
+      [["ui", "--help"], "--host ADDR"],
+      [["ui", "--help"], "--project DIR"],
+    ];
+    for (const [args, expected] of cases) {
+      const result = invoke(args, project);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(expected);
+      expect(result.stdout).toContain("--help");
+    }
+  }, 20000); // 33 subprocess spawns; a loaded CI runner can outrun the default 5s.
+
+  test("init creates versioned, timestamped metadata and the generic task type, then refuses overwrite", async () => {
+    const project = await temporaryDirectory();
+    expect(invoke(["init", "--description", "Refresh the site"], project).exitCode).toBe(0);
+    const projectToml = await readFile(join(project, ".wayful", "project.toml"), "utf8");
+    expect(projectToml).toContain(`format_version = ${CURRENT_FORMAT_VERSION}`);
+    expect(projectToml).toMatch(/created_at = "\d{4}-\d{2}-\d{2}T/);
+    expect(projectToml).toMatch(/updated_at = "\d{4}-\d{2}-\d{2}T/);
+    expect(await readFile(join(project, ".wayful", "types", "task.md"), "utf8")).toContain(
+      "name: task",
+    );
+    expectCommandError(invoke(["init"], project));
+  });
+
+  test("discovers upward, honors WAYFUL_PROJECT, and lets --project override it", async () => {
+    const project = await projectFixture();
+    const other = await projectFixture({ map: "other" });
+    const nested = join(project, "a", "deep", "directory");
+    await mkdir(nested, { recursive: true });
+    expect(invoke(["map", "show", "--map", "plan", "--json"], nested).exitCode).toBe(0);
+    expect(
+      invoke(["map", "show", "--map", "other", "--json"], nested, { WAYFUL_PROJECT: other })
+        .exitCode,
+    ).toBe(0);
+    expect(
+      invoke(["map", "show", "--project", project, "--map", "plan", "--json"], nested, {
+        WAYFUL_PROJECT: other,
+      }).exitCode,
+    ).toBe(0);
+  });
+
+  test("rejects absent, malformed, and newer project metadata plus unsafe identifiers", async () => {
+    const absent = await temporaryDirectory();
+    expectCommandError(invoke(["map", "show", "--map", "plan"], absent));
+    const project = await projectFixture();
+    await writeFile(join(project, ".wayful", "project.toml"), "not toml = [");
+    expectCommandError(invoke(["type", "list"], project));
+    await writeFile(
+      join(project, ".wayful", "project.toml"),
+      `format_version = ${CURRENT_FORMAT_VERSION + 1}\n`,
+    );
+    expectCommandError(invoke(["type", "list"], project));
+    expectCommandError(
+      invoke(["map", "create", "--map", "../unsafe", "--start", "now", "--goal", "done"], project),
+    );
+  });
+
+  test("strictly validates project metadata while accepting the documented unversioned migration form", async () => {
+    const project = await projectFixture();
+    const metadata = join(project, ".wayful", "project.toml");
+    await writeFile(
+      metadata,
+      `description = "Legacy project"\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
+    );
+    expect(invoke(["type", "list"], project).exitCode).toBe(0);
+    for (const invalid of [
+      `format_version = ${CURRENT_FORMAT_VERSION}\ndescription = 42\n`,
+      `format_version = ${CURRENT_FORMAT_VERSION}\n`,
+      `format_version = ${CURRENT_FORMAT_VERSION}\ndescription = "ok"\nunknown = true\n`,
+      `format_version = "${CURRENT_FORMAT_VERSION}"\ndescription = "ok"\n`,
+    ]) {
+      await writeFile(metadata, invalid);
+      expectCommandError(invoke(["type", "list"], project));
+    }
+  });
+
+  test("requires explicit map context and gives --map precedence over WAYFUL_MAP", async () => {
+    const project = await projectFixture();
+    await mkdir(join(project, ".wayful", "maps", "other", "steps"), { recursive: true });
+    await writeFile(
+      join(project, ".wayful", "maps", "other", "map.toml"),
+      `format_version = ${CURRENT_FORMAT_VERSION}\nname = "other"\nstart = "there"\nstep_id_counter = 1\nartifact_id_counter = 1\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
+    );
+    const missing = invoke(["map", "show"], project);
+    expectCommandError(missing);
+    expect(missing.stderr).toBe("wayful: map context is required; pass --map or set WAYFUL_MAP.\n");
+    expect(
+      invoke(["map", "show", "--map", "plan", "--json"], project, { WAYFUL_MAP: "other" }).exitCode,
+    ).toBe(0);
+  });
+
+  test("emits a structured {error} on stdout for --json failures, not just map validate", async () => {
+    const project = await projectFixture();
+    const missingMap = invoke(["map", "show", "--json"], project);
+    expect(missingMap.exitCode).toBe(2);
+    expect(missingMap.stderr).toBe(
+      "wayful: map context is required; pass --map or set WAYFUL_MAP.\n",
+    );
+    expect(JSON.parse(missingMap.stdout)).toEqual({
+      error: "map context is required; pass --map or set WAYFUL_MAP.",
+    });
+
+    const missingProject = invoke(["type", "list", "--json"], await temporaryDirectory());
+    expect(missingProject.exitCode).toBe(2);
+    expect(JSON.parse(missingProject.stdout)).toEqual({
+      error: missingProject.stderr.replace(/^wayful: /, "").trimEnd(),
+    });
+
+    const unknownMap = invoke(["map", "show", "--map", "missing", "--json"], project);
+    expect(unknownMap.exitCode).toBe(2);
+    expect(JSON.parse(unknownMap.stdout)).toEqual({
+      error: unknownMap.stderr.replace(/^wayful: /, "").trimEnd(),
+    });
+  });
+});
