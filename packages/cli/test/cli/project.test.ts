@@ -17,6 +17,47 @@ describe("project and context contracts", () => {
     }
   });
 
+  test("names what was wrong with a usage mistake instead of only requesting help", async () => {
+    const project = await temporaryDirectory();
+    // Every parse mistake reaches this CLI as one framework `ShowHelp` whose
+    // own message is the constant "Help requested"; each case here asserts the
+    // underlying diagnosis it carries survives to stderr, including the
+    // framework's spelling suggestions.
+    const cases: [string[], string[]][] = [
+      [
+        ["step", "create"],
+        ["Missing required argument: name", "'wayful step create --help'"],
+      ],
+      [
+        ["stepp", "create"],
+        ['Unknown subcommand "stepp"', "Did you mean this?", "step"],
+      ],
+      [
+        ["map", "creaet", "plan"],
+        ['Unknown subcommand "creaet"', "Did you mean this?", "create"],
+      ],
+      [["step", "show", "work", "--bogus"], ["Unrecognized flag: --bogus"]],
+      [["ui", "--port", "abc"], ['Invalid value for flag --port: "abc"']],
+      [["map", "create", "plan", "--description", "d"], ["Unrecognized flag: --description"]],
+    ];
+    for (const [args, expected] of cases) {
+      const result = invoke(args, project);
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toMatch(/^wayful: /);
+      expect(result.stderr).not.toContain("Help requested");
+      for (const fragment of expected) expect(result.stderr).toContain(fragment);
+    }
+  }, 10000); // 6 subprocess spawns; a loaded CI runner can outrun the default 5s.
+
+  test("treats a deliberate help or version request as a silent success", async () => {
+    const project = await temporaryDirectory();
+    for (const args of [[], ["map"], ["--help"], ["step", "create", "--help"], ["--version"]]) {
+      const result = invoke(args, project);
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+    }
+  });
+
   test("documents each command's required arguments and available flags in help", async () => {
     const project = await temporaryDirectory();
     const cases: [string[], string][] = [
