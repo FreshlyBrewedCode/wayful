@@ -2,7 +2,8 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useQuery } from "@tanstack/react-query";
 import { Outlet, createRootRouteWithContext, useRouterState } from "@tanstack/react-router";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import type { PanelImperativeHandle } from "react-resizable-panels";
 
 import { MapRail } from "@/components/map-rail";
 import { TopBar } from "@/components/top-bar";
@@ -12,6 +13,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useLiveUpdates } from "@/hooks/use-live-updates";
 import { BREAKPOINTS, useMediaQuery } from "@/hooks/use-media-query";
+import { RailControlsProvider } from "@/hooks/use-rail-controls";
 import { overviewQuery } from "@/lib/api";
 
 export interface RouterContext {
@@ -32,6 +34,7 @@ function RootLayout() {
   const live = useLiveUpdates();
   const [railOpen, setRailOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(false);
+  const railPanelRef = useRef<PanelImperativeHandle>(null);
   const railInline = !useMediaQuery(BREAKPOINTS.railOverlay);
   const activeMap = useActiveMapName();
 
@@ -64,39 +67,65 @@ function RootLayout() {
 
         <div className="flex min-h-0 flex-1">
           {railInline ? (
-            railCollapsed ? (
-              <div className="relative min-w-0 flex-1">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="absolute top-2 left-2 z-10"
-                  aria-label="Show maps rail"
-                  onClick={() => setRailCollapsed(false)}
-                >
-                  <PanelLeftOpen />
-                </Button>
-                {main}
-              </div>
-            ) : (
-              <ResizablePanelGroup orientation="horizontal">
-                <ResizablePanel defaultSize="20%" minSize="15%" maxSize="35%">
-                  <div className="relative h-full border-r">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="absolute top-2 right-2 z-10"
-                      aria-label="Collapse maps rail"
-                      onClick={() => setRailCollapsed(true)}
-                    >
-                      <PanelLeftClose />
-                    </Button>
-                    {rail}
+            <ResizablePanelGroup orientation="horizontal">
+              <ResizablePanel
+                panelRef={railPanelRef}
+                collapsible
+                defaultSize="20%"
+                minSize="15%"
+                maxSize="35%"
+                onResize={(size) => setRailCollapsed(size.asPercentage === 0)}
+              >
+                {!railCollapsed && (
+                  <div className="flex h-full flex-col border-r">
+                    <div className="flex shrink-0 items-center justify-end p-1">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="Collapse maps rail"
+                        onClick={() => {
+                          railPanelRef.current?.collapse();
+                          setRailCollapsed(true);
+                        }}
+                      >
+                        <PanelLeftClose />
+                      </Button>
+                    </div>
+                    <div className="min-h-0 flex-1">{rail}</div>
                   </div>
-                </ResizablePanel>
-                <ResizableHandle withHandle />
-                <ResizablePanel defaultSize="80%">{main}</ResizablePanel>
-              </ResizablePanelGroup>
-            )
+                )}
+              </ResizablePanel>
+              <ResizableHandle className={railCollapsed ? "hidden" : undefined} />
+              <ResizablePanel defaultSize="80%">
+                <RailControlsProvider
+                  value={{
+                    collapsed: railCollapsed,
+                    show: () => {
+                      railPanelRef.current?.expand();
+                      setRailCollapsed(false);
+                    },
+                  }}
+                >
+                  <div className="relative h-full">
+                    {railCollapsed && !activeMap && (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="absolute top-2 left-2 z-10"
+                        aria-label="Show maps rail"
+                        onClick={() => {
+                          railPanelRef.current?.expand();
+                          setRailCollapsed(false);
+                        }}
+                      >
+                        <PanelLeftOpen />
+                      </Button>
+                    )}
+                    {main}
+                  </div>
+                </RailControlsProvider>
+              </ResizablePanel>
+            </ResizablePanelGroup>
           ) : (
             main
           )}

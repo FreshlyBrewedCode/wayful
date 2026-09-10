@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { PanelRight, PanelRightClose, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { PanelLeftOpen, PanelRight, PanelRightClose, X } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import type { PanelImperativeHandle } from "react-resizable-panels";
 
 import { BoardView } from "@/components/board-view";
 import { EmptyState } from "@/components/empty-state";
@@ -17,6 +18,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BREAKPOINTS, useMediaQuery } from "@/hooks/use-media-query";
+import { useRailControls } from "@/hooks/use-rail-controls";
 import { mapQuery } from "@/lib/api";
 import { type MapDetail, isError } from "@/lib/wayful";
 
@@ -57,6 +59,8 @@ function MapRoute() {
   // so it gets an explicit control.
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [detailCollapsed, setDetailCollapsed] = useState(false);
+  const detailPanelRef = useRef<PanelImperativeHandle>(null);
+  const railControls = useRailControls();
   const view: View = search.view ?? (phone ? "board" : "graph");
   const showCancelled = search.cancelled ?? true;
 
@@ -91,10 +95,22 @@ function MapRoute() {
   );
 
   const content = (
-    <div className="flex min-w-0 flex-1 flex-col">
+    <div className="flex h-full min-w-0 flex-1 flex-col">
       <MapHeader detail={detail} />
 
       <section aria-label="Steps" className="relative min-h-0 flex-1">
+        {railControls.collapsed && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="bg-card/90 absolute top-3 left-3 z-20 rounded-lg border shadow-sm backdrop-blur"
+            aria-label="Show maps rail"
+            onClick={railControls.show}
+          >
+            <PanelLeftOpen />
+          </Button>
+        )}
+
         <div className="bg-card/90 absolute top-3 right-3 z-20 flex items-center gap-3 rounded-lg border p-1 pr-3 shadow-sm backdrop-blur">
           <Tabs value={view} onValueChange={(value) => setSearch({ view: value as View })}>
             <TabsList aria-label="Map view">
@@ -122,6 +138,7 @@ function MapRoute() {
                   setSearch({ step: undefined });
                   setOverviewOpen(true);
                 } else {
+                  detailPanelRef.current?.expand();
                   setDetailCollapsed(false);
                 }
               }}
@@ -143,14 +160,16 @@ function MapRoute() {
   );
 
   const detailPanel = (
-    <aside aria-label="Step detail" className="h-full border-l">
-      <div className="relative h-full">
+    <aside aria-label="Step detail" className="flex h-full flex-col border-l">
+      <div className="flex h-10 shrink-0 items-center justify-between border-b px-1">
         <Button
           variant="ghost"
           size="icon-sm"
-          className="absolute top-2 left-2 z-10"
           aria-label="Collapse step detail"
-          onClick={() => setDetailCollapsed(true)}
+          onClick={() => {
+            detailPanelRef.current?.collapse();
+            setDetailCollapsed(true);
+          }}
         >
           <PanelRightClose />
         </Button>
@@ -158,34 +177,36 @@ function MapRoute() {
           <Button
             variant="ghost"
             size="icon-sm"
-            className="absolute top-2 right-2 z-10"
             aria-label="Close step detail"
             onClick={closeDetail}
           >
             <X />
           </Button>
         )}
-        {panel}
       </div>
+      <div className="min-h-0 flex-1">{panel}</div>
     </aside>
   );
 
   return (
     <div className="flex min-h-0 flex-1">
       {detailInline ? (
-        detailCollapsed ? (
-          content
-        ) : (
-          <ResizablePanelGroup orientation="horizontal">
-            <ResizablePanel defaultSize="70%" minSize="40%">
-              {content}
-            </ResizablePanel>
-            <ResizableHandle withHandle />
-            <ResizablePanel defaultSize="30%" minSize="20%" maxSize="45%">
-              {detailPanel}
-            </ResizablePanel>
-          </ResizablePanelGroup>
-        )
+        <ResizablePanelGroup orientation="horizontal">
+          <ResizablePanel defaultSize="70%" minSize="40%">
+            {content}
+          </ResizablePanel>
+          <ResizableHandle className={detailCollapsed ? "hidden" : undefined} />
+          <ResizablePanel
+            panelRef={detailPanelRef}
+            collapsible
+            defaultSize="30%"
+            minSize="20%"
+            maxSize="55%"
+            onResize={(size) => setDetailCollapsed(size.asPercentage === 0)}
+          >
+            {!detailCollapsed && detailPanel}
+          </ResizablePanel>
+        </ResizablePanelGroup>
       ) : (
         <>
           {content}
