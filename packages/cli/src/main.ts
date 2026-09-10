@@ -1,10 +1,12 @@
 #!/usr/bin/env bun
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Console, Effect, Layer } from "effect";
-import { CliError, Command } from "effect/unstable/cli";
+import { CliError, CliOutput, Command } from "effect/unstable/cli";
 
 import { FileSystemBackend } from "./backend/filesystem/layer";
 import { cli } from "./cli/cli";
+import { helpCapturingFormatter, takeHelpText } from "./cli/help-output";
+import { report } from "./cli/report";
 
 // Injected by `bun build --define 'WAYFUL_BUILD_VERSION:"x.y.z"'` in a release
 // build; `typeof` never throws on an identifier `--define` didn't replace, so
@@ -12,9 +14,10 @@ import { cli } from "./cli/cli";
 declare const WAYFUL_BUILD_VERSION: string | undefined;
 const VERSION = typeof WAYFUL_BUILD_VERSION === "string" ? WAYFUL_BUILD_VERSION : "0.0.0-dev";
 
-const AppLayer = Layer.merge(
+const AppLayer = Layer.mergeAll(
   FileSystemBackend.pipe(Layer.provide(BunServices.layer)),
   BunServices.layer,
+  CliOutput.layer(helpCapturingFormatter),
 );
 
 // Indexed rather than dotted access so the repo's no-underscore-dangle rule
@@ -23,38 +26,60 @@ const isShowHelp = (error: CliError.CliError): error is CliError.ShowHelp =>
   error["_tag"] === "ShowHelp";
 
 /**
- * The concise `wayful:`-prefixed stderr lines a failed invocation reports.
+ * The diagnosis a failed invocation reports.
  *
  * The framework funnels bare `wayful`, every parse mistake, and an explicit
  * `--help` alike through `ShowHelp`, whose own `message` is the constant
  * "Help requested" — useless on its own. The diagnosis a caller actually
  * needs (which flag is missing, which subcommand was misspelled and what they
  * probably meant) lives in `errors`, which is empty only for a deliberate
- * help request. So report every collected error rather than the wrapper, and
- * point at the help for the exact command path that failed.
+ * help request.
  */
-function usageLines(error: CliError.CliError): readonly string[] {
-  if (!isShowHelp(error)) return [error.message];
-  return [
-    ...error.errors.map((collected) => collected.message),
-    `See '${error.commandPath.join(" ")} --help'.`,
-  ];
+function usageMessage(error: CliError.CliError): string {
+  if (!isShowHelp(error)) return error.message;
+  return error.errors.length
+    ? error.errors.map((collected) => collected.message).join(" ")
+    : error.message;
 }
 
+// The flag hasn't been parsed yet at this stage — a parse-stage failure is
+// exactly what prevented that — so this is a heuristic scan of the raw argv
+// rather than a real flag read.
+const requestedJson = process.argv
+  .slice(2)
+  .some((argument) => argument === "--json" || argument.startsWith("--json="));
+
 const program = Command.run(cli, { version: VERSION, renderErrors: false }).pipe(
+  // A deliberate `--help`/`--version`/bare invocation succeeds the program;
+  // print back whatever `helpCapturingFormatter` intercepted from the
+  // framework's own render so it still reaches stdout.
+  Effect.tap(() =>
+    Effect.gen(function* () {
+      const text = takeHelpText();
+      if (text) yield* Console.log(text);
+    }),
+  ),
   // A `ShowHelp` carrying no errors is a deliberate `--help`/bare invocation:
-  // the framework has already printed the help text, and that is a success.
-  // Everything else — a mistake-triggered `ShowHelp` included — is this CLI's
-  // usage/operational failure, always exit 2 (1 stays reserved for an invalid
-  // map from `map validate`).
+  // the framework has already rendered the help text (captured above), and
+  // that is a success. Everything else — a mistake-triggered `ShowHelp`
+  // included — is this CLI's usage/operational failure: report it through
+  // the same contract `handle()` uses for domain/backend failures, and
+  // discard the captured help text so a mistake never dumps it to stdout,
+  // always exit 2 (1 stays reserved for an invalid map from `map validate`).
   Effect.catch((error) =>
     Effect.gen(function* () {
       if (isShowHelp(error) && error.errors.length === 0) {
+        const text = takeHelpText();
+        if (text) yield* Console.log(text);
         process.exitCode = 0;
         return;
       }
-      for (const line of usageLines(error)) yield* Console.error(`wayful: ${line}`);
-      process.exitCode = 2;
+      takeHelpText();
+      yield* report({
+        json: requestedJson,
+        message: usageMessage(error),
+        usageHint: isShowHelp(error) ? `See '${error.commandPath.join(" ")} --help'.` : undefined,
+      });
     }),
   ),
   Effect.provide(AppLayer),
