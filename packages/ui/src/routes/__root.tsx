@@ -1,13 +1,17 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { useQuery } from "@tanstack/react-query";
 import { Outlet, createRootRouteWithContext, useRouterState } from "@tanstack/react-router";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useState } from "react";
 
 import { MapRail } from "@/components/map-rail";
 import { TopBar } from "@/components/top-bar";
+import { Button } from "@/components/ui/button";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useLiveUpdates } from "@/hooks/use-live-updates";
+import { BREAKPOINTS, useMediaQuery } from "@/hooks/use-media-query";
 import { overviewQuery } from "@/lib/api";
 
 export interface RouterContext {
@@ -27,6 +31,8 @@ function RootLayout() {
   const { data: overview } = useQuery(overviewQuery());
   const live = useLiveUpdates();
   const [railOpen, setRailOpen] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(false);
+  const railInline = !useMediaQuery(BREAKPOINTS.railOverlay);
   const activeMap = useActiveMapName();
 
   const rail = (
@@ -36,6 +42,12 @@ function RootLayout() {
       activeMap={activeMap}
       onNavigate={() => setRailOpen(false)}
     />
+  );
+
+  const main = (
+    <main id="map" className="flex h-full min-w-0 flex-1 flex-col">
+      <Outlet />
+    </main>
   );
 
   return (
@@ -51,10 +63,43 @@ function RootLayout() {
         <TopBar project={overview?.project} live={live} onOpenRail={() => setRailOpen(true)} />
 
         <div className="flex min-h-0 flex-1">
-          <aside className="hidden w-66 shrink-0 border-r min-[941px]:block">{rail}</aside>
-          <main id="map" className="flex min-w-0 flex-1 flex-col">
-            <Outlet />
-          </main>
+          {railInline ? (
+            railCollapsed ? (
+              <div className="relative min-w-0 flex-1">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="absolute top-2 left-2 z-10"
+                  aria-label="Show maps rail"
+                  onClick={() => setRailCollapsed(false)}
+                >
+                  <PanelLeftOpen />
+                </Button>
+                {main}
+              </div>
+            ) : (
+              <ResizablePanelGroup orientation="horizontal">
+                <ResizablePanel defaultSize="20%" minSize="15%" maxSize="35%">
+                  <div className="relative h-full border-r">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="absolute top-2 right-2 z-10"
+                      aria-label="Collapse maps rail"
+                      onClick={() => setRailCollapsed(true)}
+                    >
+                      <PanelLeftClose />
+                    </Button>
+                    {rail}
+                  </div>
+                </ResizablePanel>
+                <ResizableHandle withHandle />
+                <ResizablePanel defaultSize="80%">{main}</ResizablePanel>
+              </ResizablePanelGroup>
+            )
+          ) : (
+            main
+          )}
         </div>
       </div>
 
