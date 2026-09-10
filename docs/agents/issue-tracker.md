@@ -13,6 +13,31 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
 
+## Labels
+
+Two axes only, always both:
+
+- **Package**: `pkg:cli` or `pkg:ui`. Add both if a change spans packages.
+- **Type**: `type:bug` or `type:feature`.
+
+No other labels exist. In particular, there are no dedicated triage labels — triage is handled by the GitHub Project (see below), not by labels.
+
+## Triage: the GitHub Project
+
+Triage is a GitHub Project (Projects v2), not a label. Its single-select `Status` field has four states, in order:
+
+1. **Ready** — fully specified, next up
+2. **In Progress** — actively being worked
+3. **Blocked** — cannot proceed (see the issue body or its native blocker edges for why)
+4. **Review** — work is done, awaiting review
+
+**Adding an issue to the project is the "ready for an agent" signal.** An open issue not in the project is not yet triaged — it needs a human to flesh it out and add it (in the `Ready` status) before an agent should pick it up. Advance `Status` as work progresses; move an issue back out of `Ready` into `Blocked` if a dependency surfaces before work starts.
+
+- **Check whether an issue is ready for an agent**: is it in the project, and is its `Status` field `Ready` (or `In Progress` if resuming)?
+- **Claim work**: assign yourself (`gh issue edit <n> --add-assignee @me`) and move `Status` to `In Progress`.
+- **Hand off for review**: move `Status` to `Review` once the PR is up.
+- **Won't fix**: no label for this either — close the issue as "not planned" (`gh issue close <n> --reason "not planned" --comment "..."`) rather than removing it from triage state.
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_

@@ -41,9 +41,9 @@ Monorepo for the wayful system. `skills/wayful/SKILL.md` (or your wayful skill) 
 
 Issues live in GitHub Issues (FreshlyBrewedCode/wayful), managed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
-### Triage labels
+### Labels and workflow
 
-Default label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+Labels: `pkg:cli` / `pkg:ui` (which package), `type:bug` / `type:feature` (what kind). No dedicated triage labels — triage is a GitHub Project (Ready / In Progress / Blocked / Review); assigning an issue to it means it's ready for an agent. See `docs/agents/issue-tracker.md`.
 
 ### Domain docs
 
