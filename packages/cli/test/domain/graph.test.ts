@@ -8,42 +8,47 @@ import {
   nextSteps,
   reaches,
 } from "../../src/domain/graph";
-import { artifact, step } from "./support/fixtures";
+import { step } from "./support/fixtures";
 
 describe("graph", () => {
-  test("attachmentOK is true only when every required slot has a correctly-kinded attachment", () => {
+  test("attachmentOK is true only when every required slot has a slot-bound attachment", () => {
     const required = [{ name: "brief", kind: "document" }];
     const withMatch = step({
       id: 1,
       name: "work",
       required_inputs: required,
-      inputs: [{ artifact: "proof", slot: "brief" }],
+      inputs: [{ slot: "brief", ref: "file:brief.md" }],
     });
     const withoutMatch = step({ id: 1, name: "work", required_inputs: required, inputs: [] });
-    const artifacts = [artifact({ name: "proof", kind: "document" })];
-    expect(attachmentOK(withMatch, "inputs", artifacts)).toBe(true);
-    expect(attachmentOK(withoutMatch, "inputs", artifacts)).toBe(false);
+    expect(attachmentOK(withMatch, "inputs")).toBe(true);
+    expect(attachmentOK(withoutMatch, "inputs")).toBe(false);
   });
 
-  test("attachmentErrors reports missing artifacts, unknown slots, duplicate fulfillment, and kind mismatches", () => {
+  test("attachmentOK ignores supplementary attachments when checking required slots", () => {
+    const required = [{ name: "brief", kind: "document" }];
+    const supplementaryOnly = step({
+      id: 1,
+      name: "work",
+      required_inputs: required,
+      inputs: [{ ref: "file:notes.md", kind: "document" }],
+    });
+    expect(attachmentOK(supplementaryOnly, "inputs")).toBe(false);
+  });
+
+  test("attachmentErrors reports invalid shapes, unknown slots, and duplicate fulfillment", () => {
     const required = [{ name: "source", kind: "document" }];
-    const artifacts = [
-      artifact({ name: "document", kind: "document" }),
-      artifact({ name: "image", kind: "image" }),
-    ];
 
     expect(
       attachmentErrors(
         step({
           id: 1,
-          name: "missing",
+          name: "invalid",
           required_inputs: required,
-          inputs: [{ artifact: "absent" }],
+          inputs: [{ slot: "source" }],
         }),
         "inputs",
-        artifacts,
       ),
-    ).toEqual(["step 'missing' has a missing inputs artifact 'absent'."]);
+    ).toEqual(["step 'invalid' has an invalid inputs attachment."]);
 
     expect(
       attachmentErrors(
@@ -51,10 +56,9 @@ describe("graph", () => {
           id: 2,
           name: "unknown",
           required_inputs: required,
-          inputs: [{ artifact: "document", slot: "absent" }],
+          inputs: [{ slot: "absent", ref: "file:doc.md" }],
         }),
         "inputs",
-        artifacts,
       ),
     ).toEqual(["step 'unknown' has an unknown inputs slot 'absent'."]);
 
@@ -65,12 +69,11 @@ describe("graph", () => {
           name: "duplicate",
           required_inputs: required,
           inputs: [
-            { artifact: "document", slot: "source" },
-            { artifact: "document", slot: "source" },
+            { slot: "source", ref: "file:doc.md" },
+            { slot: "source", ref: "file:other.md" },
           ],
         }),
         "inputs",
-        artifacts,
       ),
     ).toEqual(["step 'duplicate' fulfills inputs slot 'source' more than once."]);
 
@@ -78,22 +81,32 @@ describe("graph", () => {
       attachmentErrors(
         step({
           id: 4,
-          name: "wrong-kind",
+          name: "both-slot-and-kind",
           required_inputs: required,
-          inputs: [{ artifact: "image", slot: "source" }],
+          inputs: [{ slot: "source", ref: "file:doc.md", kind: "document" }],
         }),
         "inputs",
-        artifacts,
       ),
-    ).toEqual(["step 'wrong-kind' attaches wrong artifact kind to inputs slot 'source'."]);
+    ).toEqual(["step 'both-slot-and-kind' has an invalid inputs attachment."]);
 
     expect(
       attachmentErrors(
         step({ id: 5, name: "null-attachment", required_inputs: required, inputs: [null] }),
         "inputs",
-        artifacts,
       ),
     ).toEqual(["step 'null-attachment' has an invalid inputs attachment."]);
+
+    expect(
+      attachmentErrors(
+        step({
+          id: 6,
+          name: "supplementary",
+          required_inputs: required,
+          inputs: [{ ref: "file:notes.md", kind: "document" }],
+        }),
+        "inputs",
+      ),
+    ).toEqual([]);
   });
 
   test("dependenciesOK requires every dependency to be complete", () => {
@@ -113,7 +126,7 @@ describe("graph", () => {
       step({ id: 3, name: "blocked-dep", dependencies: [1] }),
       step({ id: 4, name: "not-pending", status: "complete" }),
     ];
-    const result = nextSteps(steps, []);
+    const result = nextSteps(steps);
     expect(result.map((s) => s.name)).toEqual(["first", "later"]);
   });
 

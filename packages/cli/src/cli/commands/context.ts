@@ -12,6 +12,7 @@ import {
   orderProjectMaps,
   type ProjectContextView,
 } from "../../domain/context";
+import { looksLikeArtifactAddress, parseArtifactAddress } from "../../domain/artifact-address";
 import type { DecodeError } from "../../domain/model";
 import { describeToken, parseReference, resolveToken } from "../../domain/reference";
 import { buildSnapshot, fail, resolveMap, resolveProject, resolveReferencedMap } from "../../scope";
@@ -107,6 +108,24 @@ const contextCommand = Command.make(
         // (bare `wayful context` is always valid and always project scope,
         // so that case can't be detected after the fact; passing the
         // reference correctly is what's tested).
+        if (looksLikeArtifactAddress(ref.value)) {
+          const address = yield* liftSync(() => parseArtifactAddress(ref.value));
+          const map = yield* resolveReferencedMap(address.map, Option.none(), project);
+          const { snapshot, errors } = yield* buildSnapshot(map);
+          const target = resolveToken(address.token, snapshot.artifacts);
+          if (!target)
+            return yield* fail(`artifact '${describeToken(address.token)}' does not exist.`);
+          const view = buildArtifactContext({
+            mapName: map.metadata.name,
+            artifact: target,
+            steps: snapshot.steps,
+            goals: snapshot.goals,
+            problems: errors,
+          });
+          yield* printOutput(json, view, renderArtifactContext(view));
+          return;
+        }
+
         const reference = yield* liftSync(() => parseReference(ref.value));
 
         if (reference.kind === "bare") {
@@ -134,47 +153,28 @@ const contextCommand = Command.make(
           return;
         }
 
-        if (reference.kind === "step") {
-          const map = yield* resolveReferencedMap(reference.map, Option.none(), project);
-          const { snapshot, errors } = yield* buildSnapshot(map);
-          const target = resolveToken(reference.token, snapshot.steps);
-          if (!target)
-            return yield* fail(`step '${describeToken(reference.token)}' does not exist.`);
-          const type = yield* backend.getType(project, target.type).pipe(
-            Effect.map((t) => ({ name: t.name, description: t.description })),
-            Effect.catch(() =>
-              Effect.succeed({
-                name: target.type,
-                description: "unavailable: referenced type is missing or malformed.",
-              }),
-            ),
-          );
-          const view = buildStepContext({
-            mapName: map.metadata.name,
-            step: target,
-            steps: snapshot.steps,
-            artifacts: snapshot.artifacts,
-            type,
-            problems: errors,
-          });
-          yield* printOutput(json, view, renderStepContext(view));
-          return;
-        }
-
-        // reference.kind === "artifact"
+        // reference.kind === "step"
         const map = yield* resolveReferencedMap(reference.map, Option.none(), project);
         const { snapshot, errors } = yield* buildSnapshot(map);
-        const target = resolveToken(reference.token, snapshot.artifacts);
-        if (!target)
-          return yield* fail(`artifact '${describeToken(reference.token)}' does not exist.`);
-        const view = buildArtifactContext({
+        const target = resolveToken(reference.token, snapshot.steps);
+        if (!target) return yield* fail(`step '${describeToken(reference.token)}' does not exist.`);
+        const type = yield* backend.getType(project, target.type).pipe(
+          Effect.map((t) => ({ name: t.name, description: t.description })),
+          Effect.catch(() =>
+            Effect.succeed({
+              name: target.type,
+              description: "unavailable: referenced type is missing or malformed.",
+            }),
+          ),
+        );
+        const view = buildStepContext({
           mapName: map.metadata.name,
-          artifact: target,
+          step: target,
           steps: snapshot.steps,
-          goals: snapshot.goals,
+          type,
           problems: errors,
         });
-        yield* printOutput(json, view, renderArtifactContext(view));
+        yield* printOutput(json, view, renderStepContext(view));
       }),
     ),
 ).pipe(

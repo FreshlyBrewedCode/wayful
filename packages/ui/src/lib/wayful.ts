@@ -17,10 +17,7 @@ export interface Slot {
   description?: string;
 }
 
-export interface Attachment {
-  artifact: string;
-  slot?: string;
-}
+export type Attachment = { slot: string; ref: string } | { ref: string; kind: string };
 
 export interface Step {
   id: number;

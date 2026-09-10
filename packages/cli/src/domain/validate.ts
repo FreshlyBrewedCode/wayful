@@ -38,11 +38,11 @@ export function validateMap(
     }
 
     for (const direction of ["inputs", "outputs"] as const)
-      errors.push(...attachmentErrors(step, direction, artifacts));
+      errors.push(...attachmentErrors(step, direction));
 
-    if (includeProgress && !attachmentOK(step, "inputs", artifacts))
+    if (includeProgress && !attachmentOK(step, "inputs"))
       errors.push(`step '${step.name}' has unmet required inputs.`);
-    if (step.status === "complete" && !attachmentOK(step, "outputs", artifacts))
+    if (step.status === "complete" && !attachmentOK(step, "outputs"))
       errors.push(`completed step '${step.name}' has unmet required outputs.`);
     if (includeProgress && step.status === "blocked")
       errors.push(`step '${step.name}' is blocked.`);

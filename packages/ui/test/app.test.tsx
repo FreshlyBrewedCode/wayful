@@ -148,4 +148,40 @@ describe("the viewer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show map overview" }));
     await waitFor(() => expect(screen.getByText("Longest-path layering.")).toBeInTheDocument());
   });
+
+  test("shows a step's slot-bound and supplementary input attachments by ref and kind", async () => {
+    const consumer = step(1, {
+      name: "consumer",
+      required_inputs: [{ name: "brief-slot", kind: "document" }],
+      inputs: [
+        { slot: "brief-slot", ref: "docs/brief.md" },
+        { ref: "docs/notes.md", kind: "note" },
+      ],
+    });
+    const demo = detail([consumer]);
+    renderApp("/maps/demo?step=1", {
+      overview: overview([{ name: "demo", start: "Somewhere", status: demo.status }]),
+      maps: { demo },
+      steps: { 1: { ...consumer, body: "", instructions: "" } as StepDetail },
+    });
+
+    await waitFor(() => expect(screen.getByText("brief-slot")).toBeInTheDocument());
+    expect(screen.getByText("docs/brief.md")).toBeInTheDocument();
+    expect(screen.getByText("docs/notes.md")).toBeInTheDocument();
+    expect(screen.getByText("note")).toBeInTheDocument();
+  });
+
+  test("shows each step's output refs in list view", async () => {
+    const producer = step(1, {
+      name: "producer",
+      outputs: [{ slot: "result-slot", ref: "path/result" }],
+    });
+    const demo = detail([producer]);
+    renderApp("/maps/demo?view=list", {
+      overview: overview([{ name: "demo", start: "Somewhere", status: demo.status }]),
+      maps: { demo },
+    });
+
+    await waitFor(() => expect(screen.getByText("path/result")).toBeInTheDocument());
+  });
 });

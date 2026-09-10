@@ -1,5 +1,5 @@
 import type { Slot } from "./identifier";
-import type { ArtifactRecord, StepRecord } from "./model";
+import type { StepRecord } from "./model";
 
 type Direction = "inputs" | "outputs";
 
@@ -10,117 +10,80 @@ function requiredSlots(step: StepRecord, direction: Direction) {
 /** A single valid attachment, normalized out of a step's raw `inputs`/`outputs`. */
 export interface AttachmentView {
   readonly slot: string | undefined;
-  readonly artifactName: string;
+  readonly ref: string;
+  /** Set only for supplementary attachments; slot-bound attachments inherit kind from the slot. */
+  readonly kind: string | undefined;
 }
 
 /**
  * Normalizes a step's raw `inputs`/`outputs` into the attachments that decode
  * validly, silently dropping malformed entries — `attachmentErrors` below is
  * what reports those, for `map validate`. Used by `context` step and
- * artifact scope (issue #8) to read attachments without re-deriving their
- * shape, and to build the artifact reverse index.
+ * artifact scope to read attachments without re-deriving their shape, and to
+ * build the artifact reverse index.
  */
 export function normalizedAttachments(attachments: readonly unknown[]): readonly AttachmentView[] {
-  return attachments
-    .filter(
-      (candidate): candidate is { artifact: string; slot?: unknown } =>
-        !!candidate &&
-        typeof candidate === "object" &&
-        !Array.isArray(candidate) &&
-        typeof (candidate as any).artifact === "string",
-    )
-    .map((candidate) => ({
-      artifactName: candidate.artifact,
-      slot: typeof candidate.slot === "string" ? candidate.slot : undefined,
-    }));
+  const result: AttachmentView[] = [];
+  for (const candidate of attachments) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const c = candidate as Record<string, unknown>;
+    if (typeof c.ref !== "string") continue;
+    const hasSlot = typeof c.slot === "string";
+    const hasKind = typeof c.kind === "string";
+    if (hasSlot === hasKind) continue; // exactly one of slot/kind required
+    result.push({
+      ref: c.ref,
+      slot: hasSlot ? (c.slot as string) : undefined,
+      kind: hasKind ? (c.kind as string) : undefined,
+    });
+  }
+  return result;
 }
 
-/** Finds the attachment (if any) filling `slotName` among a step's raw `inputs`/`outputs`. */
-function findAttachment(
-  attachments: StepRecord["inputs"] | StepRecord["outputs"],
-  slotName: string,
-): { artifact: string; slot: string } | undefined {
-  return attachments.find(
-    (candidate): candidate is { artifact: string; slot: string } =>
-      !!candidate &&
-      typeof candidate === "object" &&
-      !Array.isArray(candidate) &&
-      (candidate as any).slot === slotName,
-  );
-}
-
-/** Whether a required slot is filled by an attachment naming an artifact of the matching kind. */
-function slotFulfilled(
-  slot: Slot,
-  attachments: StepRecord["inputs"] | StepRecord["outputs"],
-  artifacts: readonly ArtifactRecord[],
-): boolean {
-  const attachment = findAttachment(attachments, slot.name);
-  return (
-    attachment !== undefined &&
-    artifacts.some(
-      (artifact) => artifact.name === attachment.artifact && artifact.kind === slot.kind,
-    )
-  );
+/** Whether a required slot is filled by a slot-bound attachment naming it. */
+function slotFulfilled(slot: Slot, attachments: readonly unknown[]): boolean {
+  return normalizedAttachments(attachments).some((a) => a.slot === slot.name);
 }
 
 /**
- * The required slots in `direction` that are not yet fulfilled by a
- * correctly-kinded attachment — the per-slot detail `attachmentOK` collapses
- * into a single boolean. Used by `context` map scope to explain *which*
- * input a pending-not-actionable step is still missing.
+ * The required slots in `direction` that are not yet fulfilled — the
+ * per-slot detail `attachmentOK` collapses into a single boolean. Used by
+ * `context` map scope to explain *which* input a pending-not-actionable step
+ * is still missing.
  */
-export function unfulfilledSlots(
-  step: StepRecord,
-  direction: Direction,
-  artifacts: readonly ArtifactRecord[],
-): Slot[] {
+export function unfulfilledSlots(step: StepRecord, direction: Direction): Slot[] {
   const attachments = step[direction];
-  return requiredSlots(step, direction).filter(
-    (slot) => !slotFulfilled(slot, attachments, artifacts),
-  );
+  return requiredSlots(step, direction).filter((slot) => !slotFulfilled(slot, attachments));
 }
 
-export function attachmentOK(
-  step: StepRecord,
-  direction: Direction,
-  artifacts: readonly ArtifactRecord[],
-): boolean {
+export function attachmentOK(step: StepRecord, direction: Direction): boolean {
   const attachments = step[direction];
-  return requiredSlots(step, direction).every((slot) =>
-    slotFulfilled(slot, attachments, artifacts),
-  );
+  return requiredSlots(step, direction).every((slot) => slotFulfilled(slot, attachments));
 }
 
-export function attachmentErrors(
-  step: StepRecord,
-  direction: Direction,
-  artifacts: readonly ArtifactRecord[],
-): string[] {
+export function attachmentErrors(step: StepRecord, direction: Direction): string[] {
   const errors: string[] = [];
   const attachments = step[direction];
   const required = requiredSlots(step, direction);
   const slotsSeen = new Set<string>();
   for (const attachment of attachments) {
-    if (
-      !attachment ||
-      typeof attachment !== "object" ||
-      Array.isArray(attachment) ||
-      typeof (attachment as any).artifact !== "string"
-    ) {
+    if (!attachment || typeof attachment !== "object" || Array.isArray(attachment)) {
       errors.push(`step '${step.name}' has an invalid ${direction} attachment.`);
       continue;
     }
-    const artifactName = (attachment as any).artifact as string;
-    const slotName = (attachment as any).slot;
-    const artifact = artifacts.find((a) => a.name === artifactName);
-    if (!artifact)
-      errors.push(`step '${step.name}' has a missing ${direction} artifact '${artifactName}'.`);
-    if (slotName === undefined) continue;
-    if (typeof slotName !== "string") {
-      errors.push(`step '${step.name}' has an invalid ${direction} slot attachment.`);
+    const a = attachment as Record<string, unknown>;
+    if (typeof a.ref !== "string") {
+      errors.push(`step '${step.name}' has an invalid ${direction} attachment.`);
       continue;
     }
+    const hasSlot = typeof a.slot === "string";
+    const hasKind = typeof a.kind === "string";
+    if (hasSlot === hasKind) {
+      errors.push(`step '${step.name}' has an invalid ${direction} attachment.`);
+      continue;
+    }
+    if (!hasSlot) continue; // supplementary: no further checks
+    const slotName = a.slot as string;
     const slot = required.find((candidate) => candidate.name === slotName);
     if (!slot) {
       errors.push(`step '${step.name}' has an unknown ${direction} slot '${slotName}'.`);
@@ -129,10 +92,6 @@ export function attachmentErrors(
     if (slotsSeen.has(slotName))
       errors.push(`step '${step.name}' fulfills ${direction} slot '${slotName}' more than once.`);
     slotsSeen.add(slotName);
-    if (artifact && artifact.kind !== slot.kind)
-      errors.push(
-        `step '${step.name}' attaches wrong artifact kind to ${direction} slot '${slotName}'.`,
-      );
   }
   return errors;
 }
@@ -141,16 +100,11 @@ export function dependenciesOK(step: StepRecord, steps: readonly StepRecord[]): 
   return step.dependencies.every((id) => steps.find((s) => s.id === id)?.status === "complete");
 }
 
-export function nextSteps(
-  steps: readonly StepRecord[],
-  artifacts: readonly ArtifactRecord[],
-): StepRecord[] {
+export function nextSteps(steps: readonly StepRecord[]): StepRecord[] {
   return steps
     .filter(
       (step) =>
-        step.status === "pending" &&
-        dependenciesOK(step, steps) &&
-        attachmentOK(step, "inputs", artifacts),
+        step.status === "pending" && dependenciesOK(step, steps) && attachmentOK(step, "inputs"),
     )
     .toSorted((a, b) => a.id - b.id);
 }

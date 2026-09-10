@@ -109,7 +109,7 @@ const view = (snapshot: MapSnapshot): MapViewPayload => ({
 });
 
 const status = (snapshot: MapSnapshot): MapStatus =>
-  mapStatus(snapshot.map, snapshot.steps, snapshot.artifacts, snapshot.goals);
+  mapStatus(snapshot.map, snapshot.steps, snapshot.goals);
 
 /** Turns a read failure into the `{error}` body the viewer knows how to show. */
 function orError<A>(read: Read<A>): Api<A | ErrorPayload> {

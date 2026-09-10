@@ -4,7 +4,6 @@ import { WayfulError } from "../../src/domain/errors";
 import {
   assertSameMap,
   describeToken,
-  expectArtifact,
   expectStep,
   parseReference,
   resolveToken,
@@ -20,10 +19,9 @@ describe("parseReference", () => {
   });
 
   test("resolves a bare kebab-case name to a neutral 'bare' token, unqualified", () => {
-    // The grammar is additive: a bare name is inherently ambiguous (map, step,
-    // or artifact) outside a sigil, so parseReference itself stays agnostic
-    // and leaves the call site to decide (see expectStep / expectArtifact
-    // below, and the future polymorphic slot this leaves room for).
+    // The grammar is additive: a bare name is inherently ambiguous (map or
+    // step) outside a sigil, so parseReference itself stays agnostic and
+    // leaves the call site to decide (see expectStep below).
     expect(parseReference("redesign")).toEqual({
       kind: "bare",
       map: undefined,
@@ -44,20 +42,7 @@ describe("parseReference", () => {
     });
   });
 
-  test("resolves '@id' and '@name' to an artifact by id or by name", () => {
-    expect(parseReference("@5")).toEqual({
-      kind: "artifact",
-      map: undefined,
-      token: { kind: "id", id: 5 },
-    });
-    expect(parseReference("@user-interviews")).toEqual({
-      kind: "artifact",
-      map: undefined,
-      token: { kind: "name", name: "user-interviews" },
-    });
-  });
-
-  test("accepts a map prefix on the bare-integer, '#', and '@' forms", () => {
+  test("accepts a map prefix on the bare-integer and '#' forms", () => {
     expect(parseReference("redesign/1")).toEqual({
       kind: "step",
       map: "redesign",
@@ -73,16 +58,6 @@ describe("parseReference", () => {
       map: "redesign",
       token: { kind: "name", name: "research-users" },
     });
-    expect(parseReference("redesign/@5")).toEqual({
-      kind: "artifact",
-      map: "redesign",
-      token: { kind: "id", id: 5 },
-    });
-    expect(parseReference("redesign/@user-interviews")).toEqual({
-      kind: "artifact",
-      map: "redesign",
-      token: { kind: "name", name: "user-interviews" },
-    });
   });
 
   test("rejects an empty reference", () => {
@@ -90,9 +65,10 @@ describe("parseReference", () => {
     expect(() => parseReference("   ")).toThrow(/must not be empty/);
   });
 
-  test("rejects an unrecognized sigil", () => {
+  test("rejects an unrecognized sigil, including the artifact '@' sigil", () => {
     expect(() => parseReference("%5")).toThrow(/not a recognized reference sigil/);
     expect(() => parseReference("!research")).toThrow(/not a recognized reference sigil/);
+    expect(() => parseReference("@5")).toThrow(/not a recognized reference sigil/);
   });
 
   test("rejects an invalid or numeric map prefix", () => {
@@ -101,7 +77,7 @@ describe("parseReference", () => {
   });
 
   test("rejects a map prefix with nothing after it", () => {
-    expect(() => parseReference("redesign/")).toThrow(/missing a step or artifact reference/);
+    expect(() => parseReference("redesign/")).toThrow(/missing a step reference/);
   });
 
   test("accepts a map prefix followed by a bare name, as a neutral 'bare' token", () => {
@@ -115,12 +91,11 @@ describe("parseReference", () => {
   test("rejects a malformed name or sigil'd token", () => {
     expect(() => parseReference("Not Valid")).toThrow(WayfulError);
     expect(() => parseReference("#Not Valid")).toThrow(/step reference must be/);
-    expect(() => parseReference("@Not Valid")).toThrow(/artifact reference must be/);
   });
 });
 
-describe("expectStep / expectArtifact", () => {
-  test("expectStep accepts step forms, including a bare name, and rejects artifact forms", () => {
+describe("expectStep", () => {
+  test("accepts step forms, including a bare name", () => {
     expect(expectStep("1")).toEqual({
       kind: "step",
       map: undefined,
@@ -138,40 +113,13 @@ describe("expectStep / expectArtifact", () => {
       map: undefined,
       token: { kind: "name", name: "redesign" },
     });
-    expect(() => expectStep("@5")).toThrow(/references an artifact/);
   });
 
-  test("expectStep accepts a map-qualified bare name as a map-qualified step name", () => {
+  test("accepts a map-qualified bare name as a map-qualified step name", () => {
     expect(expectStep("redesign/my-step")).toEqual({
       kind: "step",
       map: "redesign",
       token: { kind: "name", name: "my-step" },
-    });
-  });
-
-  test("expectArtifact accepts artifact forms, including a bare name, and rejects step forms", () => {
-    expect(expectArtifact("@5")).toEqual({
-      kind: "artifact",
-      map: undefined,
-      token: { kind: "id", id: 5 },
-    });
-    // A bare name is additive here too: the `artifact`/`evidence` slot already
-    // knows it holds an artifact.
-    expect(expectArtifact("redesign")).toEqual({
-      kind: "artifact",
-      map: undefined,
-      token: { kind: "name", name: "redesign" },
-    });
-    // Bare integers stay exclusively steps (the shell-comment hazard '#'
-    // sidesteps): an artifact has no bare-id form.
-    expect(() => expectArtifact("1")).toThrow(/does not reference an artifact/);
-  });
-
-  test("expectArtifact accepts a map-qualified bare name as a map-qualified artifact name", () => {
-    expect(expectArtifact("redesign/my-artifact")).toEqual({
-      kind: "artifact",
-      map: "redesign",
-      token: { kind: "name", name: "my-artifact" },
     });
   });
 });

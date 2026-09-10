@@ -50,7 +50,7 @@ describe("artifacts, goals, and validation", () => {
     ).toBe(0);
     expect(
       invoke(
-        ["goal", "satisfy", "--map", "plan", "--goal", "release", "--artifact", "proof"],
+        ["goal", "satisfy", "--map", "plan", "--goal", "release", "--artifact", "@proof"],
         project,
       ).exitCode,
     ).toBe(0);
@@ -99,11 +99,11 @@ describe("artifacts, goals, and validation", () => {
       ).exitCode,
     ).toBe(0);
     expect(
-      invoke(["step", "output", "#beta", "--map", "plan", "--artifact", "@evidence"], project)
+      invoke(["step", "output", "#beta", "--map", "plan", "git:sig", "--kind", "document"], project)
         .exitCode,
     ).toBe(0);
     expect(
-      invoke(["step", "input", "#alpha", "--map", "plan", "--artifact", "@evidence"], project)
+      invoke(["step", "input", "#alpha", "--map", "plan", "git:sig", "--kind", "document"], project)
         .exitCode,
     ).toBe(0);
 
@@ -187,13 +187,14 @@ describe("artifacts, goals, and validation", () => {
       ),
     );
     expect(
-      invoke(
-        ["step", "input", "work", "--map", "plan", "--artifact", "proof", "--slot", "brief"],
-        project,
-      ).exitCode,
+      invoke(["step", "input", "work", "--map", "plan", "git:abc", "--slot", "brief"], project)
+        .exitCode,
     ).toBe(0);
     expect(
-      invoke(["step", "output", "work", "--map", "plan", "--artifact", "proof"], project).exitCode,
+      invoke(
+        ["step", "output", "work", "--map", "plan", "git:extra", "--kind", "document"],
+        project,
+      ).exitCode,
     ).toBe(0);
     expectCommandError(
       invoke(
@@ -202,10 +203,8 @@ describe("artifacts, goals, and validation", () => {
       ),
     );
     expect(
-      invoke(
-        ["step", "output", "work", "--map", "plan", "--artifact", "proof", "--slot", "report"],
-        project,
-      ).exitCode,
+      invoke(["step", "output", "work", "--map", "plan", "git:abc", "--slot", "report"], project)
+        .exitCode,
     ).toBe(0);
     expect(
       invoke(
@@ -214,10 +213,7 @@ describe("artifacts, goals, and validation", () => {
       ).exitCode,
     ).toBe(0);
     expectCommandError(
-      invoke(
-        ["step", "input", "work", "--map", "plan", "--artifact", "proof", "--slot", "report"],
-        project,
-      ),
+      invoke(["step", "input", "work", "--map", "plan", "git:abc", "--slot", "report"], project),
     );
   });
 
@@ -368,7 +364,7 @@ describe("artifacts, goals, and validation", () => {
     expect(invoke(["goal", "list", "--map", "plan", "--json"], project).exitCode).toBe(0);
     expectCommandError(
       invoke(
-        ["goal", "satisfy", "--map", "plan", "--goal", "release", "--artifact", "missing"],
+        ["goal", "satisfy", "--map", "plan", "--goal", "release", "--artifact", "@missing"],
         project,
       ),
     );
@@ -380,13 +376,13 @@ describe("artifacts, goals, and validation", () => {
     ).toBe(0);
     expect(
       invoke(
-        ["goal", "satisfy", "--map", "plan", "--goal", "release", "--artifact", "approval"],
+        ["goal", "satisfy", "--map", "plan", "--goal", "release", "--artifact", "@approval"],
         project,
       ).exitCode,
     ).toBe(0);
     expectCommandError(
       invoke(
-        ["goal", "satisfy", "--map", "plan", "--goal", "release", "--artifact", "approval"],
+        ["goal", "satisfy", "--map", "plan", "--goal", "release", "--artifact", "@approval"],
         project,
       ),
     );
@@ -522,13 +518,13 @@ describe("artifacts, goals, and validation", () => {
     ).toBe(0);
   });
 
-  test("rejects dangling supplementary attachments and duplicate YAML artifact identities", async () => {
+  test("rejects malformed step attachments and duplicate YAML artifact identities", async () => {
     const project = await projectFixture();
     await writeStep(
       project,
       "work",
       1,
-      "inputs:\n  - artifact: missing\noutputs: []\nrequired_inputs: []\nrequired_outputs: []\n",
+      "inputs:\n  - ref: git:orphan\noutputs: []\nrequired_inputs: []\nrequired_outputs: []\n",
     );
     await writeFile(
       join(project, ".wayful", "maps", "plan", "artifacts", "1-proof.yaml"),
@@ -540,41 +536,30 @@ describe("artifacts, goals, and validation", () => {
     );
     const result = invoke(["map", "validate", "--map", "plan"], project);
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("missing inputs artifact 'missing'");
+    expect(result.stderr).toContain("has an invalid inputs attachment");
     expect(result.stderr).toContain("duplicate artifact identity");
   });
 
   test("validates manually authored slot attachments in both directions", async () => {
     const project = await projectFixture();
-    const artifactDirectory = join(project, ".wayful", "maps", "plan", "artifacts");
-    await writeFile(
-      join(artifactDirectory, "1-document.yaml"),
-      `format_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: document\nkind: document\nref: doc\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n`,
-    );
-    await writeFile(
-      join(artifactDirectory, "2-image.yaml"),
-      `format_version: ${CURRENT_FORMAT_VERSION}\nid: 2\nname: image\nkind: image\nref: image\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n`,
-    );
     const stepDirectory = join(project, ".wayful", "maps", "plan", "steps");
     const manualStep = (id: number, name: string, inputs: string) =>
       writeFile(
         join(stepDirectory, `${id}-${name}.md`),
         `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nid: ${id}\nname: ${name}\ntype: task\ndescription: Manually edited\nstatus: pending\ndependencies: []\ninputs:\n${inputs}outputs: []\nrequired_inputs:\n  - name: source\n    kind: document\nrequired_outputs:\n  - name: report\n    kind: document\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n---\n`,
       );
-    await manualStep(1, "unknown", "  - artifact: document\n    slot: absent\n");
-    await manualStep(2, "wrong-direction", "  - artifact: document\n    slot: report\n");
+    await manualStep(1, "unknown", "  - ref: git:doc\n    slot: absent\n");
+    await manualStep(2, "wrong-direction", "  - ref: git:doc\n    slot: report\n");
     await manualStep(
       3,
       "duplicate",
-      "  - artifact: document\n    slot: source\n  - artifact: document\n    slot: source\n",
+      "  - ref: git:doc\n    slot: source\n  - ref: git:doc2\n    slot: source\n",
     );
-    await manualStep(4, "wrong-kind", "  - artifact: image\n    slot: source\n");
     const result = invoke(["map", "validate", "--map", "plan"], project);
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("unknown inputs slot 'absent'");
     expect(result.stderr).toContain("unknown inputs slot 'report'");
     expect(result.stderr).toContain("fulfills inputs slot 'source' more than once");
-    expect(result.stderr).toContain("wrong artifact kind to inputs slot 'source'");
   });
 
   test("validates duplicate manually authored dependencies", async () => {
@@ -628,7 +613,7 @@ describe("artifacts, goals, and validation", () => {
     for (const args of [
       ["artifact", "add", "proof", "--map", "plan", "--kind", "document", "--ref", "git:one"],
       ["goal", "add", "--map", "plan", "--name", "release", "--description", "Released"],
-      ["goal", "satisfy", "--map", "plan", "--goal", "initial-goal", "--artifact", "existing"],
+      ["goal", "satisfy", "--map", "plan", "--goal", "initial-goal", "--artifact", "@existing"],
       [
         "step",
         "create",
@@ -646,8 +631,8 @@ describe("artifacts, goals, and validation", () => {
       ["step", "complete", "first", "--map", "plan", "--summary", "Must not complete"],
       ["step", "cancel", "first", "--map", "plan", "--reason", "Must not cancel"],
       ["step", "depends", "first", "--map", "plan", "--on", "2"],
-      ["step", "input", "first", "--map", "plan", "--artifact", "existing"],
-      ["step", "output", "first", "--map", "plan", "--artifact", "existing"],
+      ["step", "input", "first", "--map", "plan", "git:existing", "--kind", "document"],
+      ["step", "output", "first", "--map", "plan", "git:existing", "--kind", "document"],
     ])
       expectCommandError(invoke(args, project));
 

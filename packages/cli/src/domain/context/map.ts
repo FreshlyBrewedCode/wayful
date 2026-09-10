@@ -124,7 +124,7 @@ export function buildMapContext(options: BuildMapContextOptions): MapContextView
     cancelled: steps.filter((step) => step.status === "cancelled").length,
   };
 
-  const actionableSteps = nextSteps(steps, artifacts);
+  const actionableSteps = nextSteps(steps);
   const actionable: ActionableStepView[] = actionableSteps.map((step) => ({
     id: qStep(step.id),
     name: step.name,
@@ -157,7 +157,7 @@ export function buildMapContext(options: BuildMapContextOptions): MapContextView
           name: dependency?.name ?? "(missing)",
           status: dependency?.status ?? "missing",
         }));
-      const missingInputs = unfulfilledSlots(step, "inputs", artifacts).map((slot) => slot.name);
+      const missingInputs = unfulfilledSlots(step, "inputs").map((slot) => slot.name);
       const reasonParts: string[] = [];
       if (unmetDependencies.length)
         reasonParts.push(

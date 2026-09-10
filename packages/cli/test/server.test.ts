@@ -182,14 +182,14 @@ describe("the JSON API the viewer requires", () => {
     const project = await projectFixture();
     await writeFile(
       join(project, ".wayful", "maps", "plan", "steps", "1-work.md"),
-      `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: work\ntype: task\ndescription: Do it\nstatus: pending\ndependencies: []\ninputs:\n  - artifact: missing\noutputs: []\nrequired_inputs: []\nrequired_outputs: []\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n---\n`,
+      `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: work\ntype: task\ndescription: Do it\nstatus: pending\ndependencies: []\ninputs:\n  - ref: git:orphan\noutputs: []\nrequired_inputs: []\nrequired_outputs: []\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n---\n`,
     );
     const server = await serve({ project });
 
     const detail = await json(server, "/api/map?name=plan");
 
     expect(detail.validation.valid).toBe(false);
-    expect(detail.validation.errors.join(" ")).toContain("missing inputs artifact 'missing'");
+    expect(detail.validation.errors.join(" ")).toContain("has an invalid inputs attachment");
   });
 
   test("map reports the CLI's own message for a map it cannot read", async () => {

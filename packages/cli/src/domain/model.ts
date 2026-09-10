@@ -1,7 +1,7 @@
 import type { Slot } from "./identifier";
 
 /** The on-disk schema version every record in this codebase reads and writes. */
-export const CURRENT_FORMAT_VERSION = 2;
+export const CURRENT_FORMAT_VERSION = 3;
 
 export interface ProjectMetadata {
   readonly format_version: number;
@@ -20,10 +20,14 @@ export interface MapMetadata {
   readonly updated_at: string;
 }
 
-export interface Attachment {
-  readonly artifact: string;
-  readonly slot?: string;
-}
+/**
+ * A step attachment carries a ref directly (ADR-0004), in one of two
+ * mutually-exclusive shapes: slot-bound (kind inherited from the step's
+ * required slot) or supplementary (names its own kind, no slot).
+ */
+export type Attachment =
+  | { readonly slot: string; readonly ref: string }
+  | { readonly ref: string; readonly kind: string };
 
 export type StepStatus = "pending" | "blocked" | "complete" | "cancelled";
 

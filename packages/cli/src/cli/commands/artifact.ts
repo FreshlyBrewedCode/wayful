@@ -7,12 +7,8 @@ import { qualifiedArtifactId } from "../../domain/context";
 import { MapMetadataError, WayfulError } from "../../domain/errors";
 import { identifier, nonEmpty } from "../../domain/identifier";
 import { CURRENT_FORMAT_VERSION, type ArtifactRecord } from "../../domain/model";
-import {
-  describeToken,
-  expectArtifact,
-  resolveToken,
-  type ReferenceToken,
-} from "../../domain/reference";
+import { parseArtifactAddress } from "../../domain/artifact-address";
+import { describeToken, resolveToken, type ReferenceToken } from "../../domain/reference";
 import {
   assertWritableMapIntegrity,
   fail,
@@ -98,7 +94,7 @@ function resolveArtifactTarget(
   WayfulBackend
 > {
   return Effect.gen(function* () {
-    const ref = yield* liftSync(() => expectArtifact(reference));
+    const ref = yield* liftSync(() => parseArtifactAddress(reference));
     const map = yield* resolveReferencedMap(ref.map, contextMap, project);
     return { map, token: ref.token };
   });

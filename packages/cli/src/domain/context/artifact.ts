@@ -40,9 +40,7 @@ export function buildArtifactContext(options: BuildArtifactContextOptions): Arti
 
   const stepsAttaching = (direction: "inputs" | "outputs"): ArtifactRelationView[] =>
     steps
-      .filter((step) =>
-        normalizedAttachments(step[direction]).some((a) => a.artifactName === artifact.name),
-      )
+      .filter((step) => normalizedAttachments(step[direction]).some((a) => a.ref === artifact.ref))
       .toSorted((a, b) => a.id - b.id)
       .map((step) => ({ id: qStep(step.id), name: step.name }));
 

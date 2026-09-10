@@ -1,7 +1,7 @@
 import { normalizedAttachments, unfulfilledSlots } from "../graph";
 import type { Slot } from "../identifier";
-import type { ArtifactRecord, DecodeError, StepRecord } from "../model";
-import { qualifiedArtifactId, qualifiedStepId } from "./shared";
+import type { DecodeError, StepRecord } from "../model";
+import { qualifiedStepId } from "./shared";
 
 /** A step reference resolved for display: a dependency or a dependent, each carrying the current status that makes readiness visible without a second command. */
 export interface StepRelationView {
@@ -10,14 +10,12 @@ export interface StepRelationView {
   readonly status: string;
 }
 
-/** A single input/output attachment, resolved against the map's artifacts so presence is knowable without a second command. */
+/** A single input/output attachment: the ref it carries, and the slot or kind it names. */
 export interface StepAttachmentView {
   readonly slot: string | undefined;
-  /** The qualified artifact id when the named artifact resolves; the raw attached name otherwise. */
-  readonly artifact: string;
+  readonly ref: string;
+  /** Inherited from the matched required slot for slot-bound attachments; the attachment's own kind for supplementary ones. */
   readonly kind: string | undefined;
-  readonly ref: string | undefined;
-  readonly present: boolean;
 }
 
 export interface StepContextView {
@@ -47,7 +45,6 @@ export interface BuildStepContextOptions {
   readonly mapName: string;
   readonly step: StepRecord;
   readonly steps: readonly StepRecord[];
-  readonly artifacts: readonly ArtifactRecord[];
   /** The step's type, name and description only — step scope omits the full type instructions per the command's governing principle. */
   readonly type: { readonly name: string; readonly description: string };
   readonly problems: readonly DecodeError[];
@@ -59,9 +56,8 @@ export interface BuildStepContextOptions {
  * shows how a thing connects, `step show` shows what it says.
  */
 export function buildStepContext(options: BuildStepContextOptions): StepContextView {
-  const { mapName, step, steps, artifacts, type, problems } = options;
+  const { mapName, step, steps, type, problems } = options;
   const qStep = (id: number) => qualifiedStepId(mapName, id);
-  const qArtifact = (id: number) => qualifiedArtifactId(mapName, id);
 
   const relation = (id: number, status?: string): StepRelationView => {
     const found = steps.find((candidate) => candidate.id === id);
@@ -78,20 +74,17 @@ export function buildStepContext(options: BuildStepContextOptions): StepContextV
     .toSorted((a, b) => a.id - b.id)
     .map((candidate) => relation(candidate.id, candidate.status));
 
-  const artifactByName = new Map(artifacts.map((artifact) => [artifact.name, artifact] as const));
-  const toAttachmentView = (attachment: {
-    readonly slot: string | undefined;
-    readonly artifactName: string;
-  }): StepAttachmentView => {
-    const artifact = artifactByName.get(attachment.artifactName);
-    return {
-      slot: attachment.slot,
-      artifact: artifact ? qArtifact(artifact.id) : attachment.artifactName,
-      kind: artifact?.kind,
-      ref: artifact?.ref,
-      present: artifact !== undefined,
+  const toAttachmentView =
+    (direction: "inputs" | "outputs") =>
+    (attachment: {
+      readonly slot: string | undefined;
+      readonly ref: string;
+      readonly kind: string | undefined;
+    }): StepAttachmentView => {
+      const required = direction === "inputs" ? step.required_inputs : step.required_outputs;
+      const slotKind = required.find((candidate) => candidate.name === attachment.slot)?.kind;
+      return { slot: attachment.slot, ref: attachment.ref, kind: attachment.kind ?? slotKind };
     };
-  };
 
   return {
     scope: "step",
@@ -103,10 +96,10 @@ export function buildStepContext(options: BuildStepContextOptions): StepContextV
     description: step.description,
     dependencies,
     dependents,
-    inputs: normalizedAttachments(step.inputs).map(toAttachmentView),
+    inputs: normalizedAttachments(step.inputs).map(toAttachmentView("inputs")),
     outputs: {
-      recorded: normalizedAttachments(step.outputs).map(toAttachmentView),
-      unfulfilled: unfulfilledSlots(step, "outputs", artifacts),
+      recorded: normalizedAttachments(step.outputs).map(toAttachmentView("outputs")),
+      unfulfilled: unfulfilledSlots(step, "outputs"),
     },
     created_at: step.created_at,
     updated_at: step.updated_at,

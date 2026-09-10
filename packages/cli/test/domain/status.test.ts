@@ -32,7 +32,7 @@ describe("mapStatus", () => {
         updated_at: T,
       },
     ];
-    const status = mapStatus(testMap, steps, [], goals);
+    const status = mapStatus(testMap, steps, goals);
     expect(status).toEqual({
       map: "plan",
       goals: { satisfied: 1, total: 2 },

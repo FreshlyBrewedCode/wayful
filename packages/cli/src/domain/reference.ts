@@ -5,7 +5,7 @@ const fail = (message: string): never => {
   throw new WayfulError({ message });
 };
 
-/** A step or artifact addressed by its per-map integer id or by its name. */
+/** A step addressed by its per-map integer id or by its name. */
 export type ReferenceToken =
   | { readonly kind: "id"; readonly id: number }
   | { readonly kind: "name"; readonly name: string };
@@ -15,24 +15,26 @@ export type ReferenceToken =
  *
  * | Form | Resolves to |
  * | --- | --- |
- * | `redesign` | Map, by name (at a polymorphic slot); a step or artifact name (at a slot that already knows its own kind) |
+ * | `redesign` | Map, by name (at a polymorphic slot); a step name (at a slot that already knows its own kind) |
  * | `1` | Step, by id |
  * | `#1` / `#research-users` | Step, by id or name |
- * | `@5` / `@user-interviews` | Artifact, by id or name |
- * | `redesign/#1`, `redesign/@5`, `redesign/1`, `redesign/other` | Any of the above, map-qualified |
+ * | `redesign/#1`, `redesign/1`, `redesign/other` | Any of the above, map-qualified |
  *
  * The grammar is additive: a bare, unsigiled, non-numeric token is
- * inherently ambiguous outside a sigil — it could name a map, a step, or an
- * artifact — so the parser does not decide that for the caller. It is
- * returned as `{kind: "bare", ...}` and left for the call site to interpret
- * according to what that slot already knows it holds (see `expectStep` and
- * `expectArtifact`). A future polymorphic slot (a bare, unqualified `bare`
- * token with no other information) is free to read it as a map name.
+ * inherently ambiguous outside a sigil — it could name a map or a step — so
+ * the parser does not decide that for the caller. It is returned as
+ * `{kind: "bare", ...}` and left for the call site to interpret according to
+ * what that slot already knows it holds (see `expectStep`). A future
+ * polymorphic slot (a bare, unqualified `bare` token with no other
+ * information) is free to read it as a map name.
+ *
+ * Artifacts are addressed separately, by `domain/artifact-address.ts`: a
+ * step's `inputs`/`outputs` name a ref directly rather than a registered
+ * artifact (ADR-0004), so only maps and steps stay addressable here.
  */
 export type Reference =
   | { readonly kind: "bare"; readonly map?: string; readonly name: string }
-  | { readonly kind: "step"; readonly map?: string; readonly token: ReferenceToken }
-  | { readonly kind: "artifact"; readonly map?: string; readonly token: ReferenceToken };
+  | { readonly kind: "step"; readonly map?: string; readonly token: ReferenceToken };
 
 function parseToken(raw: string, label: string): ReferenceToken {
   if (/^\d+$/.test(raw)) return { kind: "id", id: Number(raw) };
@@ -44,14 +46,12 @@ function parseToken(raw: string, label: string): ReferenceToken {
  * Parses a single reference string into its syntactic shape, without
  * committing an unsigiled bare name to any one primitive kind.
  *
- * Bare integers resolve to steps, never artifacts: `#` begins a comment in
- * `bash -c` and shell scripts, so `wayful context #1` unquoted would
- * otherwise reach the CLI as zero arguments — wrong output, exit zero, no
- * signal. `@` is safe in bash, zsh, and fish, so artifacts keep their sigil
- * unconditionally; there is no bare-artifact form. This is decidable without
- * a backend lookup because numeric names are already rejected for every
- * named primitive (maps, steps by name, goals, types) — a purely-numeric
- * bare token can therefore only ever be a step id.
+ * Bare integers resolve to steps: `#` begins a comment in `bash -c` and
+ * shell scripts, so `wayful context #1` unquoted would otherwise reach the
+ * CLI as zero arguments — wrong output, exit zero, no signal. This is
+ * decidable without a backend lookup because numeric names are already
+ * rejected for every named primitive (maps, steps by name, goals, types) —
+ * a purely-numeric bare token can therefore only ever be a step id.
  *
  * A bare non-numeric name — with or without a map prefix — is genuinely
  * ambiguous at this layer and is returned as `kind: "bare"` for the caller
@@ -68,21 +68,17 @@ export function parseReference(raw: string): Reference {
     if (!IDENT.test(map) || /^\d+$/.test(map))
       fail(`'${raw}' has an invalid map prefix; a map prefix must be a lowercase kebab-case name.`);
     rest = rest.slice(slash + 1);
-    if (rest === "") fail(`'${raw}' is missing a step or artifact reference after the map prefix.`);
+    if (rest === "") fail(`'${raw}' is missing a step reference after the map prefix.`);
   }
 
   if (rest.startsWith("#"))
     return { kind: "step", map, token: parseToken(rest.slice(1), "step reference") };
-  if (rest.startsWith("@"))
-    return { kind: "artifact", map, token: parseToken(rest.slice(1), "artifact reference") };
   if (/^\d+$/.test(rest)) return { kind: "step", map, token: { kind: "id", id: Number(rest) } };
   if (IDENT.test(rest)) return { kind: "bare", map, name: rest };
 
   const sigil = rest[0];
   if (sigil !== undefined && !/[a-z0-9]/.test(sigil))
-    fail(
-      `'${sigil}' is not a recognized reference sigil; use '#' for a step or '@' for an artifact.`,
-    );
+    fail(`'${sigil}' is not a recognized reference sigil; use '#' for a step.`);
   return fail(`'${raw}' is not a valid reference.`);
 }
 
@@ -93,24 +89,8 @@ export function parseReference(raw: string): Reference {
  */
 export function expectStep(raw: string): Extract<Reference, { readonly kind: "step" }> {
   const ref = parseReference(raw);
-  if (ref.kind === "artifact")
-    return fail(`'${raw}' references an artifact; a step reference uses '#id' or '#name'.`);
   if (ref.kind === "bare")
     return { kind: "step", map: ref.map, token: { kind: "name", name: ref.name } };
-  return ref;
-}
-
-/**
- * Parses `raw` and asserts it names an artifact, map-qualified or not. A
- * bare name resolves to an artifact name here, because the `artifact`/
- * `evidence` slot already knows it holds an artifact.
- */
-export function expectArtifact(raw: string): Extract<Reference, { readonly kind: "artifact" }> {
-  const ref = parseReference(raw);
-  if (ref.kind === "step")
-    return fail(`'${raw}' does not reference an artifact; use '@id' or '@name'.`);
-  if (ref.kind === "bare")
-    return { kind: "artifact", map: ref.map, token: { kind: "name", name: ref.name } };
   return ref;
 }
 
