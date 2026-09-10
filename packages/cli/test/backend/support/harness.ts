@@ -43,7 +43,7 @@ export const T0 = new Date(0).toISOString();
 export const T1 = new Date(60 * 60 * 1000).toISOString();
 
 export function newStep(
-  overrides: Partial<NewStepRecord> & Pick<NewStepRecord, "id" | "name">,
+  overrides: Partial<NewStepRecord> & Pick<NewStepRecord, "name">,
 ): NewStepRecord {
   return {
     format_version: CURRENT_FORMAT_VERSION,

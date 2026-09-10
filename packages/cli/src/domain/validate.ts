@@ -9,10 +9,6 @@ export function validateMap(
   const { map, steps, artifacts, goals, types } = snapshot;
   const errors: string[] = [];
 
-  const highestStepID = steps.reduce((highest, step) => Math.max(highest, step.id), 0);
-  if (map.step_id_counter <= highestStepID)
-    errors.push("map step_id_counter must be greater than every existing step ID.");
-
   const artifactNames = new Set<string>();
   for (const artifact of artifacts) {
     if (artifactNames.has(artifact.name)) errors.push("duplicate artifact identity.");

@@ -80,7 +80,6 @@ export function decodeMapMetadata(data: unknown, expectedName: string): MapMetad
     format_version: CURRENT_FORMAT_VERSION,
     name: expectedName,
     start: record.start as string,
-    step_id_counter: record.step_id_counter as number,
     artifact_id_counter: record.artifact_id_counter as number,
     allowed_step_types: allowedStepTypes,
     created_at: createdAt,

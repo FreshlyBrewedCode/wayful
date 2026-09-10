@@ -66,10 +66,6 @@ export const stepCreateCommand = Command.make(
         const stepName = yield* liftSync(() => identifier(name, "step name", true));
         if (steps.some((s) => s.name === stepName))
           yield* fail(`step '${stepName}' already exists.`);
-        const highestStepID = steps.reduce((highest, s) => Math.max(highest, s.id), 0);
-        const id = map.metadata.step_id_counter;
-        if (id <= highestStepID)
-          yield* fail("map step_id_counter must be greater than every existing step ID.");
         const typeName = yield* liftSync(() => identifier(type, "step type"));
         const typeDefinition = yield* backend.getType(project, typeName);
         if (map.metadata.allowed_step_types && !map.metadata.allowed_step_types.includes(typeName))
@@ -89,7 +85,6 @@ export const stepCreateCommand = Command.make(
         );
         const step: NewStepRecord = {
           format_version: CURRENT_FORMAT_VERSION,
-          id,
           name: stepName,
           type: typeName,
           description: resolvedDescription,
@@ -101,9 +96,8 @@ export const stepCreateCommand = Command.make(
           required_outputs: requiredOutputSlots,
           body,
         };
-        yield* backend.createStep(map, step);
-        yield* backend.setStepIdCounter(map, id + 1);
-        yield* Console.log(`Created step ${id} '${stepName}'.`);
+        const created = yield* backend.createStep(map, step);
+        yield* Console.log(`Created step ${created.id} '${stepName}'.`);
       }),
     ),
 ).pipe(Command.withDescription("Create a step"));

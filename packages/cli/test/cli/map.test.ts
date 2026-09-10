@@ -133,14 +133,12 @@ describe("maps, types, and readable rendering", () => {
         format_version: CURRENT_FORMAT_VERSION,
         name: "plan",
         start: "here",
-        step_id_counter: 1,
         artifact_id_counter: 1,
       },
       {
         format_version: CURRENT_FORMAT_VERSION,
         name: "release-plan",
         start: "now",
-        step_id_counter: 1,
         artifact_id_counter: 1,
       },
     ]);

@@ -577,7 +577,7 @@ describe("artifacts, goals, and validation", () => {
     expect(result.stderr).toContain("wrong artifact kind to inputs slot 'source'");
   });
 
-  test("validates duplicate manually authored dependencies and incoherent step counters", async () => {
+  test("validates duplicate manually authored dependencies", async () => {
     const project = await projectFixture();
     await writeStep(project, "first", 1);
     await writeStep(project, "second", 4);
@@ -586,17 +586,9 @@ describe("artifacts, goals, and validation", () => {
       first,
       (await readFile(first, "utf8")).replace("dependencies: []", "dependencies: [4, 4]"),
     );
-    const mapFile = join(project, ".wayful", "maps", "plan", "map.toml");
-    await writeFile(
-      mapFile,
-      (await readFile(mapFile, "utf8")).replace(/^step_id_counter = \d+$/m, "step_id_counter = 3"),
-    );
     const validation = invoke(["map", "validate", "--map", "plan"], project);
     expect(validation.exitCode).toBe(1);
     expect(validation.stderr).toContain("duplicate dependency");
-    expect(validation.stderr).toContain(
-      "step_id_counter must be greater than every existing step ID",
-    );
     expectCommandError(
       invoke(
         [
@@ -613,32 +605,10 @@ describe("artifacts, goals, and validation", () => {
         project,
       ),
     );
-    await expect(
-      readFile(join(project, ".wayful", "maps", "plan", "steps", "3-new-work.md"), "utf8"),
-    ).rejects.toThrow();
-  });
-
-  test("refuses non-create mutations without writing when the step counter is incoherent", async () => {
-    const project = await projectFixture();
-    await writeStep(project, "work", 1);
-    const mapFile = join(project, ".wayful", "maps", "plan", "map.toml");
-    const stepFile = join(project, ".wayful", "maps", "plan", "steps", "1-work.md");
-    await writeFile(
-      mapFile,
-      (await readFile(mapFile, "utf8")).replace("step_id_counter = 2", "step_id_counter = 1"),
+    const entries = await import("node:fs/promises").then((fs) =>
+      fs.readdir(join(project, ".wayful", "maps", "plan", "steps")),
     );
-    const beforeMap = await readFile(mapFile, "utf8");
-    const beforeStep = await readFile(stepFile, "utf8");
-
-    const result = invoke(
-      ["step", "update", "work", "--map", "plan", "--description", "Must not update"],
-      project,
-    );
-
-    expectCommandError(result);
-    expect(result.stderr).toContain("step_id_counter must be greater than every existing step ID");
-    expect(await readFile(mapFile, "utf8")).toBe(beforeMap);
-    expect(await readFile(stepFile, "utf8")).toBe(beforeStep);
+    expect(entries.some((entry) => entry.endsWith("-new-work.md"))).toBe(false);
   });
 
   test("refuses every map mutation when existing map identities are globally invalid", async () => {

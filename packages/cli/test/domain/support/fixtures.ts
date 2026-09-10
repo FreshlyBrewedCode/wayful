@@ -56,9 +56,7 @@ export function typeDefinition(
   };
 }
 
-export function map(
-  overrides: Partial<MapMetadata> & Pick<MapMetadata, "step_id_counter">,
-): MapMetadata {
+export function map(overrides: Partial<MapMetadata> = {}): MapMetadata {
   return {
     format_version: CURRENT_FORMAT_VERSION,
     name: "plan",
@@ -72,7 +70,7 @@ export function map(
 
 export function snapshot(overrides: Partial<MapSnapshot> = {}): MapSnapshot {
   return {
-    map: map({ step_id_counter: 1 }),
+    map: map(),
     steps: [],
     artifacts: [],
     goals: [],

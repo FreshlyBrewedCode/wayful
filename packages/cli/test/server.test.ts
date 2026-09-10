@@ -109,7 +109,6 @@ describe("the JSON API the viewer requires", () => {
         format_version: CURRENT_FORMAT_VERSION,
         name: "plan",
         start: "here",
-        step_id_counter: 3,
         artifact_id_counter: 2,
         created_at: FIXTURE_TIME,
         updated_at: FIXTURE_TIME,
