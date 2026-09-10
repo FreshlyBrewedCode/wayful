@@ -5,13 +5,18 @@
 # isn't dispatched again.
 #
 # Env vars:
-#   T3_PROJECT_ID   t3ctl project id for this workspace (required)
-#   T3_PROVIDER     t3ctl provider (default: claudeAgent)
-#   T3_MODEL        t3ctl model (default: claude-sonnet-5)
-#   DRY_RUN         if "1", print what would happen instead of doing it
+#   T3_PROJECT_ID       t3ctl project id for this workspace (required)
+#   T3_PROVIDER         t3ctl provider (default: claudeAgent)
+#   T3_MODEL            t3ctl model (default: claude-sonnet-5)
+#   DRY_RUN             if "1", print what would happen instead of doing it
+#   RUN_UNTIL_EMPTY     if "1", reschedule itself (via `at`) to run again
+#                       after RUN_INTERVAL_MINUTES, until the Ready column
+#                       is empty
+#   RUN_INTERVAL_MINUTES  minutes between reschedules (default: 15)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+SCRIPT_PATH="$SCRIPT_DIR/$(basename -- "${BASH_SOURCE[0]}")"
 
 GH_OWNER="FreshlyBrewedCode"
 GH_PROJECT_NUMBER=3
@@ -31,8 +36,11 @@ DRY_RUN="0"
 PROMPT_TEMPLATE="$SCRIPT_DIR/ready-issue-prompt.md"
 
 # orderBy: POSITION is the project's own manual ordering — the same order
-# items appear top-to-bottom within a board column. issueDependenciesSummary
-# is GitHub's native issue-dependencies gate (open blockers only).
+# items appear top-to-bottom within a board column. blockedBy walks GitHub's
+# native issue-dependencies edges (open blockers only). A blocker whose open
+# blockers each already have an open linked PR (closedByPullRequestsReferences,
+# i.e. a PR with a closing keyword — merge not required) doesn't count as a
+# hard block; anything else does.
 ready_items=$(gh api graphql -f query='
   query($owner: String!, $number: Int!) {
     user(login: $owner) {
@@ -48,7 +56,15 @@ ready_items=$(gh api graphql -f query='
               ... on Issue {
                 number
                 title
-                issueDependenciesSummary { blockedBy }
+                blockedBy(first: 20) {
+                  nodes {
+                    number
+                    state
+                    closedByPullRequestsReferences(first: 10) {
+                      nodes { number state }
+                    }
+                  }
+                }
               }
             }
           }
@@ -58,7 +74,18 @@ ready_items=$(gh api graphql -f query='
   }' -f owner="$GH_OWNER" -F number="$GH_PROJECT_NUMBER" \
   --jq '.data.user.projectV2.items.nodes[]
     | select(.content.__typename == "Issue" and .fieldValueByName.name == "Ready")
-    | [(.content.number | tostring), .id, (.content.issueDependenciesSummary.blockedBy | tostring), .content.title]
+    | . as $item
+    | ($item.content.blockedBy.nodes // []) as $blockers
+    | ($blockers | map(select(.state == "OPEN"))) as $openBlockers
+    | ($openBlockers | map(select((.closedByPullRequestsReferences.nodes // []) | map(select(.state == "OPEN")) | length == 0))) as $hardBlockers
+    | [
+        ($item.content.number | tostring),
+        $item.id,
+        (if ($hardBlockers | length) > 0 then "1" else "0" end),
+        ($hardBlockers | map("#" + (.number | tostring)) | join(",") | if . == "" then "-" else . end),
+        ($openBlockers | map("#" + (.number | tostring)) | join(",") | if . == "" then "-" else . end),
+        $item.content.title
+      ]
     | @tsv')
 
 if [[ -z "$ready_items" ]]; then
@@ -66,12 +93,24 @@ if [[ -z "$ready_items" ]]; then
   exit 0
 fi
 
-while IFS=$'\t' read -r issue_number item_id blocked_by issue_title; do
+schedule_next_run() {
+  local interval="${RUN_INTERVAL_MINUTES:-15}"
+  echo "Ready column not yet empty — scheduling next run in ${interval} minute(s) via at"
+  at now + "$interval" minutes <<EOF
+RUN_UNTIL_EMPTY="$RUN_UNTIL_EMPTY" RUN_INTERVAL_MINUTES="$interval" "$SCRIPT_PATH"
+EOF
+}
+
+while IFS=$'\t' read -r issue_number item_id hard_blocked hard_blockers open_blockers issue_title; do
   [[ -z "$issue_number" ]] && continue
 
-  if [[ "$blocked_by" != "0" ]]; then
-    echo "Skipping issue #$issue_number (item $item_id): $blocked_by open blocker(s)"
+  if [[ "$hard_blocked" == "1" ]]; then
+    echo "Skipping issue #$issue_number (item $item_id): blocked by $hard_blockers (no open PR yet)"
     continue
+  fi
+
+  if [[ "$open_blockers" != "-" ]]; then
+    echo "Issue #$issue_number (item $item_id): blocker(s) $open_blockers still open but have an open PR — treating as unblocked"
   fi
 
   prompt="$(sed "s/{{ISSUE_NUMBER}}/$issue_number/g" "$PROMPT_TEMPLATE")"
@@ -100,3 +139,7 @@ while IFS=$'\t' read -r issue_number item_id blocked_by issue_title; do
     --prompt "$prompt"
 
 done <<<"$ready_items"
+
+if [[ "${RUN_UNTIL_EMPTY:-0}" == "1" ]]; then
+  schedule_next_run
+fi
