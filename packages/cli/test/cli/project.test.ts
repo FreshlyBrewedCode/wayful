@@ -46,6 +46,11 @@ describe("project and context contracts", () => {
       expect(result.stderr).toMatch(/^wayful: /);
       expect(result.stderr).not.toContain("Help requested");
       for (const fragment of expected) expect(result.stderr).toContain(fragment);
+      // The framework renders full help (~25 lines) to stdout for every
+      // `ShowHelp`, mistakes included, with no config knob to suppress it.
+      // `helpCapturingFormatter` intercepts it; a stray leading blank line
+      // is the accepted cost, so `.trim()` rather than an exact `""`.
+      expect(result.stdout.trim()).toBe("");
     }
   }, 10000); // 6 subprocess spawns; a loaded CI runner can outrun the default 5s.
 
@@ -206,5 +211,39 @@ describe("project and context contracts", () => {
     expect(JSON.parse(unknownMap.stdout)).toEqual({
       error: unknownMap.stderr.replace(/^wayful: /, "").trimEnd(),
     });
+  });
+
+  test("honors the {error} --json contract for parse-stage failures too, not just domain/backend ones", async () => {
+    const project = await temporaryDirectory();
+    // Parse-stage failures never reach `handle()` — the framework rejects
+    // them before a command's own `--json` flag is even parsed — so this is
+    // a heuristic scan of the raw argv instead. Cover a missing argument and
+    // an unrecognized flag, not just one shape of parse-stage failure.
+    const missingArgument = invoke(["step", "show", "--json"], project);
+    expect(missingArgument.exitCode).toBe(2);
+    expect(missingArgument.stderr).toBe(
+      "wayful: Missing required argument: step\nwayful: See 'wayful step show --help'.\n",
+    );
+    expect(JSON.parse(missingArgument.stdout)).toEqual({
+      error: "Missing required argument: step",
+    });
+
+    // `ui` takes no `--json` flag of its own; the heuristic scan doesn't
+    // care, since the flag isn't parsed at all at this stage.
+    const unrecognizedFlag = invoke(["ui", "--port", "abc", "--json"], project);
+    expect(unrecognizedFlag.exitCode).toBe(2);
+    expect(JSON.parse(unrecognizedFlag.stdout)).toEqual({
+      error: "Unrecognized flag: --json in command wayful ui",
+    });
+
+    // The `--json=` form is recognized too, and no `--json` at all still
+    // gets the plain (non-JSON) contract.
+    const equalsForm = invoke(["step", "show", "--json=true"], project);
+    expect(equalsForm.exitCode).toBe(2);
+    expect(JSON.parse(equalsForm.stdout)).toEqual({ error: "Missing required argument: step" });
+
+    const noJson = invoke(["step", "show"], project);
+    expect(noJson.exitCode).toBe(2);
+    expect(noJson.stdout.trim()).toBe("");
   });
 });

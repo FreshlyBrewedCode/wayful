@@ -1,6 +1,7 @@
 import { Console, Effect } from "effect";
 
 import { MapMetadataError, WayfulError } from "../domain/errors";
+import { report } from "./report";
 
 export function printOutput(json: boolean, value: unknown, human: string): Effect.Effect<void> {
   return Console.log(json ? JSON.stringify(value, null, 2) : human);
@@ -14,23 +15,14 @@ export function bodyLines(body: string, indent = ""): string[] {
 }
 
 /**
- * Wraps a command handler so any domain/backend failure prints `wayful:
- * <message>` on stderr, exits non-zero, and — when the command supports
- * `--json` — also emits `{"error": "<message>"}` on stdout. This is the
- * total `--json` failure contract: every command's JSON failures are shaped
- * the same way, not just `map validate`'s.
+ * Wraps a command handler so any domain/backend failure reports through the
+ * shared `wayful: `/`--json`/exit-code contract in `report.ts` — the same
+ * one `main.ts` uses for parse-stage failures, so every command's failure is
+ * shaped the same way regardless of which stage rejected it.
  */
 export function handle<R>(
   json: boolean,
   effect: Effect.Effect<void, WayfulError | MapMetadataError, R>,
 ): Effect.Effect<void, never, R> {
-  return effect.pipe(
-    Effect.catch((error) =>
-      Effect.gen(function* () {
-        yield* Console.error(`wayful: ${error.message}`);
-        if (json) yield* Console.log(JSON.stringify({ error: error.message }));
-        process.exitCode = 2;
-      }),
-    ),
-  );
+  return effect.pipe(Effect.catch((error) => report({ json, message: error.message })));
 }
