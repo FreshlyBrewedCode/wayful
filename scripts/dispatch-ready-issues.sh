@@ -19,10 +19,14 @@ GH_PROJECT_ID="PVT_kwHOALOhUc4BjF7G"
 STATUS_FIELD_ID="PVTSSF_lAHOALOhUc4BjF7Gzhh7jwY"
 STATUS_IN_PROGRESS_OPTION_ID="8b34a1f4"
 
-T3_PROJECT_ID="${T3_PROJECT_ID:?Set T3_PROJECT_ID to the t3ctl project id for this workspace}"
-T3_PROVIDER="${T3_PROVIDER:-claudeAgent}"
-T3_MODEL="${T3_MODEL:-claude-sonnet-5}"
-DRY_RUN="${DRY_RUN:-0}"
+# T3_PROJECT_ID="${T3_PROJECT_ID:?Set T3_PROJECT_ID to the t3ctl project id for this workspace}"
+# T3_PROVIDER="${T3_PROVIDER:-claudeAgent}"
+# T3_MODEL="${T3_MODEL:-claude-sonnet-5}"
+# DRY_RUN="${DRY_RUN:-0}"
+T3_PROJECT_ID="4a028c8e-c65f-43cf-ac36-3cc3600e4f15" # wayful
+T3_PROVIDER="claudeAgent"
+T3_MODEL="claude-sonnet-5"
+DRY_RUN="0"
 
 PROMPT_TEMPLATE="$SCRIPT_DIR/ready-issue-prompt.md"
 
