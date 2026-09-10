@@ -17,14 +17,13 @@ export type Ref =
  * the canonical identity form.
  */
 export function classifyRef(raw: string): Ref {
-  const trimmed = typeof raw === "string" ? raw.trim() : "";
-  const match = SCHEME.exec(trimmed);
+  const match = SCHEME.exec(raw);
   if (!match)
     return fail(
       `ref '${raw}' is not valid; a ref must begin with a scheme matching '^[a-z][a-z0-9+.-]*:' (e.g. 'file:docs/research/summary.md').`,
     );
   const scheme = match[0].slice(0, -1);
-  const rest = trimmed.slice(match[0].length);
+  const rest = raw.slice(match[0].length);
   if (scheme === "file") {
     if (rest.startsWith("/"))
       fail(
@@ -52,5 +51,5 @@ export function normalizeRef(raw: string): string {
   const ref = classifyRef(raw);
   return ref.kind === "file"
     ? `file:${normalizeFilePath(ref.path)}`
-    : `${ref.scheme}:${ref.opaque}`;
+    : `${ref.scheme}:${ref.opaque.trim()}`;
 }

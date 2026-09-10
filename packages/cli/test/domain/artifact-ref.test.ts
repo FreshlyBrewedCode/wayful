@@ -28,6 +28,18 @@ describe("classifyRef", () => {
     });
   });
 
+  test("accepts the full scheme character class, not just letters", () => {
+    expect(classifyRef("x+y.z-1:opaque")).toEqual({
+      kind: "opaque",
+      scheme: "x+y.z-1",
+      opaque: "opaque",
+    });
+  });
+
+  test("never trims a file: path — trimming is opaque-scheme only, per ADR-0004", () => {
+    expect(classifyRef("file:a.md ")).toEqual({ kind: "file", path: "a.md " });
+  });
+
   test("rejects an absolute file: ref with the ADR's exact error text", () => {
     // file:/path (single slash, no authority)
     expect(() => classifyRef("file:/etc/passwd")).toThrow(
@@ -67,6 +79,9 @@ describe("normalizeRef", () => {
     expect(normalizeRef("https://example.com/a  ")).toBe("https://example.com/a");
     // Case and internal structure of an opaque scheme are never normalized.
     expect(normalizeRef("https://Example.com/a")).not.toBe(normalizeRef("https://example.com/a"));
+    // '.' and '//' inside a non-file scheme are never touched — that would
+    // mean parsing a ref ADR-0001 deliberately leaves opaque.
+    expect(normalizeRef("git:./a//b")).toBe("git:./a//b");
   });
 
   test("rejects an invalid ref, same as classifyRef", () => {
