@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 import type { Overview, StepDetail } from "@/lib/wayful";
 import { detail, step } from "./fixtures";
@@ -124,5 +124,28 @@ describe("the viewer", () => {
     await waitFor(() =>
       expect(screen.getByText("wayful: malformed map metadata.")).toBeInTheDocument(),
     );
+  });
+
+  test("collapses the maps rail, then restores it from the floating button", async () => {
+    renderApp("/maps/demo", backend());
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument());
+    expect(screen.getByRole("navigation", { name: "Maps" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse maps rail" }));
+    expect(screen.queryByRole("navigation", { name: "Maps" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show maps rail" }));
+    expect(screen.getByRole("navigation", { name: "Maps" })).toBeInTheDocument();
+  });
+
+  test("collapses the step detail panel without losing the selected step", async () => {
+    renderApp("/maps/demo?step=2", backend());
+    await waitFor(() => expect(screen.getByText("Longest-path layering.")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse step detail" }));
+    expect(screen.queryByText("Longest-path layering.")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show map overview" }));
+    await waitFor(() => expect(screen.getByText("Longest-path layering.")).toBeInTheDocument());
   });
 });

@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { PanelRight, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { PanelLeftOpen, PanelRight, PanelRightClose, X } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import type { PanelImperativeHandle } from "react-resizable-panels";
 
 import { BoardView } from "@/components/board-view";
 import { EmptyState } from "@/components/empty-state";
@@ -11,11 +12,13 @@ import { MapHeader } from "@/components/map-header";
 import { MapOverviewPanel } from "@/components/map-overview-panel";
 import { StepDetailPanel } from "@/components/step-detail-panel";
 import { Button } from "@/components/ui/button";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BREAKPOINTS, useMediaQuery } from "@/hooks/use-media-query";
+import { useRailControls } from "@/hooks/use-rail-controls";
 import { mapQuery } from "@/lib/api";
 import { type MapDetail, isError } from "@/lib/wayful";
 
@@ -55,6 +58,9 @@ function MapRoute() {
   // When the panel is an overlay there is nowhere for the map overview to live,
   // so it gets an explicit control.
   const [overviewOpen, setOverviewOpen] = useState(false);
+  const [detailCollapsed, setDetailCollapsed] = useState(false);
+  const detailPanelRef = useRef<PanelImperativeHandle>(null);
+  const railControls = useRailControls();
   const view: View = search.view ?? (phone ? "board" : "graph");
   const showCancelled = search.cancelled ?? true;
 
@@ -88,88 +94,139 @@ function MapRoute() {
     </ScrollArea>
   );
 
-  return (
-    <div className="flex min-h-0 flex-1">
-      <div className="flex min-w-0 flex-1 flex-col">
-        <MapHeader detail={detail} />
+  const content = (
+    <div className="flex h-full min-w-0 flex-1 flex-col">
+      <MapHeader detail={detail} />
 
-        <section aria-label="Steps" className="relative min-h-0 flex-1">
-          <div className="bg-card/90 absolute top-3 right-3 z-20 flex items-center gap-3 rounded-lg border p-1 pr-3 shadow-sm backdrop-blur">
-            <Tabs value={view} onValueChange={(value) => setSearch({ view: value as View })}>
-              <TabsList aria-label="Map view">
-                {VIEWS.map((option) => (
-                  <TabsTrigger key={option} value={option} className="capitalize">
-                    {option}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-            <label className="flex cursor-pointer items-center gap-1.5 text-xs">
-              <Switch
-                checked={showCancelled}
-                onCheckedChange={(checked) => setSearch({ cancelled: checked })}
-              />
-              <span className="hidden sm:inline">Cancelled</span>
-            </label>
-            {!detailInline && (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Show map overview"
-                onClick={() => {
+      <section aria-label="Steps" className="relative min-h-0 flex-1">
+        {railControls.collapsed && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="bg-card/90 absolute top-3 left-3 z-20 rounded-lg border shadow-sm backdrop-blur"
+            aria-label="Show maps rail"
+            onClick={railControls.show}
+          >
+            <PanelLeftOpen />
+          </Button>
+        )}
+
+        <div className="bg-card/90 absolute top-3 right-3 z-20 flex items-center gap-3 rounded-lg border p-1 pr-3 shadow-sm backdrop-blur">
+          <Tabs value={view} onValueChange={(value) => setSearch({ view: value as View })}>
+            <TabsList aria-label="Map view">
+              {VIEWS.map((option) => (
+                <TabsTrigger key={option} value={option} className="capitalize">
+                  {option}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+            <Switch
+              checked={showCancelled}
+              onCheckedChange={(checked) => setSearch({ cancelled: checked })}
+            />
+            <span className="hidden sm:inline">Cancelled</span>
+          </label>
+          {(!detailInline || detailCollapsed) && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Show map overview"
+              onClick={() => {
+                if (!detailInline) {
                   setSearch({ step: undefined });
                   setOverviewOpen(true);
-                }}
-              >
-                <PanelRight />
-              </Button>
-            )}
-          </div>
+                } else {
+                  detailPanelRef.current?.expand();
+                  setDetailCollapsed(false);
+                }
+              }}
+            >
+              <PanelRight />
+            </Button>
+          )}
+        </div>
 
-          <MapBody
-            detail={detail}
-            steps={steps}
-            view={view}
-            selected={selected}
-            viewportKey={`${mapName}:${showCancelled}`}
-          />
-        </section>
-      </div>
+        <MapBody
+          detail={detail}
+          steps={steps}
+          view={view}
+          selected={selected}
+          viewportKey={`${mapName}:${showCancelled}`}
+        />
+      </section>
+    </div>
+  );
 
-      {detailInline ? (
-        <aside aria-label="Step detail" className="w-96 shrink-0 border-l">
-          <div className="relative h-full">
-            {selected !== null && (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="absolute top-2 right-2 z-10"
-                aria-label="Close step detail"
-                onClick={closeDetail}
-              >
-                <X />
-              </Button>
-            )}
-            {panel}
-          </div>
-        </aside>
-      ) : (
-        <Sheet
-          open={selected !== null || overviewOpen}
-          onOpenChange={(open) => {
-            if (open) return;
-            setOverviewOpen(false);
-            closeDetail();
+  const detailPanel = (
+    <aside aria-label="Step detail" className="flex h-full flex-col border-l">
+      <div className="flex h-10 shrink-0 items-center justify-between border-b px-1">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Collapse step detail"
+          onClick={() => {
+            detailPanelRef.current?.collapse();
+            setDetailCollapsed(true);
           }}
         >
-          <SheetContent
-            side={phone ? "bottom" : "right"}
-            title="Step detail"
-            className={phone ? "h-[80vh] p-0" : "w-96 p-0 sm:max-w-96"}
+          <PanelRightClose />
+        </Button>
+        {selected !== null && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Close step detail"
+            onClick={closeDetail}
           >
-            {panel}
-          </SheetContent>
-        </Sheet>
+            <X />
+          </Button>
+        )}
+      </div>
+      <div className="min-h-0 flex-1">{panel}</div>
+    </aside>
+  );
+
+  return (
+    <div className="flex min-h-0 flex-1">
+      {detailInline ? (
+        <ResizablePanelGroup orientation="horizontal">
+          <ResizablePanel defaultSize="70%" minSize="40%">
+            {content}
+          </ResizablePanel>
+          <ResizableHandle className={detailCollapsed ? "hidden" : undefined} />
+          <ResizablePanel
+            panelRef={detailPanelRef}
+            collapsible
+            defaultSize="30%"
+            minSize="20%"
+            maxSize="55%"
+            onResize={(size) => setDetailCollapsed(size.asPercentage === 0)}
+          >
+            {!detailCollapsed && detailPanel}
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      ) : (
+        <>
+          {content}
+          <Sheet
+            open={selected !== null || overviewOpen}
+            onOpenChange={(open) => {
+              if (open) return;
+              setOverviewOpen(false);
+              closeDetail();
+            }}
+          >
+            <SheetContent
+              side={phone ? "bottom" : "right"}
+              title="Step detail"
+              className={phone ? "h-[80vh] p-0" : "w-96 p-0 sm:max-w-96"}
+            >
+              {panel}
+            </SheetContent>
+          </Sheet>
+        </>
       )}
     </div>
   );
