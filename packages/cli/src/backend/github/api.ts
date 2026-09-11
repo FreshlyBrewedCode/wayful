@@ -1,7 +1,8 @@
 import { Effect, Option, Redacted } from "effect";
-import { HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { HttpClientRequest } from "effect/unstable/http";
 
 import { WayfulError } from "../../domain/errors";
+import { GithubHttp, requestFailed } from "./http";
 import type { GithubIssue } from "./issue";
 import type { GitRemoteRef } from "./remote";
 import { subIssueCapError } from "./subIssues";
@@ -19,17 +20,14 @@ export function apiBase(host: string): ApiBase {
   return { rest: `https://${host}/api/v3`, graphql: `https://${host}/api/graphql` };
 }
 
-function requestFailed(reason: string): WayfulError {
-  return new WayfulError({ message: `github api request failed: ${reason}` });
-}
-
 function insufficientAccess(repo: GitRemoteRef): WayfulError {
   return new WayfulError({
     message: `github token cannot access ${repo.owner}/${repo.repo}; run 'gh auth login' with repo scope or check the token's permissions.`,
   });
 }
 
-function authorized(
+/** Adds the bearer token and the JSON media type every GitHub request needs. */
+export function authorized(
   request: HttpClientRequest.HttpClientRequest,
   token: Redacted.Redacted<string>,
 ) {
@@ -39,6 +37,16 @@ function authorized(
   );
 }
 
+/** Executes one request through the shared budgeted transport. */
+function execute(request: HttpClientRequest.HttpClientRequest) {
+  return Effect.flatMap(GithubHttp, (http) => http.execute(request));
+}
+
+/** A conditional `GET` through the shared transport, cached and revalidated with ETags. */
+function fetchJson(request: HttpClientRequest.HttpClientRequest) {
+  return Effect.flatMap(GithubHttp, (http) => http.getJson(request));
+}
+
 /**
  * Confirms `token` can push to `repo`, failing with a `WayfulError` (never
  * including the token) otherwise.
@@ -46,16 +54,14 @@ function authorized(
 export function verifyAccess(
   repo: GitRemoteRef,
   token: Redacted.Redacted<string>,
-): Effect.Effect<void, WayfulError, HttpClient.HttpClient> {
+): Effect.Effect<void, WayfulError, GithubHttp> {
   return Effect.gen(function* () {
     const base = apiBase(repo.host);
     const request = authorized(
       HttpClientRequest.get(`${base.rest}/repos/${repo.owner}/${repo.repo}`),
       token,
     );
-    const response = yield* HttpClient.execute(request).pipe(
-      Effect.mapError((error) => requestFailed(error.message)),
-    );
+    const response = yield* execute(request);
     if (response.status === 401 || response.status === 403 || response.status === 404) {
       return yield* Effect.fail(insufficientAccess(repo));
     }
@@ -87,16 +93,14 @@ export function ensureLabel(
   repo: GitRemoteRef,
   token: Redacted.Redacted<string>,
   label: Label,
-): Effect.Effect<void, WayfulError, HttpClient.HttpClient> {
+): Effect.Effect<void, WayfulError, GithubHttp> {
   return Effect.gen(function* () {
     const base = apiBase(repo.host);
     const request = authorized(
       HttpClientRequest.post(`${base.rest}/repos/${repo.owner}/${repo.repo}/labels`),
       token,
     ).pipe(HttpClientRequest.bodyJsonUnsafe(label));
-    const response = yield* HttpClient.execute(request).pipe(
-      Effect.mapError((error) => requestFailed(error.message)),
-    );
+    const response = yield* execute(request);
     if (response.status === 201 || response.status === 422) return;
     return yield* Effect.fail(
       requestFailed(`could not create label "${label.name}" (status ${response.status}).`),
@@ -109,7 +113,7 @@ export function ensureLabels(
   repo: GitRemoteRef,
   token: Redacted.Redacted<string>,
   labels: ReadonlyArray<Label>,
-): Effect.Effect<void, WayfulError, HttpClient.HttpClient> {
+): Effect.Effect<void, WayfulError, GithubHttp> {
   return Effect.forEach(labels, (label) => ensureLabel(repo, token, label), { discard: true });
 }
 
@@ -167,27 +171,19 @@ export interface ListIssuesOptions {
 function listPaginated(
   token: Redacted.Redacted<string>,
   initialUrl: string,
-): Effect.Effect<readonly GithubIssue[], WayfulError, HttpClient.HttpClient> {
+): Effect.Effect<readonly GithubIssue[], WayfulError, GithubHttp> {
   return Effect.gen(function* () {
     const issues: GithubIssue[] = [];
     let next: string | undefined = initialUrl;
     while (next !== undefined) {
-      const request = authorized(HttpClientRequest.get(next), token);
-      const response = yield* HttpClient.execute(request).pipe(
-        Effect.mapError((error) => requestFailed(error.message)),
-      );
-      if (response.status < 200 || response.status >= 300)
-        return yield* Effect.fail(requestFailed(`unexpected status ${response.status}.`));
-      const page = yield* response.json.pipe(
-        Effect.mapError((error) => requestFailed(error.message)),
-      );
-      if (!Array.isArray(page))
+      const { value, headers } = yield* fetchJson(authorized(HttpClientRequest.get(next), token));
+      if (!Array.isArray(value))
         return yield* Effect.fail(requestFailed("expected a JSON array of issues."));
-      for (const raw of page) {
+      for (const raw of value) {
         const issue = normalizeIssue(raw);
         if (issue) issues.push(issue);
       }
-      next = nextLink(response.headers["link"]);
+      next = nextLink(headers["link"]);
     }
     return issues;
   });
@@ -202,7 +198,7 @@ export function listIssues(
   repo: GitRemoteRef,
   token: Redacted.Redacted<string>,
   options: ListIssuesOptions = {},
-): Effect.Effect<readonly GithubIssue[], WayfulError, HttpClient.HttpClient> {
+): Effect.Effect<readonly GithubIssue[], WayfulError, GithubHttp> {
   const base = apiBase(repo.host);
   const url = new URL(`${base.rest}/repos/${repo.owner}/${repo.repo}/issues`);
   url.searchParams.set("per_page", "100");
@@ -216,7 +212,7 @@ export function listSubIssues(
   repo: GitRemoteRef,
   token: Redacted.Redacted<string>,
   parent: number,
-): Effect.Effect<readonly GithubIssue[], WayfulError, HttpClient.HttpClient> {
+): Effect.Effect<readonly GithubIssue[], WayfulError, GithubHttp> {
   const base = apiBase(repo.host);
   const url = `${base.rest}/repos/${repo.owner}/${repo.repo}/issues/${parent}/sub_issues?per_page=100`;
   return listPaginated(token, url);
@@ -231,7 +227,7 @@ export function listBlockedBy(
   repo: GitRemoteRef,
   token: Redacted.Redacted<string>,
   number: number,
-): Effect.Effect<readonly GithubIssue[], WayfulError, HttpClient.HttpClient> {
+): Effect.Effect<readonly GithubIssue[], WayfulError, GithubHttp> {
   const base = apiBase(repo.host);
   const url = `${base.rest}/repos/${repo.owner}/${repo.repo}/issues/${number}/dependencies/blocked_by?per_page=100`;
   return listPaginated(token, url);
@@ -242,22 +238,16 @@ export function getIssue(
   repo: GitRemoteRef,
   token: Redacted.Redacted<string>,
   number: number,
-): Effect.Effect<GithubIssue, WayfulError, HttpClient.HttpClient> {
+): Effect.Effect<GithubIssue, WayfulError, GithubHttp> {
   return Effect.gen(function* () {
     const base = apiBase(repo.host);
-    const request = authorized(
-      HttpClientRequest.get(`${base.rest}/repos/${repo.owner}/${repo.repo}/issues/${number}`),
-      token,
+    const { value } = yield* fetchJson(
+      authorized(
+        HttpClientRequest.get(`${base.rest}/repos/${repo.owner}/${repo.repo}/issues/${number}`),
+        token,
+      ),
     );
-    const response = yield* HttpClient.execute(request).pipe(
-      Effect.mapError((error) => requestFailed(error.message)),
-    );
-    if (response.status < 200 || response.status >= 300)
-      return yield* Effect.fail(requestFailed(`could not read issue #${number}.`));
-    const body = yield* response.json.pipe(
-      Effect.mapError((error) => requestFailed(error.message)),
-    );
-    const issue = normalizeIssue(body);
+    const issue = normalizeIssue(value);
     if (!issue) return yield* Effect.fail(requestFailed(`could not read issue #${number}.`));
     return issue;
   });
@@ -277,7 +267,7 @@ export function updateIssue(
   token: Redacted.Redacted<string>,
   number: number,
   patch: IssuePatch,
-): Effect.Effect<void, WayfulError, HttpClient.HttpClient> {
+): Effect.Effect<void, WayfulError, GithubHttp> {
   if (Object.keys(patch).length === 0) return Effect.void;
   return Effect.gen(function* () {
     const base = apiBase(repo.host);
@@ -285,9 +275,7 @@ export function updateIssue(
       HttpClientRequest.patch(`${base.rest}/repos/${repo.owner}/${repo.repo}/issues/${number}`),
       token,
     ).pipe(HttpClientRequest.bodyJsonUnsafe(patch));
-    const response = yield* HttpClient.execute(request).pipe(
-      Effect.mapError((error) => requestFailed(error.message)),
-    );
+    const response = yield* execute(request);
     if (response.status < 200 || response.status >= 300)
       return yield* Effect.fail(requestFailed(`could not update issue #${number}.`));
   });
@@ -299,7 +287,7 @@ export function addLabels(
   token: Redacted.Redacted<string>,
   number: number,
   labels: readonly string[],
-): Effect.Effect<void, WayfulError, HttpClient.HttpClient> {
+): Effect.Effect<void, WayfulError, GithubHttp> {
   if (labels.length === 0) return Effect.void;
   return Effect.gen(function* () {
     const base = apiBase(repo.host);
@@ -309,9 +297,7 @@ export function addLabels(
       ),
       token,
     ).pipe(HttpClientRequest.bodyJsonUnsafe({ labels }));
-    const response = yield* HttpClient.execute(request).pipe(
-      Effect.mapError((error) => requestFailed(error.message)),
-    );
+    const response = yield* execute(request);
     if (response.status < 200 || response.status >= 300)
       return yield* Effect.fail(requestFailed(`could not label issue #${number}.`));
   });
@@ -323,7 +309,7 @@ export function removeLabel(
   token: Redacted.Redacted<string>,
   number: number,
   label: string,
-): Effect.Effect<void, WayfulError, HttpClient.HttpClient> {
+): Effect.Effect<void, WayfulError, GithubHttp> {
   return Effect.gen(function* () {
     const base = apiBase(repo.host);
     const request = authorized(
@@ -332,9 +318,7 @@ export function removeLabel(
       ),
       token,
     );
-    const response = yield* HttpClient.execute(request).pipe(
-      Effect.mapError((error) => requestFailed(error.message)),
-    );
+    const response = yield* execute(request);
     if (response.status === 200 || response.status === 404) return;
     return yield* Effect.fail(requestFailed(`could not remove label from issue #${number}.`));
   });
@@ -346,7 +330,7 @@ export function addSubIssue(
   token: Redacted.Redacted<string>,
   parent: number,
   subIssueId: number,
-): Effect.Effect<void, WayfulError, HttpClient.HttpClient> {
+): Effect.Effect<void, WayfulError, GithubHttp> {
   return Effect.gen(function* () {
     const base = apiBase(repo.host);
     const request = authorized(
@@ -355,9 +339,7 @@ export function addSubIssue(
       ),
       token,
     ).pipe(HttpClientRequest.bodyJsonUnsafe({ sub_issue_id: subIssueId }));
-    const response = yield* HttpClient.execute(request).pipe(
-      Effect.mapError((error) => requestFailed(error.message)),
-    );
+    const response = yield* execute(request);
     if (response.status === 201) return;
     // GitHub rejects the 101st sub-issue with 422; that is a cap, not a raw failure.
     if (response.status === 422) return yield* Effect.fail(subIssueCapError());
@@ -377,7 +359,7 @@ export function addBlockedBy(
   token: Redacted.Redacted<string>,
   number: number,
   blockingIssueId: number,
-): Effect.Effect<void, WayfulError, HttpClient.HttpClient> {
+): Effect.Effect<void, WayfulError, GithubHttp> {
   return Effect.gen(function* () {
     const base = apiBase(repo.host);
     const request = authorized(
@@ -386,9 +368,7 @@ export function addBlockedBy(
       ),
       token,
     ).pipe(HttpClientRequest.bodyJsonUnsafe({ issue_id: blockingIssueId }));
-    const response = yield* HttpClient.execute(request).pipe(
-      Effect.mapError((error) => requestFailed(error.message)),
-    );
+    const response = yield* execute(request);
     if (response.status === 201) return;
     return yield* Effect.fail(
       requestFailed(`could not add a dependency to issue #${number} (status ${response.status}).`),
@@ -402,7 +382,7 @@ export function removeBlockedBy(
   token: Redacted.Redacted<string>,
   number: number,
   blockingIssueId: number,
-): Effect.Effect<void, WayfulError, HttpClient.HttpClient> {
+): Effect.Effect<void, WayfulError, GithubHttp> {
   return Effect.gen(function* () {
     const base = apiBase(repo.host);
     const request = authorized(
@@ -411,9 +391,7 @@ export function removeBlockedBy(
       ),
       token,
     );
-    const response = yield* HttpClient.execute(request).pipe(
-      Effect.mapError((error) => requestFailed(error.message)),
-    );
+    const response = yield* execute(request);
     if (response.status === 200) return;
     return yield* Effect.fail(
       requestFailed(
@@ -434,7 +412,7 @@ export function createIssue(
   repo: GitRemoteRef,
   token: Redacted.Redacted<string>,
   issue: NewIssue,
-): Effect.Effect<GithubIssue, WayfulError, HttpClient.HttpClient> {
+): Effect.Effect<GithubIssue, WayfulError, GithubHttp> {
   return Effect.gen(function* () {
     const base = apiBase(repo.host);
     const request = authorized(
@@ -447,9 +425,7 @@ export function createIssue(
         labels: issue.labels,
       }),
     );
-    const response = yield* HttpClient.execute(request).pipe(
-      Effect.mapError((error) => requestFailed(error.message)),
-    );
+    const response = yield* execute(request);
     if (response.status !== 201)
       return yield* Effect.fail(
         requestFailed(`could not create issue (status ${response.status}).`),

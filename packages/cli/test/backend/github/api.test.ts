@@ -14,7 +14,7 @@ import {
   verifyAccess,
 } from "../../../src/backend/github/api";
 import type { GitRemoteRef } from "../../../src/backend/github/remote";
-import { stubHttpClient } from "./support/httpClient";
+import { stubGithubHttp } from "./support/httpClient";
 import { ISSUE_TIME, bodyText, issueJson, jsonResponse } from "./support/issues";
 
 const repo: GitRemoteRef = { host: "github.com", owner: "acme", repo: "widgets" };
@@ -39,7 +39,7 @@ describe("apiBase", () => {
 
 describe("verifyAccess", () => {
   test("succeeds when the repo response grants push permission", async () => {
-    const layer = stubHttpClient((request) => {
+    const layer = stubGithubHttp((request) => {
       expect(request.url).toBe(`https://api.github.com/repos/${repo.owner}/${repo.repo}`);
       expect(request.headers["authorization"]).toBe(`Bearer ${Redacted.value(secretToken)}`);
       return jsonResponse(200, { permissions: { push: true } });
@@ -48,7 +48,7 @@ describe("verifyAccess", () => {
   });
 
   test("uses the enterprise api/v3 base for a non-github.com host", async () => {
-    const layer = stubHttpClient((request) => {
+    const layer = stubGithubHttp((request) => {
       expect(request.url).toBe(
         `https://github.example.com/api/v3/repos/${enterpriseRepo.owner}/${enterpriseRepo.repo}`,
       );
@@ -58,7 +58,7 @@ describe("verifyAccess", () => {
   });
 
   test("fails without leaking the token when the token lacks push permission", async () => {
-    const layer = stubHttpClient(() => jsonResponse(200, { permissions: { push: false } }));
+    const layer = stubGithubHttp(() => jsonResponse(200, { permissions: { push: false } }));
     const error = await Effect.runPromise(
       verifyAccess(repo, secretToken).pipe(Effect.flip, Effect.provide(layer)),
     );
@@ -67,7 +67,7 @@ describe("verifyAccess", () => {
   });
 
   test("fails without leaking the token when the API rejects the token", async () => {
-    const layer = stubHttpClient(() => jsonResponse(401, { message: "Bad credentials" }));
+    const layer = stubGithubHttp(() => jsonResponse(401, { message: "Bad credentials" }));
     const error = await Effect.runPromise(
       verifyAccess(repo, secretToken).pipe(Effect.flip, Effect.provide(layer)),
     );
@@ -76,7 +76,7 @@ describe("verifyAccess", () => {
   });
 
   test("fails without leaking the token when the repo is not found or not visible", async () => {
-    const layer = stubHttpClient(() => jsonResponse(404, { message: "Not Found" }));
+    const layer = stubGithubHttp(() => jsonResponse(404, { message: "Not Found" }));
     const error = await Effect.runPromise(
       verifyAccess(repo, secretToken).pipe(Effect.flip, Effect.provide(layer)),
     );
@@ -87,7 +87,7 @@ describe("verifyAccess", () => {
 
 describe("ensureLabel", () => {
   test("succeeds when the label is created", async () => {
-    const layer = stubHttpClient((request) => {
+    const layer = stubGithubHttp((request) => {
       expect(request.url).toBe(`https://api.github.com/repos/${repo.owner}/${repo.repo}/labels`);
       return jsonResponse(201, { name: "wayful:map" });
     });
@@ -101,7 +101,7 @@ describe("ensureLabel", () => {
   });
 
   test("treats an already-exists 422 as success", async () => {
-    const layer = stubHttpClient(() => jsonResponse(422, { message: "already_exists" }));
+    const layer = stubGithubHttp(() => jsonResponse(422, { message: "already_exists" }));
     await Effect.runPromise(
       ensureLabel(repo, secretToken, {
         name: "wayful:map",
@@ -112,7 +112,7 @@ describe("ensureLabel", () => {
   });
 
   test("fails without leaking the token on an unexpected status", async () => {
-    const layer = stubHttpClient(() => jsonResponse(500, { message: "server error" }));
+    const layer = stubGithubHttp(() => jsonResponse(500, { message: "server error" }));
     const error = await Effect.runPromise(
       ensureLabel(repo, secretToken, {
         name: "wayful:map",
@@ -128,7 +128,7 @@ describe("ensureLabel", () => {
 describe("ensureLabels", () => {
   test("creates every label", async () => {
     const created: string[] = [];
-    const layer = stubHttpClient((request) => {
+    const layer = stubGithubHttp((request) => {
       created.push(request.url);
       return jsonResponse(201, {});
     });
@@ -145,7 +145,7 @@ describe("ensureLabels", () => {
 describe("listIssues", () => {
   test("requests label-filtered open issues and normalizes labels", async () => {
     let seen = "";
-    const layer = stubHttpClient((request) => {
+    const layer = stubGithubHttp((request) => {
       seen = request.url;
       return jsonResponse(200, [issueJson(7), issueJson(8, { labels: ["wayful:step"] })]);
     });
@@ -186,7 +186,7 @@ describe("listIssues", () => {
   });
 
   test("drops pull requests, which the issues endpoint also lists", async () => {
-    const layer = stubHttpClient(() =>
+    const layer = stubGithubHttp(() =>
       jsonResponse(200, [issueJson(7), issueJson(9, { pull_request: { url: "..." } })]),
     );
     const issues = await Effect.runPromise(
@@ -197,7 +197,7 @@ describe("listIssues", () => {
 
   test("follows rel=next pagination", async () => {
     const requested: string[] = [];
-    const layer = stubHttpClient((request) => {
+    const layer = stubGithubHttp((request) => {
       requested.push(request.url);
       if (request.url.includes("page=2")) return jsonResponse(200, [issueJson(2)]);
       return new Response(JSON.stringify([issueJson(1)]), {
@@ -216,7 +216,7 @@ describe("listIssues", () => {
   });
 
   test("fails without leaking the token on an unexpected status", async () => {
-    const layer = stubHttpClient(() => jsonResponse(500, { message: "server error" }));
+    const layer = stubGithubHttp(() => jsonResponse(500, { message: "server error" }));
     const error = await Effect.runPromise(
       listIssues(repo, secretToken).pipe(Effect.flip, Effect.provide(layer)),
     );
@@ -228,7 +228,7 @@ describe("listIssues", () => {
 describe("createIssue", () => {
   test("posts the title, body and labels and returns the created issue", async () => {
     let seen: HttpClientRequest.HttpClientRequest | undefined;
-    const layer = stubHttpClient((request) => {
+    const layer = stubGithubHttp((request) => {
       seen = request;
       return jsonResponse(201, issueJson(11, { title: "here" }));
     });
@@ -250,7 +250,7 @@ describe("createIssue", () => {
   });
 
   test("fails without leaking the token when the issue cannot be created", async () => {
-    const layer = stubHttpClient(() => jsonResponse(422, { message: "validation failed" }));
+    const layer = stubGithubHttp(() => jsonResponse(422, { message: "validation failed" }));
     const error = await Effect.runPromise(
       createIssue(repo, secretToken, { title: "here", body: "", labels: [] }).pipe(
         Effect.flip,
@@ -265,7 +265,7 @@ describe("createIssue", () => {
 describe("issue dependencies", () => {
   test("listBlockedBy reads the issue's native blocked_by edges", async () => {
     let seen = "";
-    const layer = stubHttpClient((request) => {
+    const layer = stubGithubHttp((request) => {
       seen = request.url;
       return jsonResponse(200, [issueJson(3, { id: 1003 }), issueJson(5, { id: 1005 })]);
     });
@@ -278,7 +278,7 @@ describe("issue dependencies", () => {
 
   test("addBlockedBy posts the blocking issue's database id", async () => {
     let seen: HttpClientRequest.HttpClientRequest | undefined;
-    const layer = stubHttpClient((request) => {
+    const layer = stubGithubHttp((request) => {
       seen = request;
       return jsonResponse(201, {});
     });
@@ -292,7 +292,7 @@ describe("issue dependencies", () => {
 
   test("removeBlockedBy deletes the edge by the blocking issue's database id", async () => {
     let seen: HttpClientRequest.HttpClientRequest | undefined;
-    const layer = stubHttpClient((request) => {
+    const layer = stubGithubHttp((request) => {
       seen = request;
       return jsonResponse(200, {});
     });
@@ -306,7 +306,7 @@ describe("issue dependencies", () => {
   });
 
   test("a failed dependency mutation is a WayfulError that does not leak the token", async () => {
-    const layer = stubHttpClient(() => jsonResponse(403, { message: "Forbidden" }));
+    const layer = stubGithubHttp(() => jsonResponse(403, { message: "Forbidden" }));
     const error = await Effect.runPromise(
       addBlockedBy(repo, secretToken, 7, 1003).pipe(Effect.flip, Effect.provide(layer)),
     );

@@ -6,6 +6,7 @@ import { FetchHttpClient } from "effect/unstable/http";
 
 import { Backend } from "./backend/backend";
 import { GithubCredentialsLayer } from "./backend/github/credentials";
+import { GithubHttpLayer } from "./backend/github/http";
 import { cli } from "./cli/cli";
 import { helpCapturingFormatter, takeHelpText } from "./cli/help-output";
 import { report } from "./cli/report";
@@ -19,6 +20,7 @@ const VERSION = typeof WAYFUL_BUILD_VERSION === "string" ? WAYFUL_BUILD_VERSION 
 const InfraLayer = Layer.mergeAll(
   BunServices.layer,
   FetchHttpClient.layer,
+  GithubHttpLayer.pipe(Layer.provide(FetchHttpClient.layer)),
   GithubCredentialsLayer.pipe(Layer.provide(BunServices.layer)),
 );
 

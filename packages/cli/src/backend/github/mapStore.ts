@@ -1,9 +1,8 @@
 import { Effect, Layer, Ref } from "effect";
-import { HttpClient } from "effect/unstable/http";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { WayfulError } from "../../domain/errors";
-import { attachmentOK } from "../../domain/graph";
+import { attachmentOK, deriveArtifacts } from "../../domain/graph";
 import { identifier, nonEmpty } from "../../domain/identifier";
 import {
   closesStep,
@@ -11,14 +10,16 @@ import {
   type DecodeError,
   type GoalRecord,
   type MapMetadata,
+  type MapSnapshot,
   type NewGoalRecord,
   type NewStepRecord,
   type StepRecord,
   type StepStatus,
+  type TypeDefinition,
 } from "../../domain/model";
 import { liftSync } from "../effect";
 import { MapStore, type MapHandle } from "../MapStore";
-import type { ProjectHandle } from "../ProjectStore";
+import { ProjectStore, type ProjectHandle } from "../ProjectStore";
 import {
   addBlockedBy,
   addLabels,
@@ -41,6 +42,8 @@ import {
   INITIAL_GOAL_NAME,
   INITIAL_GOAL_REQUIRED_OUTPUTS,
 } from "./goal";
+import { readMapSnapshot, type SnapshotChild } from "./graphql";
+import { GithubHttp } from "./http";
 import { encodeIssueBody, type GithubIssue } from "./issue";
 import {
   WAYFUL_BLOCKED_LABEL,
@@ -59,6 +62,65 @@ const fail = (message: string) => Effect.fail(new WayfulError({ message }));
 
 function describeError(error: unknown): string {
   return error instanceof WayfulError ? error.message : String(error);
+}
+
+/** The memoization key for a map's snapshot: one project, one map. */
+const snapshotKey = (map: MapHandle) => `${map.project.root}#${map.number ?? map.name}`;
+
+/** The snapshot a read returns, plus every record it could not decode. */
+interface SnapshotRead {
+  readonly snapshot: MapSnapshot;
+  readonly errors: readonly DecodeError[];
+}
+
+/**
+ * Folds one GraphQL snapshot into the domain shape: the map's own metadata,
+ * every decodable step (with its native dependencies) and goal, the artifacts
+ * those attachments derive, and the project's type library. A record that
+ * fails to decode is collected as a `DecodeError` rather than sinking its
+ * siblings — the same skip-and-collect contract every other read follows.
+ */
+function assembleSnapshot(
+  map: MapHandle,
+  children: readonly SnapshotChild[],
+  typeRead: CollectionRead<TypeDefinition>,
+): SnapshotRead {
+  const steps: StepRecord[] = [];
+  const goals: GoalRecord[] = [];
+  const errors: DecodeError[] = [];
+  const stepIds = stepIdsFrom(children.map((child) => child.issue));
+  for (const child of children) {
+    const issue = child.issue;
+    if (issue.labels.includes(WAYFUL_STEP_LABEL)) {
+      try {
+        // Issue numbers are repo-global, so a `blocked_by` edge can point
+        // anywhere in the repo. Only a `wayful:step` sub-issue of this map is
+        // a valid dependency.
+        assertDependenciesInMap(child.dependencies, stepIds);
+        steps.push(decodeStepIssue(issue, child.dependencies));
+      } catch (error) {
+        errors.push({ file: `#${issue.number}`, message: describeError(error) });
+      }
+    } else if (issue.labels.includes(WAYFUL_GOAL_LABEL)) {
+      try {
+        goals.push(decodeGoalIssue(issue));
+      } catch (error) {
+        errors.push({ file: `#${issue.number}`, message: describeError(error) });
+      }
+    }
+  }
+  steps.sort((a, b) => a.id - b.id);
+  goals.sort((a, b) => a.name.localeCompare(b.name));
+  return {
+    snapshot: {
+      map: map.metadata,
+      steps,
+      artifacts: deriveArtifacts(steps, goals),
+      goals,
+      types: typeRead.records,
+    },
+    errors: [...errors, ...typeRead.errors],
+  };
 }
 
 /**
@@ -133,16 +195,28 @@ export function makeGithubMapStore() {
   return Effect.gen(function* () {
     const credentials = yield* GithubCredentials;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const http = yield* HttpClient.HttpClient;
+    const http = yield* GithubHttp;
+    const projectStore = yield* ProjectStore;
     const cache = yield* Ref.make(new Map<string, ResolvedRepo>());
+    // One command reads a map's snapshot at most once: a `map status` that
+    // reaches for the same map twice must not pay for the GraphQL query twice.
+    const snapshots = yield* Ref.make(new Map<string, SnapshotRead>());
 
     const withInfra = <A, E>(
-      effect: Effect.Effect<A, E, HttpClient.HttpClient | ChildProcessSpawner.ChildProcessSpawner>,
+      effect: Effect.Effect<A, E, GithubHttp | ChildProcessSpawner.ChildProcessSpawner>,
     ) =>
       effect.pipe(
-        Effect.provideService(HttpClient.HttpClient, http),
+        Effect.provideService(GithubHttp, http),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       );
+
+    /** A write invalidates the memoized snapshot so a later read in the same process sees it. */
+    const invalidateSnapshot = (map: MapHandle) =>
+      Ref.update(snapshots, (memo) => {
+        const next = new Map(memo);
+        next.delete(snapshotKey(map));
+        return next;
+      });
 
     // One project means one repo + token for the life of the process; the
     // per-project cache keeps a command from resolving them per call.
@@ -321,6 +395,7 @@ export function makeGithubMapStore() {
             yield* addLabels(ref, token, created.number, [WAYFUL_BLOCKED_LABEL]);
           else if (closesStep(step.status))
             yield* updateIssue(ref, token, created.number, nativeState(step.status));
+          yield* invalidateSnapshot(map);
           return {
             ...step,
             id: created.number,
@@ -424,6 +499,7 @@ export function makeGithubMapStore() {
             const blockingId = blockingIds.get(dependency);
             if (blockingId !== undefined) yield* removeBlockedBy(ref, token, step.id, blockingId);
           }
+          yield* invalidateSnapshot(map);
         }),
       );
 
@@ -467,6 +543,7 @@ export function makeGithubMapStore() {
             labels: [WAYFUL_GOAL_LABEL],
           });
           yield* addSubIssue(ref, token, parent, created.id);
+          yield* invalidateSnapshot(map);
         }),
       );
 
@@ -504,6 +581,31 @@ export function makeGithubMapStore() {
               satisfied ? { state: "closed", state_reason: "completed" } : { state: "open" },
             );
           }
+          yield* invalidateSnapshot(map);
+        }),
+      );
+
+    // One GraphQL query assembles the map, its step and goal sub-issues, their
+    // labels, native state and dependencies together — where composing
+    // `listSteps` (a read per step for its `blocked_by` edges) and `listGoals`
+    // would be several round trips. The result is memoized for the life of the
+    // process, so a command that reaches for the same map twice fetches once;
+    // a write to the map invalidates it.
+    const snapshot = (map: MapHandle): Effect.Effect<SnapshotRead, WayfulError> =>
+      withInfra(
+        Effect.gen(function* () {
+          const key = snapshotKey(map);
+          const cached = (yield* Ref.get(snapshots)).get(key);
+          if (cached !== undefined) return cached;
+          const parent = yield* mapNumber(map);
+          const { ref, token } = yield* context(map.project);
+          const read = yield* readMapSnapshot(ref, token, parent);
+          // Types stay on disk under every backend; reading them is a local,
+          // unmetered concern, never part of the query.
+          const types = yield* projectStore.listTypes(map.project);
+          const assembled = assembleSnapshot(map, read.children, types);
+          yield* Ref.update(snapshots, (memo) => new Map(memo).set(key, assembled));
+          return assembled;
         }),
       );
 
@@ -517,15 +619,7 @@ export function makeGithubMapStore() {
       listGoals,
       createGoal,
       saveGoal,
-      // The one-query snapshot — map, steps, goals, types, labels — is the
-      // GraphQL slice (#39). Until then this backend reports the map alone
-      // rather than composing a partial snapshot from several round trips;
-      // commands that need steps read them through `listSteps`.
-      snapshot: (map) =>
-        Effect.succeed({
-          snapshot: { map: map.metadata, steps: [], artifacts: [], goals: [], types: [] },
-          errors: [],
-        }),
+      snapshot,
     });
   });
 }
