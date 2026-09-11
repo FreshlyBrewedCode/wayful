@@ -6,7 +6,7 @@ import { T, map, step } from "./support/fixtures";
 
 describe("mapStatus", () => {
   test("computes step counts, goal progress, blockers, and sorted actionable steps", () => {
-    const testMap = map({ step_id_counter: 4 });
+    const testMap = map();
     const steps = [
       step({ id: 2, name: "waiting", status: "blocked", block_reason: "Awaiting approval" }),
       step({ id: 1, name: "ready" }),

@@ -14,7 +14,6 @@ export interface MapMetadata {
   readonly format_version: number;
   readonly name: string;
   readonly start: string;
-  readonly step_id_counter: number;
   readonly artifact_id_counter: number;
   readonly allowed_step_types?: readonly string[];
   readonly created_at: string;
@@ -57,8 +56,8 @@ export interface StepRecord {
   readonly closed_at?: string;
 }
 
-/** The shape the CLI hands the backend when creating a step; timestamps are backend-sourced. */
-export type NewStepRecord = Omit<StepRecord, "created_at" | "updated_at" | "closed_at">;
+/** The shape the CLI hands the backend when creating a step; id and timestamps are backend-sourced. */
+export type NewStepRecord = Omit<StepRecord, "id" | "created_at" | "updated_at" | "closed_at">;
 
 export interface ArtifactRecord {
   readonly format_version: number;

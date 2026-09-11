@@ -61,14 +61,16 @@ export class WayfulBackend extends Context.Service<
       project: ProjectHandle,
       name: string,
     ) => Effect.Effect<MapHandle, WayfulError | MapMetadataError>;
-    readonly setStepIdCounter: (map: MapHandle, next: number) => Effect.Effect<void, WayfulError>;
     readonly setArtifactIdCounter: (
       map: MapHandle,
       next: number,
     ) => Effect.Effect<void, WayfulError>;
 
     readonly listSteps: (map: MapHandle) => Effect.Effect<CollectionRead<StepRecord>, WayfulError>;
-    readonly createStep: (map: MapHandle, step: NewStepRecord) => Effect.Effect<void, WayfulError>;
+    readonly createStep: (
+      map: MapHandle,
+      step: NewStepRecord,
+    ) => Effect.Effect<StepRecord, WayfulError>;
     readonly saveStep: (map: MapHandle, step: StepRecord) => Effect.Effect<void, WayfulError>;
 
     readonly listArtifacts: (

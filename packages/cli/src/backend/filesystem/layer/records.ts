@@ -6,7 +6,6 @@ import {
   type CollectionRead,
   type DecodeError,
   type GoalRecord,
-  type MapMetadata,
   type StepRecord,
 } from "../../../domain/model";
 
@@ -39,21 +38,6 @@ export function collect<I, T, E extends { readonly message: string }>(
     }
     return { records, errors };
   });
-}
-
-export function mapMetadataToToml(metadata: MapMetadata): Record<string, unknown> {
-  const record: Record<string, unknown> = {
-    format_version: metadata.format_version,
-    name: metadata.name,
-    start: metadata.start,
-    step_id_counter: metadata.step_id_counter,
-    artifact_id_counter: metadata.artifact_id_counter,
-    created_at: metadata.created_at,
-    updated_at: metadata.updated_at,
-  };
-  if (metadata.allowed_step_types !== undefined)
-    record.allowed_step_types = metadata.allowed_step_types;
-  return record;
 }
 
 export function stepToDocument(step: StepRecord): Record<string, unknown> {

@@ -7,26 +7,12 @@ import { T, artifact, map, snapshot, step } from "./support/fixtures";
 describe("validateMap", () => {
   test("returns no errors for a coherent, fully-satisfied map", () => {
     const steps = [step({ id: 1, name: "work", status: "complete", completion_summary: "done" })];
-    const snap = snapshot({
-      map: map({ step_id_counter: 2 }),
-      steps,
-    });
+    const snap = snapshot({ steps });
     expect(validateMap(snap)).toEqual([]);
-  });
-
-  test("flags an incoherent step_id_counter", () => {
-    const snap = snapshot({
-      map: map({ step_id_counter: 1 }),
-      steps: [step({ id: 1, name: "work", status: "complete", completion_summary: "done" })],
-    });
-    expect(validateMap(snap)).toContain(
-      "map step_id_counter must be greater than every existing step ID.",
-    );
   });
 
   test("flags duplicate step identity and duplicate artifact identity", () => {
     const snap = snapshot({
-      map: map({ step_id_counter: 3 }),
       steps: [
         step({ id: 1, name: "work", status: "complete", completion_summary: "done" }),
         step({ id: 1, name: "work", status: "complete", completion_summary: "done" }),
@@ -54,7 +40,7 @@ describe("validateMap", () => {
     expect(validateMap(unknownType)).toContain("type 'missing' does not exist.");
 
     const disallowed = snapshot({
-      map: map({ step_id_counter: 2, allowed_step_types: ["other"] }),
+      map: map({ allowed_step_types: ["other"] }),
       steps: [
         step({ id: 1, name: "work", type: "task", status: "complete", completion_summary: "done" }),
       ],
@@ -64,7 +50,6 @@ describe("validateMap", () => {
 
   test("flags missing, duplicate, and cancelled-prerequisite dependencies", () => {
     const missing = snapshot({
-      map: map({ step_id_counter: 2 }),
       steps: [step({ id: 1, name: "a", dependencies: [99] })],
     });
     expect(validateMap(missing, { includeProgress: false })).toContain(
@@ -72,7 +57,6 @@ describe("validateMap", () => {
     );
 
     const duplicate = snapshot({
-      map: map({ step_id_counter: 3 }),
       steps: [
         step({ id: 1, name: "a", status: "complete", completion_summary: "done" }),
         step({ id: 2, name: "b", dependencies: [1, 1] }),
@@ -83,7 +67,6 @@ describe("validateMap", () => {
     );
 
     const cancelled = snapshot({
-      map: map({ step_id_counter: 3 }),
       steps: [
         step({ id: 1, name: "a", status: "cancelled", cancellation_reason: "obsolete" }),
         step({ id: 2, name: "b", dependencies: [1] }),
@@ -97,7 +80,6 @@ describe("validateMap", () => {
   test("flags unmet required inputs and unmet completed-step outputs", () => {
     const requiredInputs = [{ name: "brief", kind: "document" }];
     const missingInput = snapshot({
-      map: map({ step_id_counter: 2 }),
       steps: [step({ id: 1, name: "work", required_inputs: requiredInputs })],
     });
     expect(validateMap(missingInput)).toContain("step 'work' has unmet required inputs.");
@@ -107,7 +89,6 @@ describe("validateMap", () => {
 
     const requiredOutputs = [{ name: "report", kind: "document" }];
     const missingOutput = snapshot({
-      map: map({ step_id_counter: 2 }),
       steps: [
         step({
           id: 1,
@@ -125,7 +106,6 @@ describe("validateMap", () => {
 
   test("flags blocked and pending steps only when includeProgress is true", () => {
     const snap = snapshot({
-      map: map({ step_id_counter: 3 }),
       steps: [
         step({ id: 1, name: "blocked", status: "blocked", block_reason: "waiting" }),
         step({ id: 2, name: "pending" }),
@@ -139,7 +119,6 @@ describe("validateMap", () => {
 
   test("flags dependency cycles", () => {
     const snap = snapshot({
-      map: map({ step_id_counter: 3 }),
       steps: [
         step({ id: 1, name: "a", dependencies: [2] }),
         step({ id: 2, name: "b", dependencies: [1] }),

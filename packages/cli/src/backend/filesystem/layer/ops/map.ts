@@ -15,7 +15,7 @@ import {
   writeAtomic,
 } from "../../documents";
 import { artifactsDir, goalFile, goalsDir, mapDir, mapFile, mapsDir, stepsDir } from "../../paths";
-import { accessError, collect, fail, mapMetadataToToml } from "../records";
+import { accessError, collect, fail } from "../records";
 
 export function makeMapOps(fs: FileSystem.FileSystem, path: Path.Path) {
   const openMapHandle = (
@@ -133,27 +133,19 @@ export function makeMapOps(fs: FileSystem.FileSystem, path: Path.Path) {
 
     openMap: (project: ProjectHandle, name: string) => openMapHandle(project, name),
 
-    setStepIdCounter: (map: MapHandle, next: number) =>
-      Effect.gen(function* () {
-        const now = yield* nowISO();
-        yield* writeAtomic(
-          fs,
-          mapFile(path, map.dir),
-          stringifyToml(
-            mapMetadataToToml({ ...map.metadata, step_id_counter: next, updated_at: now }),
-          ),
-        );
-      }),
-
+    // Rewrites from the raw on-disk record rather than the typed `MapMetadata`
+    // so that `step_id_counter` — filesystem-private state no longer modeled
+    // by `MapMetadata` — survives a rewrite triggered by an unrelated field.
     setArtifactIdCounter: (map: MapHandle, next: number) =>
       Effect.gen(function* () {
         const now = yield* nowISO();
+        const file = mapFile(path, map.dir);
+        const text = yield* readTextFile(fs, file, `cannot read ${file}.`);
+        const raw = (yield* liftSync(() => parseToml(text, file))) as Record<string, unknown>;
         yield* writeAtomic(
           fs,
-          mapFile(path, map.dir),
-          stringifyToml(
-            mapMetadataToToml({ ...map.metadata, artifact_id_counter: next, updated_at: now }),
-          ),
+          file,
+          stringifyToml({ ...raw, artifact_id_counter: next, updated_at: now }),
         );
       }),
   };

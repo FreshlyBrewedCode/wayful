@@ -35,29 +35,29 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
   test("createStep then listSteps round-trips and preserves the Markdown body", async () => {
     const map = await initializedMap();
     const created = newStep({
-      id: 1,
       name: "work",
       description: "Do it",
       body: "Line one.\nLine two.",
     });
-    const steps = await run(
+    const { record, steps } = await run(
       Effect.gen(function* () {
         const b = yield* backend();
-        yield* b.createStep(map, created);
-        return yield* b.listSteps(map);
+        const persisted = yield* b.createStep(map, created);
+        return { record: persisted, steps: yield* b.listSteps(map) };
       }),
     );
+    expect(record).toEqual({ ...created, id: 1, created_at: T0, updated_at: T0 });
     expect(steps.errors).toEqual([]);
-    expect(steps.records).toEqual([{ ...created, created_at: T0, updated_at: T0 }]);
+    expect(steps.records).toEqual([record]);
   });
 
   test("listSteps returns a healthy step alongside a decode error for a broken sibling, rather than failing outright", async () => {
     const map = await initializedMap();
-    const created = newStep({ id: 1, name: "work" });
-    await run(
+    const created = newStep({ name: "work" });
+    const record = await run(
       Effect.gen(function* () {
         const b = yield* backend();
-        yield* b.createStep(map, created);
+        return yield* b.createStep(map, created);
       }),
     );
     await writeFile(join(map.dir, "steps", "2-broken.md"), "---\nname: broken\n");
@@ -67,37 +67,50 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
         return yield* b.listSteps(map);
       }),
     );
-    expect(steps.records).toEqual([{ ...created, created_at: T0, updated_at: T0 }]);
+    expect(steps.records).toEqual([record]);
     expect(steps.errors).toEqual([{ file: "2-broken.md", message: expect.any(String) }]);
   });
 
   test("createStep refuses to overwrite an existing step file", async () => {
     const map = await initializedMap();
-    const created = newStep({ id: 1, name: "work" });
-    await run(
-      Effect.gen(function* () {
-        const b = yield* backend();
-        yield* b.createStep(map, created);
-      }),
-    );
+    // Pre-create the file the next allocated id would write to, so
+    // `createStep` collides without needing a prior successful create.
+    await writeFile(join(map.dir, "steps", "1-work.md"), "---\nname: work\n");
     const error = await runFailure(
       Effect.gen(function* () {
         const b = yield* backend();
-        yield* b.createStep(map, created);
+        yield* b.createStep(map, newStep({ name: "work" }));
       }),
     );
     expect(error).toBeInstanceOf(WayfulError);
     expect((error as WayfulError).message).toContain("already exists");
   });
 
+  test("createStep allocates sequential ids and cannot allocate the same id for two concurrent calls", async () => {
+    const map = await initializedMap();
+    const records = await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        return yield* Effect.all(
+          [
+            b.createStep(map, newStep({ name: "a" })),
+            b.createStep(map, newStep({ name: "b" })),
+            b.createStep(map, newStep({ name: "c" })),
+          ],
+          { concurrency: "unbounded" },
+        );
+      }),
+    );
+    expect(records.map((r) => r.id).toSorted((a, b) => a - b)).toEqual([1, 2, 3]);
+  });
+
   test("saveStep preserves created_at, advances updated_at from the injected clock, and leaves closed_at unset for a non-terminal status", async () => {
     const map = await initializedMap();
-    const created = newStep({ id: 1, name: "work", body: "Original body." });
+    const created = newStep({ name: "work", body: "Original body." });
     const steps = await run(
       Effect.gen(function* () {
         const b = yield* backend();
-        yield* b.createStep(map, created);
-        const [persisted] = (yield* b.listSteps(map)).records;
+        const persisted = yield* b.createStep(map, created);
         yield* TestClock.adjust("1 hour");
         yield* b.saveStep(map, { ...persisted, description: "Updated description" });
         return yield* b.listSteps(map);
@@ -105,18 +118,17 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
     );
     expect(steps.errors).toEqual([]);
     expect(steps.records).toEqual([
-      { ...created, description: "Updated description", created_at: T0, updated_at: T1 },
+      { ...created, id: 1, description: "Updated description", created_at: T0, updated_at: T1 },
     ]);
   });
 
   test("saveStep sets closed_at from the injected clock when a step becomes complete", async () => {
     const map = await initializedMap();
-    const created = newStep({ id: 1, name: "work" });
+    const created = newStep({ name: "work" });
     const steps = await run(
       Effect.gen(function* () {
         const b = yield* backend();
-        yield* b.createStep(map, created);
-        const [persisted] = (yield* b.listSteps(map)).records;
+        const persisted = yield* b.createStep(map, created);
         yield* TestClock.adjust("1 hour");
         yield* b.saveStep(map, {
           ...persisted,
@@ -130,6 +142,7 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
     expect(steps.records).toEqual([
       {
         ...created,
+        id: 1,
         status: "complete",
         completion_summary: "done",
         created_at: T0,
