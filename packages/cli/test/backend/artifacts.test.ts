@@ -1,5 +1,6 @@
+import { BunServices } from "@effect/platform-bun";
 import { describe, expect, test } from "bun:test";
-import { Effect, Option } from "effect";
+import { Effect, FileSystem, Option, Path } from "effect";
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
@@ -13,12 +14,21 @@ const write = async (path: string, content: string) => {
   await writeFile(path, content);
 };
 
+/** `readLocalArtifact` now takes the `FileSystem`/`Path` services explicitly; acquire them here rather than threading a layer through every call below. */
+function readArtifact(projectRoot: string, ref: string) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    return yield* readLocalArtifact(fs, path, projectRoot, ref);
+  }).pipe(Effect.provide(BunServices.layer));
+}
+
 describe("file: ref dereferencing (ADR-0002)", () => {
   test("reads a markdown file relative to the project root", async () => {
     const project = await temporaryDirectory();
     await write(join(project, "docs", "spec.md"), "# Spec\n\nHello.\n");
 
-    const content = await Effect.runPromise(readLocalArtifact(project, "file:docs/spec.md"));
+    const content = await Effect.runPromise(readArtifact(project, "file:docs/spec.md"));
 
     expect(content).toEqual({
       ref: "file:docs/spec.md",
@@ -30,24 +40,20 @@ describe("file: ref dereferencing (ADR-0002)", () => {
 
   test("rejects a ref that escapes the root with '..' before touching the filesystem", async () => {
     const project = await temporaryDirectory();
-    const error = await Effect.runPromise(
-      Effect.flip(readLocalArtifact(project, "file:../outside.md")),
-    );
+    const error = await Effect.runPromise(Effect.flip(readArtifact(project, "file:../outside.md")));
     expect(error.message).toContain("may not contain '..' segments");
   });
 
   test("rejects an absolute file: ref through the shared classifier", async () => {
     const project = await temporaryDirectory();
-    const error = await Effect.runPromise(
-      Effect.flip(readLocalArtifact(project, "file:/etc/passwd")),
-    );
+    const error = await Effect.runPromise(Effect.flip(readArtifact(project, "file:/etc/passwd")));
     expect(error.message).toContain("project-relative");
   });
 
   test("rejects a non-file: scheme", async () => {
     const project = await temporaryDirectory();
     const error = await Effect.runPromise(
-      Effect.flip(readLocalArtifact(project, "https://example.com/spec.md")),
+      Effect.flip(readArtifact(project, "https://example.com/spec.md")),
     );
     expect(error.message).toContain("only file: refs");
   });
@@ -56,7 +62,7 @@ describe("file: ref dereferencing (ADR-0002)", () => {
     const project = await temporaryDirectory();
     await write(join(project, "docs", "secret.env"), "TOKEN=1\n");
     const error = await Effect.runPromise(
-      Effect.flip(readLocalArtifact(project, "file:docs/secret.env")),
+      Effect.flip(readArtifact(project, "file:docs/secret.env")),
     );
     expect(error.message).toContain("only .md and .markdown");
   });
@@ -64,7 +70,7 @@ describe("file: ref dereferencing (ADR-0002)", () => {
   test("reports a missing file as an unreadable artifact, not a crash", async () => {
     const project = await temporaryDirectory();
     const error = await Effect.runPromise(
-      Effect.flip(readLocalArtifact(project, "file:docs/missing.md")),
+      Effect.flip(readArtifact(project, "file:docs/missing.md")),
     );
     expect(error.message).toContain("checked out locally");
   });
@@ -77,7 +83,7 @@ describe("file: ref dereferencing (ADR-0002)", () => {
     await symlink(join(base, "outside.md"), join(project, "docs", "escape.md"));
 
     const error = await Effect.runPromise(
-      Effect.flip(readLocalArtifact(project, "file:docs/escape.md")),
+      Effect.flip(readArtifact(project, "file:docs/escape.md")),
     );
     expect(error.message).toContain("outside the project root");
   });
@@ -85,9 +91,7 @@ describe("file: ref dereferencing (ADR-0002)", () => {
   test("refuses a directory that happens to be named like markdown", async () => {
     const project = await temporaryDirectory();
     await mkdir(join(project, "docs", "dir.md"), { recursive: true });
-    const error = await Effect.runPromise(
-      Effect.flip(readLocalArtifact(project, "file:docs/dir.md")),
-    );
+    const error = await Effect.runPromise(Effect.flip(readArtifact(project, "file:docs/dir.md")));
     expect(error.message).toContain("not a regular file");
   });
 
@@ -95,7 +99,7 @@ describe("file: ref dereferencing (ADR-0002)", () => {
     const project = await temporaryDirectory();
     await write(join(project, "docs", "big.md"), "a".repeat(MAX_ARTIFACT_BYTES + 100));
 
-    const content = await Effect.runPromise(readLocalArtifact(project, "file:docs/big.md"));
+    const content = await Effect.runPromise(readArtifact(project, "file:docs/big.md"));
 
     expect(content.truncated).toBe(true);
     expect(content.content).toHaveLength(MAX_ARTIFACT_BYTES);

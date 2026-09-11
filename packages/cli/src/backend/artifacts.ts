@@ -1,6 +1,4 @@
-import { Effect } from "effect";
-import { open, realpath, stat } from "node:fs/promises";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { Effect, FileSystem, Option, Path } from "effect";
 
 import { classifyRef, normalizeRef } from "../domain/artifact-ref";
 import { WayfulError } from "../domain/errors";
@@ -48,73 +46,71 @@ function readablePath(canonicalRef: string): string {
  * containment layers: `realpath` the root, `realpath` the target, re-assert
  * containment so a symlink out of the project fails closed, then require a
  * regular file. A missing checkout (or a ref pointing at a file that was never
- * written) is a clear operational error, never a crash.
+ * written) is a clear operational error, never a crash. `realPath`/`stat`
+ * follow symlinks the same way `node:fs/promises`' `realpath`/`stat` did, so
+ * the containment semantics above are unchanged.
  */
 export function readLocalArtifact(
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
   projectRoot: string,
   canonicalRef: string,
 ): Effect.Effect<ArtifactContent, WayfulError> {
-  return Effect.tryPromise({
-    try: async (): Promise<ArtifactContent> => {
-      const relativePath = readablePath(canonicalRef);
-      let root: string;
-      try {
-        root = await realpath(projectRoot);
-      } catch {
-        throw new WayfulError({
-          message: `artifact '${canonicalRef}' is not readable: project root '${projectRoot}' cannot be resolved.`,
-        });
-      }
-      let target: string;
-      try {
-        target = await realpath(join(root, relativePath));
-      } catch {
-        throw new WayfulError({
-          message: `artifact '${canonicalRef}' is not readable: no file at '${relativePath}' (is the project checked out locally?).`,
-        });
-      }
-      const contained = relative(root, target);
-      if (
-        contained === "" ||
-        contained === ".." ||
-        contained.startsWith(`..${sep}`) ||
-        isAbsolute(contained)
-      )
-        throw new WayfulError({
-          message: `artifact '${canonicalRef}' is not readable: it resolves outside the project root.`,
-        });
-      const info = await stat(target);
-      if (!info.isFile())
-        throw new WayfulError({
-          message: `artifact '${canonicalRef}' is not readable: it is not a regular file.`,
-        });
-      // Read at most one byte past the cap so an oversized file is bounded in
-      // memory rather than buffered whole and then sliced.
-      const handle = await open(target, "r");
-      let bytesRead = 0;
-      let buffer: Buffer;
-      try {
-        buffer = Buffer.allocUnsafe(MAX_ARTIFACT_BYTES + 1);
-        ({ bytesRead } = await handle.read(buffer, 0, MAX_ARTIFACT_BYTES + 1, 0));
-      } finally {
-        await handle.close();
-      }
-      const truncated = bytesRead > MAX_ARTIFACT_BYTES;
-      return {
-        ref: canonicalRef,
-        format: "markdown",
-        content: new TextDecoder().decode(
-          buffer.subarray(0, Math.min(bytesRead, MAX_ARTIFACT_BYTES)),
-        ),
-        truncated,
-      };
-    },
-    catch: (error) =>
-      error instanceof WayfulError
-        ? error
-        : new WayfulError({
+  return Effect.gen(function* () {
+    const relativePath = yield* liftSync(() => readablePath(canonicalRef));
+    const root = yield* fs.realPath(projectRoot).pipe(
+      Effect.mapError(
+        () =>
+          new WayfulError({
+            message: `artifact '${canonicalRef}' is not readable: project root '${projectRoot}' cannot be resolved.`,
+          }),
+      ),
+    );
+    const target = yield* fs.realPath(path.join(root, relativePath)).pipe(
+      Effect.mapError(
+        () =>
+          new WayfulError({
+            message: `artifact '${canonicalRef}' is not readable: no file at '${relativePath}' (is the project checked out locally?).`,
+          }),
+      ),
+    );
+    const contained = path.relative(root, target);
+    if (
+      contained === "" ||
+      contained === ".." ||
+      contained.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(contained)
+    )
+      yield* fail(
+        `artifact '${canonicalRef}' is not readable: it resolves outside the project root.`,
+      );
+    const notAFile = () =>
+      new WayfulError({
+        message: `artifact '${canonicalRef}' is not readable: it is not a regular file.`,
+      });
+    const info = yield* fs.stat(target).pipe(Effect.mapError(notAFile));
+    if (info.type !== "File") yield* Effect.fail(notAFile());
+    // Read at most one byte past the cap so an oversized file is bounded in
+    // memory rather than buffered whole and then sliced.
+    const bytes = yield* Effect.scoped(
+      fs.open(target).pipe(Effect.flatMap((file) => file.readAlloc(MAX_ARTIFACT_BYTES + 1))),
+    ).pipe(
+      Effect.mapError(
+        (error) =>
+          new WayfulError({
             message: `artifact '${canonicalRef}' is not readable (${String(error)}).`,
           }),
+      ),
+    );
+    // `readAlloc` reports a zero-byte read as `None` rather than an empty
+    // buffer; either way there is nothing past the header to decode.
+    const truncated = Option.isSome(bytes) && bytes.value.length > MAX_ARTIFACT_BYTES;
+    const content = Option.match(bytes, {
+      onNone: () => "",
+      onSome: (buffer) =>
+        new TextDecoder().decode(buffer.subarray(0, Math.min(buffer.length, MAX_ARTIFACT_BYTES))),
+    });
+    return { ref: canonicalRef, format: "markdown", content, truncated } satisfies ArtifactContent;
   });
 }
 
@@ -125,6 +121,8 @@ export function readLocalArtifact(
  * backend (ADR-0002), over records that may have come from the network.
  */
 export function makeReadArtifact(deps: {
+  readonly fs: FileSystem.FileSystem;
+  readonly path: Path.Path;
   readonly snapshot: (
     map: MapHandle,
   ) => Effect.Effect<{ readonly snapshot: MapSnapshot }, WayfulError>;
@@ -135,6 +133,6 @@ export function makeReadArtifact(deps: {
       const { snapshot } = yield* deps.snapshot(map);
       if (!snapshot.artifacts.some((artifact) => artifact.ref === canonical))
         return yield* fail(`artifact '${canonical}' is not attached on map '${map.name}'.`);
-      return yield* readLocalArtifact(map.project.root, canonical);
+      return yield* readLocalArtifact(deps.fs, deps.path, map.project.root, canonical);
     });
 }
