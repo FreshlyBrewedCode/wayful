@@ -11,6 +11,7 @@
   "scripts": {
     "build": "bun run --filter '@wayful/cli' build",
     "test": "bun run --filter './packages/*' test",
+    "test:live": "bun run --filter '@wayful/cli' test:live",
     "typecheck": "bun run --filter './packages/*' typecheck",
     "lint": "oxfmt --check packages && oxlint packages",
     "format": "oxfmt packages",
