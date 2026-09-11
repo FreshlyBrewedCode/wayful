@@ -76,4 +76,35 @@ describe("FileSystemBackend: project and type round-trips", () => {
     );
     expect(project.root).toBe(directory);
   });
+
+  test("initProject defaults to the filesystem backend with no repo", async () => {
+    const directory = await temporaryDirectory();
+    const project = await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.initProject({ directory, description: "" });
+        return yield* b.openProject(Option.some(directory));
+      }),
+    );
+    expect(project.backend).toBe("filesystem");
+    expect(project.repo).toBeUndefined();
+  });
+
+  test("initProject persists a github backend and repo, and openProject round-trips them", async () => {
+    const directory = await temporaryDirectory();
+    const project = await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.initProject({
+          directory,
+          description: "",
+          backend: "github",
+          repo: "acme/widgets",
+        });
+        return yield* b.openProject(Option.some(directory));
+      }),
+    );
+    expect(project.backend).toBe("github");
+    expect(project.repo).toBe("acme/widgets");
+  });
 });

@@ -1,7 +1,7 @@
 import { Effect, FileSystem, Option, Path } from "effect";
 
 import { WayfulError } from "../../../../domain/errors";
-import { CURRENT_FORMAT_VERSION } from "../../../../domain/model";
+import { CURRENT_FORMAT_VERSION, type ProjectBackend } from "../../../../domain/model";
 import {
   buildMarkdown,
   liftSync,
@@ -35,9 +35,13 @@ export function makeProjectOps(fs: FileSystem.FileSystem, path: Path.Path) {
     initProject: ({
       directory,
       description,
+      backend = "filesystem",
+      repo,
     }: {
       readonly directory: string;
       readonly description: string;
+      readonly backend?: ProjectBackend;
+      readonly repo?: string;
     }) =>
       Effect.gen(function* () {
         const root = path.resolve(directory);
@@ -55,6 +59,8 @@ export function makeProjectOps(fs: FileSystem.FileSystem, path: Path.Path) {
           stringifyToml({
             format_version: CURRENT_FORMAT_VERSION,
             description,
+            backend,
+            ...(repo !== undefined ? { repo } : {}),
             created_at: now,
             updated_at: now,
           }),
@@ -80,7 +86,12 @@ export function makeProjectOps(fs: FileSystem.FileSystem, path: Path.Path) {
         const text = yield* readTextFile(fs, file, `cannot read ${file}.`);
         const data = yield* liftSync(() => parseToml(text, file));
         const metadata = yield* liftSync(() => decodeProjectMetadata(data));
-        return { root, description: metadata.description };
+        return {
+          root,
+          description: metadata.description,
+          backend: metadata.backend,
+          repo: metadata.repo,
+        };
       }),
   };
 }

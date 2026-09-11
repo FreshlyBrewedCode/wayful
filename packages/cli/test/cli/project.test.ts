@@ -117,6 +117,7 @@ describe("project and context contracts", () => {
     expect(invoke(["init", "--description", "Refresh the site"], project).exitCode).toBe(0);
     const projectToml = await readFile(join(project, ".wayful", "project.toml"), "utf8");
     expect(projectToml).toContain(`format_version = ${CURRENT_FORMAT_VERSION}`);
+    expect(projectToml).toContain('backend = "filesystem"');
     expect(projectToml).toMatch(/created_at = "\d{4}-\d{2}-\d{2}T/);
     expect(projectToml).toMatch(/updated_at = "\d{4}-\d{2}-\d{2}T/);
     expect(await readFile(join(project, ".wayful", "types", "task.md"), "utf8")).toContain(
@@ -171,6 +172,10 @@ describe("project and context contracts", () => {
       `format_version = ${CURRENT_FORMAT_VERSION}\n`,
       `format_version = ${CURRENT_FORMAT_VERSION}\ndescription = "ok"\nunknown = true\n`,
       `format_version = "${CURRENT_FORMAT_VERSION}"\ndescription = "ok"\n`,
+      `format_version = ${CURRENT_FORMAT_VERSION}\ndescription = "ok"\nbackend = "svn"\n`,
+      `format_version = ${CURRENT_FORMAT_VERSION}\ndescription = "ok"\nbackend = "filesystem"\nrepo = "acme/widgets"\n`,
+      `format_version = ${CURRENT_FORMAT_VERSION}\ndescription = "ok"\nbackend = "github"\n`,
+      `format_version = ${CURRENT_FORMAT_VERSION}\ndescription = "ok"\nbackend = "github"\nrepo = "not-a-repo"\n`,
     ]) {
       await writeFile(metadata, invalid);
       expectCommandError(invoke(["type", "list"], project));
