@@ -4,6 +4,7 @@ import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 import { WayfulError } from "../../domain/errors";
 import type { GithubIssue } from "./issue";
 import type { GitRemoteRef } from "./remote";
+import { subIssueCapError } from "./subIssues";
 
 export interface ApiBase {
   readonly rest: string;
@@ -131,13 +132,16 @@ function normalizeIssue(raw: unknown): GithubIssue | undefined {
         .filter((name): name is string => typeof name === "string")
     : [];
   return {
+    id: typeof record.id === "number" ? record.id : record.number,
     number: record.number,
     title: typeof record.title === "string" ? record.title : "",
     body: typeof record.body === "string" ? record.body : null,
     state: typeof record.state === "string" ? record.state : "",
+    state_reason: typeof record.state_reason === "string" ? record.state_reason : null,
     labels,
     created_at: typeof record.created_at === "string" ? record.created_at : "",
     updated_at: typeof record.updated_at === "string" ? record.updated_at : "",
+    closed_at: typeof record.closed_at === "string" ? record.closed_at : null,
   };
 }
 
@@ -156,24 +160,17 @@ export interface ListIssuesOptions {
 }
 
 /**
- * Every open issue matching `labels`, newest page first, following `Link`
- * pagination. Never the Search API: search is eventually consistent, so a
- * freshly created map would be intermittently invisible.
+ * Every issue reachable from `initialUrl` through `Link` pagination, newest
+ * page first. Shared by the label-filtered issue listing and the sub-issue
+ * listing so both follow pagination identically.
  */
-export function listIssues(
-  repo: GitRemoteRef,
+function listPaginated(
   token: Redacted.Redacted<string>,
-  options: ListIssuesOptions = {},
+  initialUrl: string,
 ): Effect.Effect<readonly GithubIssue[], WayfulError, HttpClient.HttpClient> {
   return Effect.gen(function* () {
-    const base = apiBase(repo.host);
-    const url = new URL(`${base.rest}/repos/${repo.owner}/${repo.repo}/issues`);
-    url.searchParams.set("per_page", "100");
-    url.searchParams.set("state", options.state ?? "open");
-    if (options.labels?.length) url.searchParams.set("labels", options.labels.join(","));
-
     const issues: GithubIssue[] = [];
-    let next: string | undefined = url.toString();
+    let next: string | undefined = initialUrl;
     while (next !== undefined) {
       const request = authorized(HttpClientRequest.get(next), token);
       const response = yield* HttpClient.execute(request).pipe(
@@ -193,6 +190,165 @@ export function listIssues(
       next = nextLink(response.headers["link"]);
     }
     return issues;
+  });
+}
+
+/**
+ * Every open issue matching `labels`, newest page first, following `Link`
+ * pagination. Never the Search API: search is eventually consistent, so a
+ * freshly created map would be intermittently invisible.
+ */
+export function listIssues(
+  repo: GitRemoteRef,
+  token: Redacted.Redacted<string>,
+  options: ListIssuesOptions = {},
+): Effect.Effect<readonly GithubIssue[], WayfulError, HttpClient.HttpClient> {
+  const base = apiBase(repo.host);
+  const url = new URL(`${base.rest}/repos/${repo.owner}/${repo.repo}/issues`);
+  url.searchParams.set("per_page", "100");
+  url.searchParams.set("state", options.state ?? "open");
+  if (options.labels?.length) url.searchParams.set("labels", options.labels.join(","));
+  return listPaginated(token, url.toString());
+}
+
+/** Every sub-issue of `parent`, which is how a map's steps and goals are listed. */
+export function listSubIssues(
+  repo: GitRemoteRef,
+  token: Redacted.Redacted<string>,
+  parent: number,
+): Effect.Effect<readonly GithubIssue[], WayfulError, HttpClient.HttpClient> {
+  const base = apiBase(repo.host);
+  const url = `${base.rest}/repos/${repo.owner}/${repo.repo}/issues/${parent}/sub_issues?per_page=100`;
+  return listPaginated(token, url);
+}
+
+/** One issue by number, or a `WayfulError` when it cannot be read. */
+export function getIssue(
+  repo: GitRemoteRef,
+  token: Redacted.Redacted<string>,
+  number: number,
+): Effect.Effect<GithubIssue, WayfulError, HttpClient.HttpClient> {
+  return Effect.gen(function* () {
+    const base = apiBase(repo.host);
+    const request = authorized(
+      HttpClientRequest.get(`${base.rest}/repos/${repo.owner}/${repo.repo}/issues/${number}`),
+      token,
+    );
+    const response = yield* HttpClient.execute(request).pipe(
+      Effect.mapError((error) => requestFailed(error.message)),
+    );
+    if (response.status < 200 || response.status >= 300)
+      return yield* Effect.fail(requestFailed(`could not read issue #${number}.`));
+    const body = yield* response.json.pipe(
+      Effect.mapError((error) => requestFailed(error.message)),
+    );
+    const issue = normalizeIssue(body);
+    if (!issue) return yield* Effect.fail(requestFailed(`could not read issue #${number}.`));
+    return issue;
+  });
+}
+
+/** The mutable issue fields, each scoped to the field it names. */
+export interface IssuePatch {
+  title?: string;
+  body?: string;
+  state?: "open" | "closed";
+  state_reason?: "completed" | "not_planned";
+}
+
+/** Patches only the fields present in `patch`, never the others. */
+export function updateIssue(
+  repo: GitRemoteRef,
+  token: Redacted.Redacted<string>,
+  number: number,
+  patch: IssuePatch,
+): Effect.Effect<void, WayfulError, HttpClient.HttpClient> {
+  if (Object.keys(patch).length === 0) return Effect.void;
+  return Effect.gen(function* () {
+    const base = apiBase(repo.host);
+    const request = authorized(
+      HttpClientRequest.patch(`${base.rest}/repos/${repo.owner}/${repo.repo}/issues/${number}`),
+      token,
+    ).pipe(HttpClientRequest.bodyJsonUnsafe(patch));
+    const response = yield* HttpClient.execute(request).pipe(
+      Effect.mapError((error) => requestFailed(error.message)),
+    );
+    if (response.status < 200 || response.status >= 300)
+      return yield* Effect.fail(requestFailed(`could not update issue #${number}.`));
+  });
+}
+
+/** Adds `labels` to an issue; already-present labels are not reported as errors. */
+export function addLabels(
+  repo: GitRemoteRef,
+  token: Redacted.Redacted<string>,
+  number: number,
+  labels: readonly string[],
+): Effect.Effect<void, WayfulError, HttpClient.HttpClient> {
+  if (labels.length === 0) return Effect.void;
+  return Effect.gen(function* () {
+    const base = apiBase(repo.host);
+    const request = authorized(
+      HttpClientRequest.post(
+        `${base.rest}/repos/${repo.owner}/${repo.repo}/issues/${number}/labels`,
+      ),
+      token,
+    ).pipe(HttpClientRequest.bodyJsonUnsafe({ labels }));
+    const response = yield* HttpClient.execute(request).pipe(
+      Effect.mapError((error) => requestFailed(error.message)),
+    );
+    if (response.status < 200 || response.status >= 300)
+      return yield* Effect.fail(requestFailed(`could not label issue #${number}.`));
+  });
+}
+
+/** Removes one label from an issue; an absent label (404) is success. */
+export function removeLabel(
+  repo: GitRemoteRef,
+  token: Redacted.Redacted<string>,
+  number: number,
+  label: string,
+): Effect.Effect<void, WayfulError, HttpClient.HttpClient> {
+  return Effect.gen(function* () {
+    const base = apiBase(repo.host);
+    const request = authorized(
+      HttpClientRequest.delete(
+        `${base.rest}/repos/${repo.owner}/${repo.repo}/issues/${number}/labels/${encodeURIComponent(label)}`,
+      ),
+      token,
+    );
+    const response = yield* HttpClient.execute(request).pipe(
+      Effect.mapError((error) => requestFailed(error.message)),
+    );
+    if (response.status === 200 || response.status === 404) return;
+    return yield* Effect.fail(requestFailed(`could not remove label from issue #${number}.`));
+  });
+}
+
+/** Links an existing issue as a sub-issue of `parent` by its database id. */
+export function addSubIssue(
+  repo: GitRemoteRef,
+  token: Redacted.Redacted<string>,
+  parent: number,
+  subIssueId: number,
+): Effect.Effect<void, WayfulError, HttpClient.HttpClient> {
+  return Effect.gen(function* () {
+    const base = apiBase(repo.host);
+    const request = authorized(
+      HttpClientRequest.post(
+        `${base.rest}/repos/${repo.owner}/${repo.repo}/issues/${parent}/sub_issues`,
+      ),
+      token,
+    ).pipe(HttpClientRequest.bodyJsonUnsafe({ sub_issue_id: subIssueId }));
+    const response = yield* HttpClient.execute(request).pipe(
+      Effect.mapError((error) => requestFailed(error.message)),
+    );
+    if (response.status === 201) return;
+    // GitHub rejects the 101st sub-issue with 422; that is a cap, not a raw failure.
+    if (response.status === 422) return yield* Effect.fail(subIssueCapError());
+    return yield* Effect.fail(
+      requestFailed(`could not add sub-issue to #${parent} (status ${response.status}).`),
+    );
   });
 }
 
