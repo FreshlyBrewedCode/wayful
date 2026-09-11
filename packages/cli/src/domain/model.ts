@@ -113,6 +113,20 @@ export interface MapSnapshot {
   readonly types: readonly TypeDefinition[];
 }
 
+/**
+ * The content behind a readable ref, as the backend returns it (ADR-0002).
+ * Only markdown is dereferenced today; `format` exists so another kind can be
+ * added without reshaping the response, and `truncated` reports a read that
+ * hit the size cap rather than streaming it.
+ */
+export interface ArtifactContent {
+  /** The ref's canonical, normalized form (ADR-0004), not the string the caller passed. */
+  readonly ref: string;
+  readonly format: "markdown";
+  readonly content: string;
+  readonly truncated: boolean;
+}
+
 /** A single record within a collection that failed to decode, and why. */
 export interface DecodeError {
   /** The record's filename, relative to its own collection directory. */

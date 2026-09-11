@@ -2,6 +2,7 @@ import { Context, type Effect } from "effect";
 
 import type { MapMetadataError, WayfulError } from "../domain/errors";
 import type {
+  ArtifactContent,
   CollectionRead,
   DecodeError,
   GoalRecord,
@@ -74,5 +75,32 @@ export class MapStore extends Context.Service<
       { readonly snapshot: MapSnapshot; readonly errors: readonly DecodeError[] },
       WayfulError
     >;
+
+    /**
+     * Dereferences a ref attached on `map` (ADR-0002). The readable set is
+     * closed: a ref that is not attached anywhere on the map is refused, and
+     * only markdown `file:` refs resolve. The filesystem implementation reads
+     * through the filesystem; the GitHub implementation still resolves refs
+     * against the local checkout, since project config and types already
+     * require one.
+     */
+    readonly readArtifact: (
+      map: MapHandle,
+      ref: string,
+    ) => Effect.Effect<ArtifactContent, WayfulError>;
+
+    /**
+     * Subscribes to changes in the project's records, invoking `onChange`
+     * whenever something changed and returning a function that stops the
+     * subscription. The event carries no detail — only that something did —
+     * the same contract the server's SSE `changed` event exposes. The
+     * filesystem implementation watches `.wayful`; the GitHub implementation
+     * revalidates its records with conditional requests, so an idle project
+     * spends no rate-limit budget.
+     */
+    readonly watch: (
+      project: ProjectHandle,
+      onChange: () => void,
+    ) => Effect.Effect<() => void, WayfulError>;
   }
 >()("wayful/MapStore") {}

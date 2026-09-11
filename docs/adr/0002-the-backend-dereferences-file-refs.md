@@ -60,6 +60,30 @@ Defence is layered, cheapest first:
    `X-Content-Type-Options: nosniff`, never as raw bytes under a sniffable content type on the
    viewer's own origin.
 
+## The GitHub backend
+
+The operation lives on `MapStore` (the service that split out of `WayfulBackend` when records
+became pluggable), and the GitHub implementation needs its own paragraph rather than inheriting the
+filesystem one, because its records and its refs come from different places: the map's attachments
+are read from the network, while a `file:` ref still resolves against the **local checkout**. The
+project config and type files already require a checkout, so the refs resolve there too; a map read
+from a machine without one will not dereference. That is the accepted trade, and ADR-0001 leaves
+room for a future `git:`/`gh:` scheme that could address content in the repository or in GitHub
+itself without a grammar change.
+
+The layers above are reused rather than restated, with one change of source:
+
+1. **Membership is a network read.** *Only a ref attached on the map is readable* is checked
+   against the attachments the snapshot fetched from GitHub — the same derived-artifact set the
+   viewer sees — so a path that exists in the checkout but is attached nowhere is still refused.
+2. **Containment is local.** Because the file is local, the syntax re-check, the extension
+   allowlist, `realpath` containment and the regular-file/`stat` cap apply exactly as they do on
+   the filesystem. They live in one shared reader, so the two backends cannot drift.
+
+A missing local checkout, or a ref that was attached but never written, fails with the same clear
+operational error the filesystem path produces — never a crash from `realpath` on an absent path.
+The server stays read-only under this backend too: dereferencing reads a file, it never writes one.
+
 ## Consequences
 
 - Containment is tested by the existing `backend/filesystem/` contract suite against real temporary

@@ -17,6 +17,7 @@ import {
   type StepStatus,
   type TypeDefinition,
 } from "../../domain/model";
+import { makeReadArtifact } from "../artifacts";
 import { liftSync } from "../effect";
 import { MapStore, type MapHandle } from "../MapStore";
 import { ProjectStore, type ProjectHandle } from "../ProjectStore";
@@ -55,6 +56,7 @@ import {
 } from "./labels";
 import { decodeMapIssue, mapIssueData } from "./map";
 import { resolveRepo, type ResolvedRepo } from "./repo";
+import { readRevision, REVISION_POLL_MS } from "./revision";
 import { decodeStepIssue, dependencyOutsideMapError, stepIssueData } from "./step";
 import { SUB_ISSUE_CAP, subIssueCapError } from "./subIssues";
 
@@ -215,6 +217,19 @@ export function makeGithubMapStore() {
       Ref.update(snapshots, (memo) => {
         const next = new Map(memo);
         next.delete(snapshotKey(map));
+        return next;
+      });
+
+    /**
+     * A poll that saw a change drops every memoized snapshot for the project,
+     * so the next request re-reads instead of serving the pre-change snapshot
+     * for the life of the process.
+     */
+    const invalidateProjectSnapshots = (project: ProjectHandle) =>
+      Ref.update(snapshots, (memo) => {
+        const next = new Map(memo);
+        const prefix = `${project.root}#`;
+        for (const key of next.keys()) if (key.startsWith(prefix)) next.delete(key);
         return next;
       });
 
@@ -620,6 +635,46 @@ export function makeGithubMapStore() {
       createGoal,
       saveGoal,
       snapshot,
+      // Records come from the network, but refs still resolve against the
+      // local checkout: the project config and type files already require one,
+      // and a missing checkout is a clear error rather than a crash.
+      readArtifact: makeReadArtifact({ snapshot }),
+      // ETag polling stands in for the filesystem watcher: each tick revalidates
+      // with conditional GETs, so an idle project spends no rate limit, and a
+      // changed fingerprint invalidates the memoized snapshots before notifying.
+      watch: (project, onChange) =>
+        withInfra(
+          Effect.gen(function* () {
+            const { ref, token } = yield* context(project);
+            const revision = withInfra(readRevision(ref, token));
+            let stopped = false;
+            let previous: string | undefined;
+            let inFlight = false;
+            const tick = async () => {
+              if (stopped || inFlight) return;
+              inFlight = true;
+              try {
+                const next = await Effect.runPromise(revision);
+                if (stopped) return;
+                if (previous !== undefined && next !== previous) {
+                  await Effect.runPromise(invalidateProjectSnapshots(project));
+                  onChange();
+                }
+                previous = next;
+              } catch {
+                // A failed poll is not fatal; the next tick retries.
+              } finally {
+                inFlight = false;
+              }
+            };
+            const timer = setInterval(() => void tick(), REVISION_POLL_MS);
+            void tick();
+            return () => {
+              stopped = true;
+              clearInterval(timer);
+            };
+          }),
+        ),
     });
   });
 }

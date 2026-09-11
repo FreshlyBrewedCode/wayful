@@ -1,5 +1,7 @@
 import { Effect, FileSystem, Layer, Path } from "effect";
+import { watch, type FSWatcher } from "node:fs";
 
+import { makeReadArtifact } from "../../artifacts";
 import { MapStore } from "../../MapStore";
 import { ProjectStore } from "../../ProjectStore";
 import { makeGoalOps } from "./ops/goal";
@@ -32,16 +34,32 @@ export function makeFileSystemMapStore(fs: FileSystem.FileSystem, path: Path.Pat
   const stepOps = makeStepOps(fs, path);
   const goalOps = makeGoalOps(fs, path);
   const typeOps = makeTypeOps(fs, path);
+  const snapshotOp = makeSnapshotOp({
+    listSteps: stepOps.listSteps,
+    listGoals: goalOps.listGoals,
+    listTypes: typeOps.listTypes,
+  });
 
   return MapStore.of({
     ...mapOps,
     ...stepOps,
     ...goalOps,
-    ...makeSnapshotOp({
-      listSteps: stepOps.listSteps,
-      listGoals: goalOps.listGoals,
-      listTypes: typeOps.listTypes,
-    }),
+    ...snapshotOp,
+    readArtifact: makeReadArtifact({ snapshot: snapshotOp.snapshot }),
+    // Watching is a convenience; the viewer still works without it. A watcher
+    // that cannot be constructed degrades to a no-op subscription rather than
+    // failing the backend.
+    watch: (project, onChange) =>
+      Effect.sync(() => {
+        const wayful = path.join(project.root, ".wayful");
+        let watcher: FSWatcher | undefined;
+        try {
+          watcher = watch(wayful, { recursive: true }, () => onChange());
+        } catch {
+          watcher = undefined;
+        }
+        return () => watcher?.close();
+      }),
   });
 }
 
