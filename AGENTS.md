@@ -22,6 +22,11 @@ Monorepo for the wayful system. `skills/wayful/SKILL.md` (or your wayful skill) 
 
 - `bun wayful` run the wayful CLI from src
 
+## Live browser validation
+
+- Use `@playwright/cli` (the `playwright-cli` binary, a dev dependency) to drive a real browser against the running UI — e.g. after `bun --cwd packages/ui run dev`, `playwright-cli open http://localhost:<port>`, `snapshot`/`click`/`screenshot` to explore, then `close`.
+- Must be run inside `nix develop`: the devshell adds the shared libraries (glib, gtk3, mesa/libgbm, X11 libs, etc.) that Playwright's downloaded Chromium needs to launch on NixOS, via `LD_LIBRARY_PATH`.
+
 # Issue tracker
 
 - GitHub issues

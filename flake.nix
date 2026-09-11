@@ -57,6 +57,44 @@
             sourceProvenance = [ pkgs.lib.sourceTypes.binaryNativeCode ];
           };
         };
+      # Playwright's own browser downloads (via `playwright-cli install-browser`)
+      # are generic Linux binaries built against an FHS distro, so they need
+      # their shared libs on LD_LIBRARY_PATH on NixOS — there's no `nixpkgs`
+      # browser build to fall back on since @playwright/cli tracks a much
+      # newer Chromium revision than nixpkgs' playwright-driver ships. This
+      # list is exactly what `validateHostRequirements` reported missing.
+      playwrightLibs = pkgs: with pkgs; [
+        stdenv.cc.cc.lib
+        glib
+        nss
+        nspr
+        dbus
+        atk
+        at-spi2-atk
+        at-spi2-core
+        cups
+        expat
+        libxkbcommon
+        gtk3
+        pango
+        cairo
+        gdk-pixbuf
+        fontconfig
+        freetype
+        mesa
+        libgbm
+        alsa-lib
+        libx11
+        libxcomposite
+        libxdamage
+        libxext
+        libxfixes
+        libxrandr
+        libxcb
+        libxcursor
+        libxi
+        libxrender
+      ];
     in
     {
       packages = forAllSystems (pkgs: {
@@ -72,10 +110,13 @@
           # deliberate — its bundled npm is >=11.5.1, which is what npm trusted
           # publishing requires; an older npm falls back to token auth and fails
           # with an error that never mentions OIDC.
-          packages = [ (mkBun pkgs) pkgs.nodejs_24 ];
+          packages = [ (mkBun pkgs) pkgs.nodejs_24 ]
+            ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux (playwrightLibs pkgs);
 
           shellHook = ''
             echo "wayful devshell — bun $(bun --version), node $(node --version), npm $(npm --version)"
+          '' + pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+            export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath (playwrightLibs pkgs)}:$LD_LIBRARY_PATH"
           '';
         };
       });
