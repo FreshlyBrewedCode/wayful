@@ -26,10 +26,10 @@ permissions:
   contents: write
   id-token: write
 
-# Serialize releases so a manual promotion can't race an in-flight pre-release.
+# Cancel superseded runs so rapid merges to main don't queue up pre-releases.
 concurrency:
   group: release
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   release:
