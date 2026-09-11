@@ -6,14 +6,8 @@ export function validateMap(
   options: { readonly includeProgress?: boolean } = {},
 ): string[] {
   const includeProgress = options.includeProgress ?? true;
-  const { map, steps, artifacts, goals, types } = snapshot;
+  const { map, steps, goals, types } = snapshot;
   const errors: string[] = [];
-
-  const artifactNames = new Set<string>();
-  for (const artifact of artifacts) {
-    if (artifactNames.has(artifact.name)) errors.push("duplicate artifact identity.");
-    artifactNames.add(artifact.name);
-  }
 
   const names = new Set<string>();
   const ids = new Set<number>();
@@ -38,11 +32,18 @@ export function validateMap(
     }
 
     for (const direction of ["inputs", "outputs"] as const)
-      errors.push(...attachmentErrors(step, direction));
+      errors.push(
+        ...attachmentErrors(
+          direction === "inputs" ? step.required_inputs : step.required_outputs,
+          step[direction],
+          `step '${step.name}'`,
+          direction,
+        ),
+      );
 
-    if (includeProgress && !attachmentOK(step, "inputs"))
+    if (includeProgress && !attachmentOK(step.required_inputs, step.inputs))
       errors.push(`step '${step.name}' has unmet required inputs.`);
-    if (step.status === "complete" && !attachmentOK(step, "outputs"))
+    if (step.status === "complete" && !attachmentOK(step.required_outputs, step.outputs))
       errors.push(`completed step '${step.name}' has unmet required outputs.`);
     if (includeProgress && step.status === "blocked")
       errors.push(`step '${step.name}' is blocked.`);
@@ -53,11 +54,11 @@ export function validateMap(
   if (hasDependencyCycle(steps)) errors.push("dependency cycle detected.");
 
   for (const goal of goals) {
-    if (includeProgress && goal.evidence.length === 0)
+    errors.push(
+      ...attachmentErrors(goal.required_outputs, goal.outputs, `goal '${goal.name}'`, "outputs"),
+    );
+    if (includeProgress && !attachmentOK(goal.required_outputs, goal.outputs))
       errors.push(`goal '${goal.name}' is not satisfied.`);
-    for (const evidence of goal.evidence)
-      if (!artifacts.some((artifact) => artifact.name === evidence))
-        errors.push(`goal '${goal.name}' has missing evidence.`);
   }
 
   return [...new Set(errors)];

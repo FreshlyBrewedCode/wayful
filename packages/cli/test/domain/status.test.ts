@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { CURRENT_FORMAT_VERSION } from "../../src/domain/model";
 import { mapStatus } from "../../src/domain/status";
-import { T, map, step } from "./support/fixtures";
+import { goal, map, step } from "./support/fixtures";
 
 describe("mapStatus", () => {
   test("computes step counts, goal progress, blockers, and sorted actionable steps", () => {
@@ -12,25 +11,15 @@ describe("mapStatus", () => {
       step({ id: 1, name: "ready" }),
       step({ id: 3, name: "done", status: "complete", completion_summary: "done" }),
     ];
+    const requiredOutputs = [{ name: "evidence", kind: "artifact" }];
     const goals = [
-      {
-        format_version: CURRENT_FORMAT_VERSION,
+      goal({
         name: "release",
         description: "Ship",
-        evidence: ["proof"],
-        body: "",
-        created_at: T,
-        updated_at: T,
-      },
-      {
-        format_version: CURRENT_FORMAT_VERSION,
-        name: "other",
-        description: "Other",
-        evidence: [],
-        body: "",
-        created_at: T,
-        updated_at: T,
-      },
+        required_outputs: requiredOutputs,
+        outputs: [{ slot: "evidence", ref: "file:proof.md" }],
+      }),
+      goal({ name: "other", description: "Other", required_outputs: requiredOutputs }),
     ];
     const status = mapStatus(testMap, steps, goals);
     expect(status).toEqual({

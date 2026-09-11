@@ -99,7 +99,7 @@ export function buildStepContext(options: BuildStepContextOptions): StepContextV
     inputs: normalizedAttachments(step.inputs).map(toAttachmentView("inputs")),
     outputs: {
       recorded: normalizedAttachments(step.outputs).map(toAttachmentView("outputs")),
-      unfulfilled: unfulfilledSlots(step, "outputs"),
+      unfulfilled: unfulfilledSlots(step.required_outputs, step.outputs),
     },
     created_at: step.created_at,
     updated_at: step.updated_at,

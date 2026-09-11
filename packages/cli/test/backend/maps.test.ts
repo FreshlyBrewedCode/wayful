@@ -41,7 +41,6 @@ describe("FileSystemBackend: maps", () => {
       format_version: CURRENT_FORMAT_VERSION,
       name: "plan",
       start: "here",
-      artifact_id_counter: 1,
       allowed_step_types: undefined,
       created_at: T0,
       updated_at: T0,
@@ -52,7 +51,8 @@ describe("FileSystemBackend: maps", () => {
         format_version: CURRENT_FORMAT_VERSION,
         name: "initial-goal",
         description: "done",
-        evidence: [],
+        outputs: [],
+        required_outputs: [{ name: "evidence", kind: "artifact" }],
         body: "Notes.",
         created_at: T0,
         updated_at: T0,
@@ -107,49 +107,6 @@ describe("FileSystemBackend: maps", () => {
     expect(error).toBeInstanceOf(WayfulError);
     expect(error).not.toBeInstanceOf(MapMetadataError);
     expect((error as WayfulError).message).toContain("does not exist");
-  });
-
-  test("setArtifactIdCounter persists the new counter for subsequent opens", async () => {
-    const project = await initializedProject();
-    const counter = await run(
-      Effect.gen(function* () {
-        const b = yield* backend();
-        yield* b.createMap(project, { name: "plan", start: "here", goal: "done", goalBody: "" });
-        const map = yield* b.openMap(project, "plan");
-        yield* b.setArtifactIdCounter(map, 7);
-        const reopened = yield* b.openMap(project, "plan");
-        return reopened.metadata.artifact_id_counter;
-      }),
-    );
-    expect(counter).toBe(7);
-  });
-
-  test("setArtifactIdCounter does not disturb the private step id counter it no longer carries", async () => {
-    const project = await initializedProject();
-    const id = await run(
-      Effect.gen(function* () {
-        const b = yield* backend();
-        yield* b.createMap(project, { name: "plan", start: "here", goal: "done", goalBody: "" });
-        const map = yield* b.openMap(project, "plan");
-        yield* b.setArtifactIdCounter(map, 7);
-        const reopened = yield* b.openMap(project, "plan");
-        const step = yield* b.createStep(reopened, {
-          format_version: CURRENT_FORMAT_VERSION,
-          name: "work",
-          type: "task",
-          description: "A step",
-          status: "pending",
-          dependencies: [],
-          inputs: [],
-          outputs: [],
-          required_inputs: [],
-          required_outputs: [],
-          body: "",
-        });
-        return step.id;
-      }),
-    );
-    expect(id).toBe(1);
   });
 
   test("listMaps skips maps with malformed metadata rather than failing outright", async () => {

@@ -69,7 +69,8 @@ export function goalToDocument(goal: GoalRecord): Record<string, unknown> {
     format_version: CURRENT_FORMAT_VERSION,
     name: goal.name,
     description: goal.description,
-    evidence: goal.evidence,
+    outputs: goal.outputs,
+    required_outputs: goal.required_outputs,
     created_at: goal.created_at,
     updated_at: goal.updated_at,
   };

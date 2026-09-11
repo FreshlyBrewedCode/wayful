@@ -1,4 +1,4 @@
-import { nextSteps } from "./graph";
+import { attachmentOK, nextSteps } from "./graph";
 import type { GoalRecord, MapMetadata, StepRecord } from "./model";
 
 export interface StepCounts {
@@ -40,7 +40,7 @@ export function mapStatus(
   return {
     map: map.name,
     goals: {
-      satisfied: goals.filter((goal) => goal.evidence.length > 0).length,
+      satisfied: goals.filter((goal) => attachmentOK(goal.required_outputs, goal.outputs)).length,
       total: goals.length,
     },
     steps: counts,

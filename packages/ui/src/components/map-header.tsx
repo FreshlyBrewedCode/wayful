@@ -1,12 +1,12 @@
 import { ArrowRight, ChevronRight } from "lucide-react";
 
-import { ArtifactChip } from "@/components/artifact-chip";
+import { RefChip } from "@/components/ref-chip";
 import { StepLink } from "@/components/step-card";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { BREAKPOINTS, useMediaQuery } from "@/hooks/use-media-query";
 import { cn } from "@/lib/utils";
-import type { MapDetail } from "@/lib/wayful";
+import { goalOutputViews, goalSatisfied, type MapDetail } from "@/lib/wayful";
 
 /**
  * The map's start and goals presented as the two ends of a journey. On a phone
@@ -16,7 +16,6 @@ import type { MapDetail } from "@/lib/wayful";
 export function MapHeader({ detail }: { detail: MapDetail }) {
   const { map, status, validation } = detail;
   const phone = useMediaQuery(BREAKPOINTS.phone);
-  const artifacts = new Map(map.artifacts.map((artifact) => [artifact.name, artifact]));
   const blockers = status?.blockers ?? [];
   const counts = status?.steps ?? {};
   const totalTracked = (counts.complete ?? 0) + (counts.pending ?? 0) + (counts.blocked ?? 0);
@@ -81,35 +80,39 @@ export function MapHeader({ detail }: { detail: MapDetail }) {
               className="min-w-0 flex-1"
             >
               <ul className="flex flex-col gap-2">
-                {map.goals.map((goal) => (
-                  <li
-                    key={goal.name}
-                    className="flex gap-2"
-                    title={goal.body ? `${goal.name}\n\n${goal.body}` : goal.name}
-                  >
-                    <span
-                      className={cn(
-                        "mt-px shrink-0 font-mono text-xs",
-                        goal.evidence.length ? "text-status-complete" : "text-muted-foreground",
-                      )}
+                {map.goals.map((goal) => {
+                  const satisfied = goalSatisfied(goal);
+                  const outputs = goalOutputViews(goal);
+                  return (
+                    <li
+                      key={goal.name}
+                      className="flex gap-2"
+                      title={goal.body ? `${goal.name}\n\n${goal.body}` : goal.name}
                     >
-                      {goal.evidence.length ? "✓" : "○"}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-xs leading-snug">
-                        {goal.description}{" "}
-                        <span className="text-muted-foreground font-mono">{goal.name}</span>
-                      </p>
-                      {goal.evidence.length > 0 && (
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {goal.evidence.map((name) => (
-                            <ArtifactChip key={name} name={name} artifact={artifacts.get(name)} />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </li>
-                ))}
+                      <span
+                        className={cn(
+                          "mt-px shrink-0 font-mono text-xs",
+                          satisfied ? "text-status-complete" : "text-muted-foreground",
+                        )}
+                      >
+                        {satisfied ? "✓" : "○"}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-xs leading-snug">
+                          {goal.description}{" "}
+                          <span className="text-muted-foreground font-mono">{goal.name}</span>
+                        </p>
+                        {outputs.length > 0 && (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {outputs.map((output) => (
+                              <RefChip key={output.ref} reference={output.ref} kind={output.kind} />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             </Waypoint>
           </div>
@@ -139,7 +142,7 @@ export function MapHeader({ detail }: { detail: MapDetail }) {
             <div className="flex flex-wrap items-center gap-1.5">
               <Badge variant="secondary">{map.artifacts.length} artifacts</Badge>
               {map.artifacts.map((artifact) => (
-                <ArtifactChip key={artifact.name} name={artifact.name} artifact={artifact} />
+                <RefChip key={artifact.ref} reference={artifact.ref} kind={artifact.kind} />
               ))}
             </div>
           )}

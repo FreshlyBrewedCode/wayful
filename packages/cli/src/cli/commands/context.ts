@@ -12,7 +12,7 @@ import {
   orderProjectMaps,
   type ProjectContextView,
 } from "../../domain/context";
-import { looksLikeArtifactAddress, parseArtifactAddress } from "../../domain/artifact-address";
+import { normalizeRef, SCHEME } from "../../domain/artifact-ref";
 import type { DecodeError } from "../../domain/model";
 import { describeToken, parseReference, resolveToken } from "../../domain/reference";
 import { buildSnapshot, fail, resolveMap, resolveProject, resolveReferencedMap } from "../../scope";
@@ -37,7 +37,7 @@ const sinceFlag = Flag.string("since").pipe(
 const refArgument = Argument.string("ref").pipe(
   Argument.withMetavar("REF"),
   Argument.withDescription(
-    "Omit for project scope; a bare map name for map scope; a step ('#id'/'#name') or artifact ('@id'/'@name') reference for that scope, optionally map-qualified ('map/#id')",
+    "Omit for project scope; a bare map name for map scope; a step reference ('#id'/'#name', optionally map-qualified as 'map/#id') or an artifact ref (e.g. 'file:docs/spec.md') for that scope",
   ),
   Argument.optional,
 );
@@ -87,9 +87,7 @@ const contextCommand = Command.make(
             problems.push(
               ...errors.map((e) => ({ file: `${mapMeta.name}/${e.file}`, message: e.message })),
             );
-            summaries.push(
-              summarizeProjectMap(snapshot.map, snapshot.steps, snapshot.artifacts, snapshot.goals),
-            );
+            summaries.push(summarizeProjectMap(snapshot.map, snapshot.steps, snapshot.goals));
           }
           const view: ProjectContextView = {
             scope: "project",
@@ -108,13 +106,12 @@ const contextCommand = Command.make(
         // (bare `wayful context` is always valid and always project scope,
         // so that case can't be detected after the fact; passing the
         // reference correctly is what's tested).
-        if (looksLikeArtifactAddress(ref.value)) {
-          const address = yield* liftSync(() => parseArtifactAddress(ref.value));
-          const map = yield* resolveReferencedMap(address.map, Option.none(), project);
+        if (SCHEME.test(ref.value)) {
+          const normalizedRef = yield* liftSync(() => normalizeRef(ref.value));
+          const map = yield* resolveMap(Option.none(), project);
           const { snapshot, errors } = yield* buildSnapshot(map);
-          const target = resolveToken(address.token, snapshot.artifacts);
-          if (!target)
-            return yield* fail(`artifact '${describeToken(address.token)}' does not exist.`);
+          const target = snapshot.artifacts.find((a) => a.ref === normalizedRef);
+          if (!target) return yield* fail(`artifact '${normalizedRef}' does not exist.`);
           const view = buildArtifactContext({
             mapName: map.metadata.name,
             artifact: target,
@@ -136,7 +133,7 @@ const contextCommand = Command.make(
           // to project scope.
           if (reference.map !== undefined)
             return yield* fail(
-              `'${ref.value}' is ambiguous; use a bare map name for map scope, '#id'/'#name' for a step, or '@id'/'@name' for an artifact.`,
+              `'${ref.value}' is ambiguous; use a bare map name for map scope, '#id'/'#name' for a step, or a scheme-prefixed ref (e.g. 'file:docs/spec.md') for an artifact.`,
             );
 
           const map = yield* resolveMap(Option.some(reference.name), project);

@@ -10,7 +10,6 @@ import {
 import {
   closesStep,
   CURRENT_FORMAT_VERSION,
-  type ArtifactRecord,
   type GoalRecord,
   type MapMetadata,
   type ProjectMetadata,
@@ -50,7 +49,6 @@ export function decodeMapMetadata(data: unknown, expectedName: string): MapMetad
     "name",
     "start",
     "step_id_counter",
-    "artifact_id_counter",
     "allowed_step_types",
     "created_at",
     "updated_at",
@@ -60,8 +58,6 @@ export function decodeMapMetadata(data: unknown, expectedName: string): MapMetad
   if (record.name !== expectedName) fail("malformed map metadata.");
   nonEmpty(record.start, "map start");
   if (!Number.isInteger(record.step_id_counter) || (record.step_id_counter as number) < 1)
-    fail("malformed map metadata.");
-  if (!Number.isInteger(record.artifact_id_counter) || (record.artifact_id_counter as number) < 1)
     fail("malformed map metadata.");
   let allowedStepTypes: readonly string[] | undefined;
   if (record.allowed_step_types !== undefined) {
@@ -80,7 +76,6 @@ export function decodeMapMetadata(data: unknown, expectedName: string): MapMetad
     format_version: CURRENT_FORMAT_VERSION,
     name: expectedName,
     start: record.start as string,
-    artifact_id_counter: record.artifact_id_counter as number,
     allowed_step_types: allowedStepTypes,
     created_at: createdAt,
     updated_at: updatedAt,
@@ -158,31 +153,6 @@ export function decodeStep(
   };
 }
 
-export function decodeArtifact(filename: string, data: unknown): ArtifactRecord {
-  if (!data || typeof data !== "object" || Array.isArray(data))
-    fail(`malformed artifact '${filename}'.`);
-  const record = data as Record<string, unknown>;
-  formatVersion(record, `artifact '${filename}'`);
-  if (!Number.isInteger(record.id) || (record.id as number) < 1)
-    fail(`invalid artifact ID (${filename}).`);
-  const name = identifier(record.name, "artifact name");
-  const kind = nonEmpty(record.kind, "artifact kind");
-  const ref = nonEmpty(record.ref, "artifact reference");
-  if (filename.replace(/\.ya?ml$/, "") !== `${record.id}-${name}`)
-    fail(`artifact filename does not match identity (${filename}).`);
-  const createdAt = timestamp(record.created_at, "artifact created_at");
-  const updatedAt = timestamp(record.updated_at, "artifact updated_at");
-  return {
-    format_version: CURRENT_FORMAT_VERSION,
-    id: record.id as number,
-    name,
-    kind,
-    ref,
-    created_at: createdAt,
-    updated_at: updatedAt,
-  };
-}
-
 export function decodeGoal(
   filename: string,
   data: Record<string, unknown>,
@@ -191,11 +161,8 @@ export function decodeGoal(
   formatVersion(data, `goal '${filename}'`);
   const name = identifier(data.name, "goal name");
   const description = nonEmpty(data.description, "goal description");
-  if (
-    !Array.isArray(data.evidence) ||
-    (data.evidence as unknown[]).some((x) => typeof x !== "string")
-  )
-    fail(`invalid goal evidence (${filename}).`);
+  if (!Array.isArray(data.outputs)) fail(`invalid goal outputs (${filename}).`);
+  const requiredOutputs = slots(data.required_outputs, "required_outputs");
   if (filename !== `${name}.md`) fail(`goal filename does not match identity (${filename}).`);
   const createdAt = timestamp(data.created_at, "goal created_at");
   const updatedAt = timestamp(data.updated_at, "goal updated_at");
@@ -203,7 +170,8 @@ export function decodeGoal(
     format_version: CURRENT_FORMAT_VERSION,
     name,
     description,
-    evidence: data.evidence as string[],
+    outputs: data.outputs as unknown[],
+    required_outputs: requiredOutputs,
     body,
     created_at: createdAt,
     updated_at: updatedAt,

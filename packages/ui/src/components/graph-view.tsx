@@ -7,7 +7,7 @@ import { useGraphViewport } from "@/hooks/use-graph-viewport";
 import { GRAPH, edgePath, layoutGraph } from "@/lib/graph-layout";
 import { displayStatus } from "@/lib/status";
 import { cn } from "@/lib/utils";
-import type { Goal, Step } from "@/lib/wayful";
+import { type Goal, goalSatisfied, type Step } from "@/lib/wayful";
 
 export function GraphView({
   steps,
@@ -31,7 +31,7 @@ export function GraphView({
     [layout.width, layout.height],
   );
   const viewport = useGraphViewport(content, `${viewportKey}:${layout.width}x${layout.height}`);
-  const satisfied = goals.filter((goal) => goal.evidence.length > 0).length;
+  const satisfied = goals.filter(goalSatisfied).length;
 
   return (
     <div
@@ -97,8 +97,8 @@ export function GraphView({
         >
           {goals.map((goal) => (
             <p key={goal.name} className="text-muted-foreground line-clamp-2 text-xs leading-snug">
-              <span className={goal.evidence.length ? "text-status-complete" : ""}>
-                {goal.evidence.length ? "✓" : "○"}
+              <span className={goalSatisfied(goal) ? "text-status-complete" : ""}>
+                {goalSatisfied(goal) ? "✓" : "○"}
               </span>{" "}
               {goal.description}
             </p>

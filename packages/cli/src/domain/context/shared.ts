@@ -18,9 +18,6 @@ export const CONTEXT_CAPS = {
 /** A step id, fully qualified with its map, so it survives outside map context. */
 export const qualifiedStepId = (map: string, id: number): string => `${map}/#${id}`;
 
-/** An artifact id, fully qualified with its map, so it survives outside map context. */
-export const qualifiedArtifactId = (map: string, id: number): string => `${map}/@${id}`;
-
 export interface Capped<T> {
   readonly items: readonly T[];
   readonly omitted: number;

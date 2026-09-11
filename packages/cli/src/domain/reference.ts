@@ -28,9 +28,10 @@ export type ReferenceToken =
  * polymorphic slot (a bare, unqualified `bare` token with no other
  * information) is free to read it as a map name.
  *
- * Artifacts are addressed separately, by `domain/artifact-address.ts`: a
- * step's `inputs`/`outputs` name a ref directly rather than a registered
- * artifact (ADR-0004), so only maps and steps stay addressable here.
+ * Artifacts are addressed separately, by the ref itself (a scheme-prefixed
+ * string like `file:docs/spec.md`, per `domain/artifact-ref.ts`): a step's
+ * `inputs`/`outputs` name a ref directly rather than a registered artifact
+ * (ADR-0004), so only maps and steps stay addressable through this grammar.
  */
 export type Reference =
   | { readonly kind: "bare"; readonly map?: string; readonly name: string }

@@ -21,17 +21,6 @@ export const stepsDir = (path: Path.Path, mapDirectory: string) => path.join(map
 export const stepFile = (path: Path.Path, mapDirectory: string, id: number, name: string) =>
   path.join(stepsDir(path, mapDirectory), `${id}-${name}.md`);
 
-export const artifactsDir = (path: Path.Path, mapDirectory: string) =>
-  path.join(mapDirectory, "artifacts");
-
-export const artifactFile = (
-  path: Path.Path,
-  mapDirectory: string,
-  id: number,
-  name: string,
-  extension: "yaml" | "yml" = "yaml",
-) => path.join(artifactsDir(path, mapDirectory), `${id}-${name}.${extension}`);
-
 export const goalsDir = (path: Path.Path, mapDirectory: string) => path.join(mapDirectory, "goals");
 
 export const goalFile = (path: Path.Path, mapDirectory: string, name: string) =>

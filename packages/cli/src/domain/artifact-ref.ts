@@ -1,6 +1,6 @@
 import { WayfulError } from "./errors";
 
-const SCHEME = /^[a-z][a-z0-9+.-]*:/;
+export const SCHEME = /^[a-z][a-z0-9+.-]*:/;
 
 const fail = (message: string): never => {
   throw new WayfulError({ message });

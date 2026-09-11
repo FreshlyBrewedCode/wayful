@@ -1,4 +1,5 @@
-import type { ArtifactRecord, DecodeError, GoalRecord, MapMetadata, StepRecord } from "../model";
+import { attachmentOK } from "../graph";
+import type { DecodeError, GoalRecord, MapMetadata, StepRecord } from "../model";
 import type { StepCounts } from "../status";
 
 export interface ProjectMapSummary {
@@ -6,7 +7,7 @@ export interface ProjectMapSummary {
   readonly start: string;
   readonly goals: { readonly satisfied: number; readonly total: number };
   readonly steps: StepCounts;
-  /** The maximum `updated_at` over the map's steps, artifacts, and goals — never stored, always derived. */
+  /** The maximum `updated_at` over the map's steps and goals — never stored, always derived. Artifacts carry no timestamp of their own (ADR-0004). */
   readonly lastActivity: string | undefined;
 }
 
@@ -14,12 +15,10 @@ export interface ProjectMapSummary {
 export function summarizeProjectMap(
   metadata: MapMetadata,
   steps: readonly StepRecord[],
-  artifacts: readonly ArtifactRecord[],
   goals: readonly GoalRecord[],
 ): ProjectMapSummary {
   const timestamps = [
     ...steps.map((step) => step.updated_at),
-    ...artifacts.map((artifact) => artifact.updated_at),
     ...goals.map((goal) => goal.updated_at),
   ];
   const lastActivity = timestamps.length
@@ -29,7 +28,7 @@ export function summarizeProjectMap(
     map: metadata.name,
     start: metadata.start,
     goals: {
-      satisfied: goals.filter((goal) => goal.evidence.length > 0).length,
+      satisfied: goals.filter((goal) => attachmentOK(goal.required_outputs, goal.outputs)).length,
       total: goals.length,
     },
     steps: {

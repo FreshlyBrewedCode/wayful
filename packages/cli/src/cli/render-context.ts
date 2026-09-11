@@ -53,12 +53,11 @@ export function renderMapContext(view: MapContextView): string {
     `Start: ${view.start}`,
     "Goals:",
     ...(view.goals.length
-      ? view.goals.map(
-          (g) =>
-            `- ${g.name}: ${g.description} [${g.satisfied ? "satisfied" : "not satisfied"}]${
-              g.evidence.length ? ` (evidence: ${g.evidence.join(", ")})` : ""
-            }`,
-        )
+      ? view.goals.flatMap((g) => [
+          `- ${g.name}: ${g.description} [${g.satisfied ? "satisfied" : "not satisfied"}]`,
+          ...g.outputs.recorded.map((attachment) => `  ${attachmentLine(attachment)}`),
+          ...g.outputs.unfulfilled.map((slot) => `  - missing [${slot.name}] (${slot.kind})`),
+        ])
       : ["- none"]),
     `Progress: ${view.progress.pending} pending, ${view.progress.blocked} blocked, ${view.progress.complete} complete, ${view.progress.cancelled} cancelled`,
     "Actionable steps:",
@@ -90,11 +89,7 @@ export function renderMapContext(view: MapContextView): string {
         : ["- none"],
       view.completed.recent.omitted,
     ),
-    ...cappedLines(
-      "Artifacts:",
-      view.artifacts,
-      (a) => `- ${a.id} ${a.name} (${a.kind}): ${a.ref}`,
-    ),
+    ...cappedLines("Artifacts:", view.artifacts, (a) => `- ${a.ref} (${a.kind})`),
     ...problemLines(view.problems),
   ].join("\n");
 }
@@ -138,9 +133,7 @@ export function renderStepContext(view: StepContextView): string {
 export function renderArtifactContext(view: ArtifactContextView): string {
   return [
     "Scope: artifact",
-    `Artifact: ${view.id} ${view.name} (${view.kind}): ${view.ref}`,
-    `Created: ${view.created_at}`,
-    `Updated: ${view.updated_at}`,
+    `Artifact: ${view.ref} (${view.kind})`,
     "Produced by:",
     ...(view.producedBy.length ? view.producedBy.map((s) => `- ${s.id} ${s.name}`) : ["- none"]),
     "Consumed by:",

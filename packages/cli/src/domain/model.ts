@@ -14,7 +14,6 @@ export interface MapMetadata {
   readonly format_version: number;
   readonly name: string;
   readonly start: string;
-  readonly artifact_id_counter: number;
   readonly allowed_step_types?: readonly string[];
   readonly created_at: string;
   readonly updated_at: string;
@@ -63,24 +62,26 @@ export interface StepRecord {
 /** The shape the CLI hands the backend when creating a step; id and timestamps are backend-sourced. */
 export type NewStepRecord = Omit<StepRecord, "id" | "created_at" | "updated_at" | "closed_at">;
 
-export interface ArtifactRecord {
-  readonly format_version: number;
-  readonly id: number;
-  readonly name: string;
-  readonly kind: string;
+/**
+ * An artifact: a unique ref attached as a step input/output or a goal
+ * output somewhere in the map. There is no stored record (ADR-0004) — this
+ * is always derived from the attachments that carry the ref, by
+ * `domain/graph.ts`'s `deriveArtifacts`.
+ */
+export interface DerivedArtifact {
   readonly ref: string;
-  readonly created_at: string;
-  readonly updated_at: string;
+  readonly kind: string;
 }
-
-/** The shape the CLI hands the backend when creating an artifact; timestamps are backend-sourced. */
-export type NewArtifactRecord = Omit<ArtifactRecord, "created_at" | "updated_at">;
 
 export interface GoalRecord {
   readonly format_version: number;
   readonly name: string;
   readonly description: string;
-  readonly evidence: readonly string[];
+  // Decoding only checks these are arrays; each entry's shape is diagnosed by
+  // domain/graph.ts's attachmentErrors, so manually-authored malformed entries
+  // survive decoding to be reported.
+  readonly outputs: readonly unknown[];
+  readonly required_outputs: readonly Slot[];
   readonly body: string;
   readonly created_at: string;
   readonly updated_at: string;
@@ -101,7 +102,7 @@ export interface TypeDefinition {
 export interface MapSnapshot {
   readonly map: MapMetadata;
   readonly steps: readonly StepRecord[];
-  readonly artifacts: readonly ArtifactRecord[];
+  readonly artifacts: readonly DerivedArtifact[];
   readonly goals: readonly GoalRecord[];
   readonly types: readonly TypeDefinition[];
 }
