@@ -1,5 +1,5 @@
 import { nextSteps } from "./graph";
-import type { ArtifactRecord, GoalRecord, MapMetadata, StepRecord } from "./model";
+import type { GoalRecord, MapMetadata, StepRecord } from "./model";
 
 export interface StepCounts {
   readonly pending: number;
@@ -25,10 +25,9 @@ export interface MapStatus {
 export function mapStatus(
   map: MapMetadata,
   steps: readonly StepRecord[],
-  artifacts: readonly ArtifactRecord[],
   goals: readonly GoalRecord[],
 ): MapStatus {
-  const next = nextSteps(steps, artifacts);
+  const next = nextSteps(steps);
   const counts: StepCounts = {
     pending: steps.filter((step) => step.status === "pending").length,
     blocked: steps.filter((step) => step.status === "blocked").length,

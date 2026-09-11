@@ -7,7 +7,7 @@ import {
   makeCliHarness,
 } from "../../support/cli-harness";
 
-const { invoke, projectFixture, writeStep, writeArtifact, writeStepFixture } = makeCliHarness();
+const { invoke, projectFixture, writeStep, writeStepFixture } = makeCliHarness();
 
 describe("step scope", () => {
   // `context` has no `--map` flag (verified above); every case here relies
@@ -117,43 +117,32 @@ describe("step scope", () => {
     expect(human).not.toContain("plan/#4");
   });
 
-  test("shows input artifacts with kind, reference, and presence, including a missing attachment", async () => {
+  test("shows input attachments with their slot, ref, and kind, including a supplementary attachment", async () => {
     const project = await projectFixture();
-    await writeArtifact(project, "brief", 1, { kind: "document", ref: "docs/brief.md" });
     await writeStepFixture(project, {
       id: 1,
       name: "consumer",
       requiredInputs: [{ name: "brief-slot", kind: "document" }],
-      inputs: [{ artifact: "brief", slot: "brief-slot" }, { artifact: "ghost-artifact" }],
+      inputs: [
+        { ref: "docs/brief.md", slot: "brief-slot" },
+        { ref: "docs/notes.md", kind: "note" },
+      ],
     });
 
     const result = invoke(["context", "#1", "--json"], project, withMap);
     const view = JSON.parse(result.stdout);
     expect(view.inputs).toEqual([
-      {
-        slot: "brief-slot",
-        artifact: "plan/@1",
-        kind: "document",
-        ref: "docs/brief.md",
-        present: true,
-      },
-      {
-        slot: undefined,
-        artifact: "ghost-artifact",
-        kind: undefined,
-        ref: undefined,
-        present: false,
-      },
+      { slot: "brief-slot", ref: "docs/brief.md", kind: "document" },
+      { slot: undefined, ref: "docs/notes.md", kind: "note" },
     ]);
 
     const human = invoke(["context", "#1"], project, withMap).stdout;
-    expect(human).toContain("[brief-slot] plan/@1 (document): docs/brief.md [present]");
-    expect(human).toContain("ghost-artifact [missing]");
+    expect(human).toContain("[brief-slot] docs/brief.md (document)");
+    expect(human).toContain("docs/notes.md (note)");
   });
 
   test("shows recorded outputs alongside required output slots still unfilled", async () => {
     const project = await projectFixture();
-    await writeArtifact(project, "result", 1, { kind: "document" });
     await writeStepFixture(project, {
       id: 1,
       name: "producer",
@@ -161,25 +150,19 @@ describe("step scope", () => {
         { name: "result-slot", kind: "document" },
         { name: "review-slot", kind: "verdict" },
       ],
-      outputs: [{ artifact: "result", slot: "result-slot" }],
+      outputs: [{ ref: "path/result", slot: "result-slot" }],
     });
 
     const result = invoke(["context", "#1", "--json"], project, withMap);
     const view = JSON.parse(result.stdout);
     expect(view.outputs.recorded).toEqual([
-      {
-        slot: "result-slot",
-        artifact: "plan/@1",
-        kind: "document",
-        ref: "path/result",
-        present: true,
-      },
+      { slot: "result-slot", ref: "path/result", kind: "document" },
     ]);
     expect(view.outputs.unfulfilled).toEqual([{ name: "review-slot", kind: "verdict" }]);
 
     const human = invoke(["context", "#1"], project, withMap).stdout;
     expect(human).toContain("Outputs:");
-    expect(human).toContain("[result-slot] plan/@1 (document): path/result [present]");
+    expect(human).toContain("[result-slot] path/result (document)");
     expect(human).toContain("Unfulfilled output slots:");
     expect(human).toContain("- review-slot (verdict)");
   });

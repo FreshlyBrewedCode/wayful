@@ -222,8 +222,8 @@ export function makeCliHarness() {
       name: string;
       status?: "pending" | "blocked" | "complete" | "cancelled";
       dependencies?: number[];
-      inputs?: Array<{ artifact: string; slot?: string }>;
-      outputs?: Array<{ artifact: string; slot?: string }>;
+      inputs?: Array<{ ref: string; slot?: string; kind?: string }>;
+      outputs?: Array<{ ref: string; slot?: string; kind?: string }>;
       requiredInputs?: Array<{ name: string; kind: string }>;
       requiredOutputs?: Array<{ name: string; kind: string }>;
       blockReason?: string;

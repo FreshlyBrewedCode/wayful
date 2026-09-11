@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { ArtifactChip } from "@/components/artifact-chip";
 import { StatusPill } from "@/components/status-pill";
 import { StepLink } from "@/components/step-card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -41,7 +40,6 @@ function Message({ children }: { children: React.ReactNode }) {
 
 function Body({ detail, step }: { detail: MapDetail; step: StepDetail }) {
   const { map, next } = detail;
-  const artifacts = new Map(map.artifacts.map((artifact) => [artifact.name, artifact]));
   const stepsById = new Map(map.steps.map((s) => [s.id, s]));
   const status = displayStatus(step, next);
   const dependents = map.steps.filter((s) => s.dependencies.includes(step.id));
@@ -75,18 +73,8 @@ function Body({ detail, step }: { detail: MapDetail; step: StepDetail }) {
         <Prose empty={!step.body}>{step.body || "(empty)"}</Prose>
       </Section>
 
-      <Slots
-        heading="Inputs"
-        required={step.required_inputs}
-        attached={step.inputs}
-        artifacts={artifacts}
-      />
-      <Slots
-        heading="Outputs"
-        required={step.required_outputs}
-        attached={step.outputs}
-        artifacts={artifacts}
-      />
+      <Slots heading="Inputs" required={step.required_inputs} attached={step.inputs} />
+      <Slots heading="Outputs" required={step.required_outputs} attached={step.outputs} />
 
       <Section heading="Graph">
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
@@ -134,21 +122,21 @@ function Slots({
   heading,
   required,
   attached,
-  artifacts,
 }: {
   heading: string;
   required: Step["required_inputs"];
   attached: Step["inputs"];
-  artifacts: Map<string, { name: string; kind: string; ref: string }>;
 }) {
-  const extra = attached.filter((attachment) => attachment.slot === undefined);
+  const extra = attached.filter((attachment) => !("slot" in attachment));
   if (required.length === 0 && extra.length === 0) return null;
 
   return (
     <Section heading={heading}>
       <div className="space-y-2">
         {required.map((slot) => {
-          const hit = attached.find((attachment) => attachment.slot === slot.name);
+          const hit = attached.find(
+            (attachment) => "slot" in attachment && attachment.slot === slot.name,
+          );
           return (
             <div
               key={slot.name}
@@ -171,7 +159,7 @@ function Slots({
               )}
               {hit && (
                 <div className="mt-1.5">
-                  <ArtifactChip name={hit.artifact} artifact={artifacts.get(hit.artifact)} />
+                  <RefChip reference={hit.ref} kind={slot.kind} />
                 </div>
               )}
             </div>
@@ -179,17 +167,29 @@ function Slots({
         })}
         {extra.length > 0 && (
           <div className="flex flex-wrap gap-1">
-            {extra.map((attachment) => (
-              <ArtifactChip
-                key={attachment.artifact}
-                name={attachment.artifact}
-                artifact={artifacts.get(attachment.artifact)}
-              />
-            ))}
+            {extra.map(
+              (attachment) =>
+                "kind" in attachment && (
+                  <RefChip key={attachment.ref} reference={attachment.ref} kind={attachment.kind} />
+                ),
+            )}
           </div>
         )}
       </div>
     </Section>
+  );
+}
+
+/**
+ * A step attachment carries its ref directly (ADR-0004) — the viewer never
+ * dereferences it, and never looks it up in a separate registry.
+ */
+function RefChip({ reference, kind }: { reference: string; kind: string }) {
+  return (
+    <span className="bg-secondary text-secondary-foreground inline-flex max-w-full items-baseline gap-1.5 rounded-md px-2 py-0.5 text-xs">
+      <span className="truncate font-mono">{reference}</span>
+      <span className="text-muted-foreground shrink-0">{kind}</span>
+    </span>
   );
 }
 

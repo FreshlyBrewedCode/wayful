@@ -73,7 +73,7 @@ export function ListView({
                     {step.dependencies.join(", ") || "—"}
                   </TableCell>
                   <TableCell className="text-muted-foreground font-mono text-xs">
-                    {step.outputs.map((output) => output.artifact).join(", ") || "—"}
+                    {step.outputs.map((output) => output.ref).join(", ") || "—"}
                   </TableCell>
                 </TableRow>
               );

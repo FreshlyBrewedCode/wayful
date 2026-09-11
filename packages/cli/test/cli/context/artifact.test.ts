@@ -39,19 +39,19 @@ describe("artifact scope", () => {
       id: 1,
       name: "producer",
       requiredOutputs: [{ name: "doc-slot", kind: "document" }],
-      outputs: [{ artifact: "shared-doc", slot: "doc-slot" }],
+      outputs: [{ ref: "path/shared-doc", slot: "doc-slot" }],
     });
     await writeStepFixture(project, {
       id: 2,
       name: "consumer-a",
       requiredInputs: [{ name: "doc-slot", kind: "document" }],
-      inputs: [{ artifact: "shared-doc", slot: "doc-slot" }],
+      inputs: [{ ref: "path/shared-doc", slot: "doc-slot" }],
     });
     await writeStepFixture(project, {
       id: 3,
       name: "consumer-b",
       requiredInputs: [{ name: "doc-slot", kind: "document" }],
-      inputs: [{ artifact: "shared-doc", slot: "doc-slot" }],
+      inputs: [{ ref: "path/shared-doc", slot: "doc-slot" }],
     });
     await writeStepFixture(project, { id: 4, name: "unrelated" });
     await writeGoal(project, "ship-it", { evidence: ["shared-doc"] });

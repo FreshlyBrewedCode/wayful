@@ -157,7 +157,7 @@ const mapNextCommand = Command.make("next", { map: mapFlag, json: jsonFlag }, ({
       const stepsRead = yield* backend.listSteps(m);
       const artifactsRead = yield* backend.listArtifacts(m);
       const errors = [...stepsRead.errors, ...artifactsRead.errors];
-      const actionable = nextSteps(stepsRead.records, artifactsRead.records);
+      const actionable = nextSteps(stepsRead.records);
       yield* printOutput(
         json,
         { steps: actionable, errors },
@@ -183,7 +183,7 @@ const mapStatusCommand = Command.make("status", { map: mapFlag, json: jsonFlag }
       const goalsRead = yield* backend.listGoals(m);
       const steps = stepsRead.records;
       const errors = [...stepsRead.errors, ...artifactsRead.errors, ...goalsRead.errors];
-      const status = mapStatus(m.metadata, steps, artifactsRead.records, goalsRead.records);
+      const status = mapStatus(m.metadata, steps, goalsRead.records);
       const human = [
         `Map ${status.map}`,
         `Goals: ${status.goals.satisfied}/${status.goals.total} satisfied`,

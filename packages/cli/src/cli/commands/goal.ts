@@ -4,7 +4,8 @@ import { Command, Flag, Param } from "effect/unstable/cli";
 import { WayfulBackend } from "../../backend/Backend";
 import { liftSync } from "../../backend/filesystem/documents";
 import { identifier, nonEmpty } from "../../domain/identifier";
-import { assertSameMap, describeToken, expectArtifact, resolveToken } from "../../domain/reference";
+import { parseArtifactAddress } from "../../domain/artifact-address";
+import { assertSameMap, describeToken, resolveToken } from "../../domain/reference";
 import { assertWritableMapIntegrity, fail, resolveMap, resolveProject, strict } from "../../scope";
 import { jsonFlag, mapFlag } from "../flags";
 import { bodyLines, handle, printOutput } from "../render";
@@ -74,7 +75,7 @@ const goalAddCommand = Command.make(
 ).pipe(Command.withDescription("Add a goal"));
 
 const evidenceDescription =
-  "Evidence artifact reference (name, '@id', or '@name'); repeat for additional evidence; cannot cross maps";
+  "Evidence artifact reference ('@id' or '@name'); repeat for additional evidence; cannot cross maps";
 
 const goalSatisfyCommand = Command.make(
   "satisfy",
@@ -114,7 +115,7 @@ const goalSatisfyCommand = Command.make(
         const artifacts = yield* strict(yield* backend.listArtifacts(map));
         const resolvedEvidence: string[] = [];
         for (const raw of combinedEvidence) {
-          const ref = yield* liftSync(() => expectArtifact(raw));
+          const ref = yield* liftSync(() => parseArtifactAddress(raw));
           yield* liftSync(() => assertSameMap(ref.map, map.metadata.name, "evidence"));
           const resolvedArtifact = resolveToken(ref.token, artifacts);
           if (!resolvedArtifact)

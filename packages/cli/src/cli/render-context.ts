@@ -102,10 +102,7 @@ export function renderMapContext(view: MapContextView): string {
 function attachmentLine(attachment: StepAttachmentView): string {
   const slotPart = attachment.slot ? `[${attachment.slot}] ` : "";
   const kindPart = attachment.kind ? ` (${attachment.kind})` : "";
-  const refPart = attachment.ref ? `: ${attachment.ref}` : "";
-  return `- ${slotPart}${attachment.artifact}${kindPart}${refPart} [${
-    attachment.present ? "present" : "missing"
-  }]`;
+  return `- ${slotPart}${attachment.ref}${kindPart}`;
 }
 
 export function renderStepContext(view: StepContextView): string {

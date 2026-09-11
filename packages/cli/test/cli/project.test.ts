@@ -85,7 +85,7 @@ describe("project and context contracts", () => {
       [["step", "cancel", "--help"], "--reason TEXT"],
       [["step", "depends", "--help"], "--on STEP"],
       [["step", "input", "--help"], "--slot NAME"],
-      [["step", "output", "--help"], "--artifact ARTIFACT"],
+      [["step", "output", "--help"], "ref REF"],
       [["artifact", "add", "--help"], "--ref REF"],
       [["goal", "list", "--help"], "--json"],
       [["goal", "add", "--help"], "--description TEXT"],

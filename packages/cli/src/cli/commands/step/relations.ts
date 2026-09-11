@@ -1,17 +1,13 @@
 import { Console, Effect, Option } from "effect";
-import { Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/unstable/cli";
 
 import { WayfulBackend } from "../../../backend/Backend";
 import { liftSync } from "../../../backend/filesystem/documents";
+import { normalizeRef } from "../../../domain/artifact-ref";
 import { reaches } from "../../../domain/graph";
-import { identifier } from "../../../domain/identifier";
-import {
-  assertSameMap,
-  describeToken,
-  expectArtifact,
-  expectStep,
-  resolveToken,
-} from "../../../domain/reference";
+import { identifier, nonEmpty } from "../../../domain/identifier";
+import type { Attachment } from "../../../domain/model";
+import { assertSameMap, expectStep } from "../../../domain/reference";
 import { assertWritableMapIntegrity, fail, resolveProject, strict } from "../../../scope";
 import { handle } from "../../render";
 import { wayfulRoot } from "../../root";
@@ -63,19 +59,22 @@ function makeAttachCommand(name: "input" | "output", direction: "inputs" | "outp
     name,
     {
       step: stepArgument,
-      artifact: Flag.string("artifact").pipe(
-        Flag.withMetavar("ARTIFACT"),
-        Flag.withDescription(
-          "Existing artifact reference (name, '@id', or '@name'); cannot cross maps",
-        ),
+      ref: Argument.string("ref").pipe(
+        Argument.withMetavar("REF"),
+        Argument.withDescription("Artifact reference, e.g. 'file:docs/spec.md' or 'https://...'"),
       ),
       slot: Flag.string("slot").pipe(
         Flag.withMetavar("NAME"),
         Flag.withDescription("Fulfill a required slot"),
         Flag.optional,
       ),
+      kind: Flag.string("kind").pipe(
+        Flag.withMetavar("KIND"),
+        Flag.withDescription("Kind of a supplementary (non-slot) attachment"),
+        Flag.optional,
+      ),
     },
-    ({ step: reference, artifact: artifactName, slot }) =>
+    ({ step: reference, ref: rawRef, slot, kind }) =>
       handle(
         false,
         Effect.gen(function* () {
@@ -88,25 +87,17 @@ function makeAttachCommand(name: "input" | "output", direction: "inputs" | "outp
           const steps = yield* strict(yield* backend.listSteps(map));
           const target = yield* findStep(steps, token);
           yield* assertNotTerminal(target);
-          const artifactRef = yield* liftSync(() => expectArtifact(artifactName));
-          yield* liftSync(() => assertSameMap(artifactRef.map, map.metadata.name, "an artifact"));
-          const artifacts = yield* strict(yield* backend.listArtifacts(map));
-          const artifact = resolveToken(artifactRef.token, artifacts);
-          if (!artifact)
-            return yield* fail(`artifact '${describeToken(artifactRef.token)}' does not exist.`);
-          const resolvedArtifactName = artifact.name;
-          let attachment: { readonly artifact: string; readonly slot?: string } = {
-            artifact: resolvedArtifactName,
-          };
+          const normalizedRef = yield* liftSync(() => normalizeRef(rawRef));
+          let attachment: Attachment;
           if (Option.isSome(slot)) {
+            if (Option.isSome(kind))
+              return yield* fail("--slot and --kind are mutually exclusive.");
             const slotName = yield* liftSync(() => identifier(slot.value, "slot name"));
             const required =
               direction === "inputs" ? target.required_inputs : target.required_outputs;
             const slotDefinition = required.find((candidate) => candidate.name === slotName);
             if (!slotDefinition)
               return yield* fail(`slot '${slotName}' is not a required ${name} slot.`);
-            if (slotDefinition.kind !== artifact.kind)
-              return yield* fail(`artifact kind does not match slot '${slotName}'.`);
             if (
               target[direction].some(
                 (existing) =>
@@ -116,16 +107,23 @@ function makeAttachCommand(name: "input" | "output", direction: "inputs" | "outp
               )
             )
               return yield* fail(`slot '${slotName}' is already fulfilled.`);
-            attachment = { artifact: resolvedArtifactName, slot: slotName };
+            attachment = { slot: slotName, ref: normalizedRef };
+          } else {
+            if (Option.isNone(kind))
+              return yield* fail(
+                `supplementary attachments require --kind (or pass --slot to fulfill a required ${name} slot).`,
+              );
+            const resolvedKind = yield* liftSync(() => nonEmpty(kind.value, "attachment kind"));
+            attachment = { ref: normalizedRef, kind: resolvedKind };
           }
           yield* backend.saveStep(map, {
             ...target,
             [direction]: [...target[direction], attachment],
           });
-          yield* Console.log(`Attached artifact '${resolvedArtifactName}'.`);
+          yield* Console.log(`Attached '${normalizedRef}'.`);
         }),
       ),
-  ).pipe(Command.withDescription(`Attach an artifact as a step ${name}`));
+  ).pipe(Command.withDescription(`Attach a ref as a step ${name}`));
 }
 
 export const stepInputCommand = makeAttachCommand("input", "inputs");
