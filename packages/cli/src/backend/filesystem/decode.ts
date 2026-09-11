@@ -23,7 +23,7 @@ const fail = (message: string): never => {
 
 // `owner/name`: GitHub logins allow alphanumerics and single hyphens (never
 // leading/trailing/doubled); repo names additionally allow `.` and `_`.
-const REPO_PATTERN = /^[A-Za-z0-9](?:-?[A-Za-z0-9])*\/[A-Za-z0-9._-]+$/;
+export const REPO_PATTERN = /^[A-Za-z0-9](?:-?[A-Za-z0-9])*\/[A-Za-z0-9._-]+$/;
 
 export function decodeProjectMetadata(data: unknown): ProjectMetadata {
   if (!data || typeof data !== "object" || Array.isArray(data)) fail("malformed project metadata.");

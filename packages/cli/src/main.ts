@@ -2,8 +2,10 @@
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Console, Effect, Layer } from "effect";
 import { CliError, CliOutput, Command } from "effect/unstable/cli";
+import { FetchHttpClient } from "effect/unstable/http";
 
 import { FileSystemBackend } from "./backend/filesystem/layer";
+import { GithubCredentialsLayer } from "./backend/github/credentials";
 import { cli } from "./cli/cli";
 import { helpCapturingFormatter, takeHelpText } from "./cli/help-output";
 import { report } from "./cli/report";
@@ -17,6 +19,8 @@ const VERSION = typeof WAYFUL_BUILD_VERSION === "string" ? WAYFUL_BUILD_VERSION 
 const AppLayer = Layer.mergeAll(
   FileSystemBackend.pipe(Layer.provide(BunServices.layer)),
   BunServices.layer,
+  FetchHttpClient.layer,
+  GithubCredentialsLayer.pipe(Layer.provide(BunServices.layer)),
   CliOutput.layer(helpCapturingFormatter),
 );
 
