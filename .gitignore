@@ -5,3 +5,5 @@ result-*
 dist/
 .worktrees/
 .dispatch-retries.tsv
+# Playwright CLI output (may contain credentials)
+.playwright-cli/

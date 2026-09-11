@@ -17,6 +17,7 @@
     "check": "bun run lint && bun run typecheck && bun run test"
   },
   "devDependencies": {
+    "@playwright/cli": "^0.1.19",
     "@semantic-release/commit-analyzer": "13.0.1",
     "@semantic-release/exec": "7.1.0",
     "@semantic-release/github": "12.0.9",
