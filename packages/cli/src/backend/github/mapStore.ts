@@ -109,6 +109,10 @@ export function makeGithubMapStore() {
         }),
       );
 
+    // `goal`/`goalBody` are accepted by the shared interface but not created
+    // here yet: the initial goal is a sub-issue, which #37 adds along with the
+    // rest of the goal machinery. Until then a GitHub map simply has no goal,
+    // rather than a loose issue masquerading as one.
     const createMap = (
       project: ProjectHandle,
       {

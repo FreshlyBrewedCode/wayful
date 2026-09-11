@@ -114,14 +114,15 @@ export function ensureLabels(
 
 /**
  * Normalizes one REST issue. Returns `undefined` for pull requests, which the
- * issues endpoint returns interleaved but which are never wayful records.
- * Missing or wrongly-typed fields are left for `decodeMapIssue` to reject with
- * a precise message, rather than guessed at here.
+ * issues endpoint returns interleaved but which are never wayful records, and
+ * for a record without an issue number, which cannot be addressed. Every other
+ * field is rendered or left empty for `decodeMapIssue` to reject with a
+ * precise message, rather than guessed at here.
  */
 function normalizeIssue(raw: unknown): GithubIssue | undefined {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const record = raw as Record<string, unknown>;
-  if (record.pull_request !== undefined) return undefined;
+  if (record.pull_request !== undefined || typeof record.number !== "number") return undefined;
   const labels = Array.isArray(record.labels)
     ? record.labels
         .map((label) =>
@@ -130,7 +131,7 @@ function normalizeIssue(raw: unknown): GithubIssue | undefined {
         .filter((name): name is string => typeof name === "string")
     : [];
   return {
-    number: record.number as number,
+    number: record.number,
     title: typeof record.title === "string" ? record.title : "",
     body: typeof record.body === "string" ? record.body : null,
     state: typeof record.state === "string" ? record.state : "",

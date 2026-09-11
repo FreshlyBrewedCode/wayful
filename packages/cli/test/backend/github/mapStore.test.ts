@@ -10,9 +10,9 @@ import { MapStore } from "../../../src/backend/MapStore";
 import type { ProjectHandle } from "../../../src/backend/ProjectStore";
 import type { MapMetadata } from "../../../src/domain/model";
 import { stubHttpClient } from "./support/httpClient";
+import { ISSUE_TIME, bodyText, issueJson, jsonResponse } from "./support/issues";
 import { fakeSpawnFailure, stubChildProcessSpawner } from "./support/spawner";
 
-const T = "2024-01-01T00:00:00.000Z";
 const project: ProjectHandle = {
   root: "/repo",
   description: "",
@@ -20,41 +20,12 @@ const project: ProjectHandle = {
   repo: "acme/widgets",
 };
 
-function issueJson(
-  number: number,
-  overrides: Record<string, unknown> = {},
-): Record<string, unknown> {
-  return {
-    number,
-    title: `map ${number}`,
-    body: "",
-    state: "open",
-    labels: [{ name: "wayful:map" }],
-    created_at: T,
-    updated_at: T,
-    ...overrides,
-  };
-}
-
 function mapIssue(
   number: number,
   name: string,
   overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
   return issueJson(number, { body: encodeIssueBody("", mapIssueData(name)), ...overrides });
-}
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
-
-function bodyText(request: HttpClientRequest.HttpClientRequest): string {
-  const body = request.body;
-  if (body && body["_tag"] === "Uint8Array") return new TextDecoder().decode(body.body);
-  return "";
 }
 
 /**
@@ -101,8 +72,8 @@ function metadata(name: string, start: string): MapMetadata {
     name,
     start,
     allowed_step_types: undefined,
-    created_at: T,
-    updated_at: T,
+    created_at: ISSUE_TIME,
+    updated_at: ISSUE_TIME,
   };
 }
 
@@ -255,7 +226,12 @@ describe("GithubMapStore: listMaps", () => {
     expect(result.errors).toEqual([]);
   });
 
-  test("a map issue with its wayful:map label removed is a DecodeError beside its healthy siblings", async () => {
+  // The listing filters by label server-side, so a de-labelled map is
+  // normally just absent. This proves the decoder never trusts the filter: if
+  // a listing hands back a map body without the label, it is a skipped
+  // DecodeError, not a phantom map — the same data-loss machinery the step and
+  // goal slices inherit.
+  test("a returned map body without its wayful:map label is a DecodeError beside healthy siblings", async () => {
     const result = await run(
       () =>
         jsonResponse(200, [

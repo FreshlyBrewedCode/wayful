@@ -12,17 +12,11 @@ import {
 } from "../../../src/backend/github/api";
 import type { GitRemoteRef } from "../../../src/backend/github/remote";
 import { stubHttpClient } from "./support/httpClient";
+import { ISSUE_TIME, bodyText, issueJson, jsonResponse } from "./support/issues";
 
 const repo: GitRemoteRef = { host: "github.com", owner: "acme", repo: "widgets" };
 const enterpriseRepo: GitRemoteRef = { host: "github.example.com", owner: "acme", repo: "widgets" };
 const secretToken = Redacted.make("super-secret-token-value");
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
 
 describe("apiBase", () => {
   test("resolves github.com to the public API hosts", () => {
@@ -145,27 +139,6 @@ describe("ensureLabels", () => {
   });
 });
 
-const T = "2024-01-01T00:00:00.000Z";
-
-function issueJson(number: number, overrides: Record<string, unknown> = {}): unknown {
-  return {
-    number,
-    title: `issue ${number}`,
-    body: "body",
-    state: "open",
-    labels: [{ name: "wayful:map" }],
-    created_at: T,
-    updated_at: T,
-    ...overrides,
-  };
-}
-
-function bodyText(request: HttpClientRequest.HttpClientRequest): string | undefined {
-  const body = request.body;
-  if (body && body["_tag"] === "Uint8Array") return new TextDecoder().decode(body.body);
-  return undefined;
-}
-
 describe("listIssues", () => {
   test("requests label-filtered open issues and normalizes labels", async () => {
     let seen = "";
@@ -188,8 +161,8 @@ describe("listIssues", () => {
         body: "body",
         state: "open",
         labels: ["wayful:map"],
-        created_at: T,
-        updated_at: T,
+        created_at: ISSUE_TIME,
+        updated_at: ISSUE_TIME,
       },
       {
         number: 8,
@@ -197,8 +170,8 @@ describe("listIssues", () => {
         body: "body",
         state: "open",
         labels: ["wayful:step"],
-        created_at: T,
-        updated_at: T,
+        created_at: ISSUE_TIME,
+        updated_at: ISSUE_TIME,
       },
     ]);
   });
@@ -260,7 +233,7 @@ describe("createIssue", () => {
     expect(created.number).toBe(11);
     expect(seen?.method).toBe("POST");
     expect(seen?.url).toBe("https://api.github.com/repos/acme/widgets/issues");
-    expect(JSON.parse(bodyText(seen!) ?? "null")).toEqual({
+    expect(JSON.parse(bodyText(seen!))).toEqual({
       title: "here",
       body: "the body",
       labels: ["wayful:map"],
