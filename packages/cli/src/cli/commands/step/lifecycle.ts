@@ -87,7 +87,7 @@ export const stepCompleteCommand = Command.make(
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         const completionSummary = yield* liftSync(() => nonEmpty(summary, "completion summary"));
-        if (!attachmentOK(target, "outputs"))
+        if (!attachmentOK(target.required_outputs, target.outputs))
           yield* fail("required output slots are not fulfilled.");
         yield* backend.saveStep(map, {
           ...target,

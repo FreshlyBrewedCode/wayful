@@ -13,97 +13,61 @@ import { step } from "./support/fixtures";
 describe("graph", () => {
   test("attachmentOK is true only when every required slot has a slot-bound attachment", () => {
     const required = [{ name: "brief", kind: "document" }];
-    const withMatch = step({
-      id: 1,
-      name: "work",
-      required_inputs: required,
-      inputs: [{ slot: "brief", ref: "file:brief.md" }],
-    });
-    const withoutMatch = step({ id: 1, name: "work", required_inputs: required, inputs: [] });
-    expect(attachmentOK(withMatch, "inputs")).toBe(true);
-    expect(attachmentOK(withoutMatch, "inputs")).toBe(false);
+    expect(attachmentOK(required, [{ slot: "brief", ref: "file:brief.md" }])).toBe(true);
+    expect(attachmentOK(required, [])).toBe(false);
   });
 
   test("attachmentOK ignores supplementary attachments when checking required slots", () => {
     const required = [{ name: "brief", kind: "document" }];
-    const supplementaryOnly = step({
-      id: 1,
-      name: "work",
-      required_inputs: required,
-      inputs: [{ ref: "file:notes.md", kind: "document" }],
-    });
-    expect(attachmentOK(supplementaryOnly, "inputs")).toBe(false);
+    expect(attachmentOK(required, [{ ref: "file:notes.md", kind: "document" }])).toBe(false);
   });
 
   test("attachmentErrors reports invalid shapes, unknown slots, and duplicate fulfillment", () => {
     const required = [{ name: "source", kind: "document" }];
 
-    expect(
-      attachmentErrors(
-        step({
-          id: 1,
-          name: "invalid",
-          required_inputs: required,
-          inputs: [{ slot: "source" }],
-        }),
-        "inputs",
-      ),
-    ).toEqual(["step 'invalid' has an invalid inputs attachment."]);
+    expect(attachmentErrors(required, [{ slot: "source" }], "step 'invalid'", "inputs")).toEqual([
+      "step 'invalid' has an invalid inputs attachment.",
+    ]);
 
     expect(
       attachmentErrors(
-        step({
-          id: 2,
-          name: "unknown",
-          required_inputs: required,
-          inputs: [{ slot: "absent", ref: "file:doc.md" }],
-        }),
+        required,
+        [{ slot: "absent", ref: "file:doc.md" }],
+        "step 'unknown'",
         "inputs",
       ),
     ).toEqual(["step 'unknown' has an unknown inputs slot 'absent'."]);
 
     expect(
       attachmentErrors(
-        step({
-          id: 3,
-          name: "duplicate",
-          required_inputs: required,
-          inputs: [
-            { slot: "source", ref: "file:doc.md" },
-            { slot: "source", ref: "file:other.md" },
-          ],
-        }),
+        required,
+        [
+          { slot: "source", ref: "file:doc.md" },
+          { slot: "source", ref: "file:other.md" },
+        ],
+        "step 'duplicate'",
         "inputs",
       ),
     ).toEqual(["step 'duplicate' fulfills inputs slot 'source' more than once."]);
 
     expect(
       attachmentErrors(
-        step({
-          id: 4,
-          name: "both-slot-and-kind",
-          required_inputs: required,
-          inputs: [{ slot: "source", ref: "file:doc.md", kind: "document" }],
-        }),
+        required,
+        [{ slot: "source", ref: "file:doc.md", kind: "document" }],
+        "step 'both-slot-and-kind'",
         "inputs",
       ),
     ).toEqual(["step 'both-slot-and-kind' has an invalid inputs attachment."]);
 
-    expect(
-      attachmentErrors(
-        step({ id: 5, name: "null-attachment", required_inputs: required, inputs: [null] }),
-        "inputs",
-      ),
-    ).toEqual(["step 'null-attachment' has an invalid inputs attachment."]);
+    expect(attachmentErrors(required, [null], "step 'null-attachment'", "inputs")).toEqual([
+      "step 'null-attachment' has an invalid inputs attachment.",
+    ]);
 
     expect(
       attachmentErrors(
-        step({
-          id: 6,
-          name: "supplementary",
-          required_inputs: required,
-          inputs: [{ ref: "file:notes.md", kind: "document" }],
-        }),
+        required,
+        [{ ref: "file:notes.md", kind: "document" }],
+        "step 'supplementary'",
         "inputs",
       ),
     ).toEqual([]);

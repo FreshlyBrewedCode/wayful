@@ -2,6 +2,7 @@ import { Effect, Option } from "effect";
 
 import { WayfulBackend, type MapHandle, type ProjectHandle } from "./backend/Backend";
 import { MapMetadataError, WayfulError } from "./domain/errors";
+import { deriveArtifacts } from "./domain/graph";
 import type { CollectionRead, DecodeError, MapSnapshot } from "./domain/model";
 import { validateMap } from "./domain/validate";
 
@@ -76,8 +77,10 @@ export function resolveReferencedMap(
 
 /**
  * Assembles a map's full snapshot from the backend's skip-and-collect reads,
- * alongside every decode error collected across its steps, artifacts,
- * goals, and project types. Reading stays lenient here — the snapshot holds
+ * alongside every decode error collected across its steps, goals, and
+ * project types. Artifacts carry no record of their own (ADR-0004) and are
+ * derived from the steps' and goals' attachments once those decode.
+ * Reading stays lenient here — the snapshot holds
  * whatever decoded successfully — and it is up to the caller whether the
  * accompanying `errors` block further processing (`assertWritableMapIntegrity`,
  * `map validate`) or are only reported (`map show`, `map status`, `map next`).
@@ -92,18 +95,17 @@ export function buildSnapshot(
   return Effect.gen(function* () {
     const backend = yield* WayfulBackend;
     const steps = yield* backend.listSteps(map);
-    const artifacts = yield* backend.listArtifacts(map);
     const goals = yield* backend.listGoals(map);
     const types = yield* backend.listTypes(map.project);
     return {
       snapshot: {
         map: map.metadata,
         steps: steps.records,
-        artifacts: artifacts.records,
+        artifacts: deriveArtifacts(steps.records, goals.records),
         goals: goals.records,
         types: types.records,
       },
-      errors: [...steps.errors, ...artifacts.errors, ...goals.errors, ...types.errors],
+      errors: [...steps.errors, ...goals.errors, ...types.errors],
     };
   });
 }

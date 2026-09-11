@@ -22,7 +22,15 @@ export function map(steps: Step[], overrides: Partial<WayfulMap> = {}): WayfulMa
   return {
     name: "demo",
     start: "Somewhere",
-    goals: [{ name: "initial-goal", description: "Get there", evidence: [], body: "" }],
+    goals: [
+      {
+        name: "initial-goal",
+        description: "Get there",
+        outputs: [],
+        required_outputs: [{ name: "evidence", kind: "artifact" }],
+        body: "",
+      },
+    ],
     artifacts: [],
     steps,
     ...overrides,

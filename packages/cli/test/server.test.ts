@@ -44,7 +44,6 @@ async function projectFixture() {
   const project = await temporaryDirectory();
   const map = join(project, ".wayful", "maps", "plan");
   await mkdir(join(map, "steps"), { recursive: true });
-  await mkdir(join(map, "artifacts"), { recursive: true });
   await mkdir(join(map, "goals"), { recursive: true });
   await mkdir(join(project, ".wayful", "types"), { recursive: true });
   await writeFile(
@@ -53,7 +52,7 @@ async function projectFixture() {
   );
   await writeFile(
     join(map, "map.toml"),
-    `format_version = ${CURRENT_FORMAT_VERSION}\nname = "plan"\nstart = "here"\nstep_id_counter = 3\nartifact_id_counter = 2\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
+    `format_version = ${CURRENT_FORMAT_VERSION}\nname = "plan"\nstart = "here"\nstep_id_counter = 3\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
   );
   await writeFile(
     join(project, ".wayful", "types", "task.md"),
@@ -61,19 +60,15 @@ async function projectFixture() {
   );
   await writeFile(
     join(map, "steps", "1-work.md"),
-    `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: work\ntype: task\ndescription: Do it\nstatus: pending\ndependencies: []\ninputs: []\noutputs: []\nrequired_inputs: []\nrequired_outputs: []\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n---\nStep narrative.\n`,
+    `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: work\ntype: task\ndescription: Do it\nstatus: pending\ndependencies: []\ninputs: []\noutputs: [{"ref":"git:abc","kind":"document"}]\nrequired_inputs: []\nrequired_outputs: []\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n---\nStep narrative.\n`,
   );
   await writeFile(
     join(map, "steps", "2-waiting.md"),
     `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nid: 2\nname: waiting\ntype: task\ndescription: Wait\nstatus: blocked\nblock_reason: Awaiting approval\ndependencies: []\ninputs: []\noutputs: []\nrequired_inputs: []\nrequired_outputs: []\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n---\n`,
   );
   await writeFile(
-    join(map, "artifacts", "1-proof.yaml"),
-    `format_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: proof\nkind: document\nref: git:abc\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n`,
-  );
-  await writeFile(
     join(map, "goals", "initial-goal.md"),
-    `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nname: initial-goal\ndescription: Ship it\nevidence: []\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n---\nAcceptance notes.\n`,
+    `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nname: initial-goal\ndescription: Ship it\noutputs: []\nrequired_outputs: [{"name":"evidence","kind":"artifact"}]\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n---\nAcceptance notes.\n`,
   );
   return project;
 }
@@ -109,7 +104,6 @@ describe("the JSON API the viewer requires", () => {
         format_version: CURRENT_FORMAT_VERSION,
         name: "plan",
         start: "here",
-        artifact_id_counter: 2,
         created_at: FIXTURE_TIME,
         updated_at: FIXTURE_TIME,
         status: {
@@ -146,23 +140,14 @@ describe("the JSON API the viewer requires", () => {
         format_version: CURRENT_FORMAT_VERSION,
         name: "initial-goal",
         description: "Ship it",
-        evidence: [],
+        outputs: [],
+        required_outputs: [{ name: "evidence", kind: "artifact" }],
         body: "Acceptance notes.\n",
         created_at: FIXTURE_TIME,
         updated_at: FIXTURE_TIME,
       },
     ]);
-    expect(detail.map.artifacts).toEqual([
-      {
-        format_version: CURRENT_FORMAT_VERSION,
-        id: 1,
-        name: "proof",
-        kind: "document",
-        ref: "git:abc",
-        created_at: FIXTURE_TIME,
-        updated_at: FIXTURE_TIME,
-      },
-    ]);
+    expect(detail.map.artifacts).toEqual([{ ref: "git:abc", kind: "document" }]);
     expect(detail.map.steps.map((step: { id: number }) => step.id)).toEqual([1, 2]);
     expect(detail.status.steps).toEqual({ pending: 1, blocked: 1, complete: 0, cancelled: 0 });
     expect(detail.next).toEqual([1]);

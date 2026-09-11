@@ -1,11 +1,5 @@
 import type { Slot } from "./identifier";
-import type { StepRecord } from "./model";
-
-type Direction = "inputs" | "outputs";
-
-function requiredSlots(step: StepRecord, direction: Direction) {
-  return direction === "inputs" ? step.required_inputs : step.required_outputs;
-}
+import type { DerivedArtifact, GoalRecord, StepRecord } from "./model";
 
 /** A single valid attachment, normalized out of a step's raw `inputs`/`outputs`. */
 export interface AttachmentView {
@@ -46,54 +40,93 @@ function slotFulfilled(slot: Slot, attachments: readonly unknown[]): boolean {
 }
 
 /**
- * The required slots in `direction` that are not yet fulfilled — the
+ * The required slots that are not yet fulfilled by `attachments` — the
  * per-slot detail `attachmentOK` collapses into a single boolean. Used by
  * `context` map scope to explain *which* input a pending-not-actionable step
- * is still missing.
+ * is still missing, and generalizes to a goal's required outputs.
  */
-export function unfulfilledSlots(step: StepRecord, direction: Direction): Slot[] {
-  const attachments = step[direction];
-  return requiredSlots(step, direction).filter((slot) => !slotFulfilled(slot, attachments));
+export function unfulfilledSlots(
+  required: readonly Slot[],
+  attachments: readonly unknown[],
+): Slot[] {
+  return required.filter((slot) => !slotFulfilled(slot, attachments));
 }
 
-export function attachmentOK(step: StepRecord, direction: Direction): boolean {
-  const attachments = step[direction];
-  return requiredSlots(step, direction).every((slot) => slotFulfilled(slot, attachments));
+export function attachmentOK(required: readonly Slot[], attachments: readonly unknown[]): boolean {
+  return required.every((slot) => slotFulfilled(slot, attachments));
 }
 
-export function attachmentErrors(step: StepRecord, direction: Direction): string[] {
+/**
+ * `subject` and `direction` name what's being checked in the error text
+ * (e.g. `step 'x'` / `"inputs"`, or `goal 'y'` / `"outputs"`) — the check
+ * itself has no notion of steps or goals, only slots and attachments.
+ */
+export function attachmentErrors(
+  required: readonly Slot[],
+  attachments: readonly unknown[],
+  subject: string,
+  direction: string,
+): string[] {
   const errors: string[] = [];
-  const attachments = step[direction];
-  const required = requiredSlots(step, direction);
   const slotsSeen = new Set<string>();
   for (const attachment of attachments) {
     if (!attachment || typeof attachment !== "object" || Array.isArray(attachment)) {
-      errors.push(`step '${step.name}' has an invalid ${direction} attachment.`);
+      errors.push(`${subject} has an invalid ${direction} attachment.`);
       continue;
     }
     const a = attachment as Record<string, unknown>;
     if (typeof a.ref !== "string") {
-      errors.push(`step '${step.name}' has an invalid ${direction} attachment.`);
+      errors.push(`${subject} has an invalid ${direction} attachment.`);
       continue;
     }
     const hasSlot = typeof a.slot === "string";
     const hasKind = typeof a.kind === "string";
     if (hasSlot === hasKind) {
-      errors.push(`step '${step.name}' has an invalid ${direction} attachment.`);
+      errors.push(`${subject} has an invalid ${direction} attachment.`);
       continue;
     }
     if (!hasSlot) continue; // supplementary: no further checks
     const slotName = a.slot as string;
     const slot = required.find((candidate) => candidate.name === slotName);
     if (!slot) {
-      errors.push(`step '${step.name}' has an unknown ${direction} slot '${slotName}'.`);
+      errors.push(`${subject} has an unknown ${direction} slot '${slotName}'.`);
       continue;
     }
     if (slotsSeen.has(slotName))
-      errors.push(`step '${step.name}' fulfills ${direction} slot '${slotName}' more than once.`);
+      errors.push(`${subject} fulfills ${direction} slot '${slotName}' more than once.`);
     slotsSeen.add(slotName);
   }
   return errors;
+}
+
+/**
+ * Derives the map's artifacts (ADR-0004: a ref is never stored on its own)
+ * as the unique refs attached across every step's inputs/outputs and every
+ * goal's outputs, each paired with its kind — inherited from the slot for a
+ * slot-bound attachment, or named directly for a supplementary one. A ref
+ * seen more than once keeps the kind of its first occurrence.
+ */
+export function deriveArtifacts(
+  steps: readonly StepRecord[],
+  goals: readonly GoalRecord[],
+): DerivedArtifact[] {
+  const kinds = new Map<string, string>();
+  const record = (attachments: readonly unknown[], requiredSlots: readonly Slot[]) => {
+    for (const attachment of normalizedAttachments(attachments)) {
+      if (kinds.has(attachment.ref)) continue;
+      const kind =
+        attachment.kind ?? requiredSlots.find((slot) => slot.name === attachment.slot)?.kind;
+      if (kind !== undefined) kinds.set(attachment.ref, kind);
+    }
+  };
+  for (const step of steps) {
+    record(step.inputs, step.required_inputs);
+    record(step.outputs, step.required_outputs);
+  }
+  for (const goal of goals) record(goal.outputs, goal.required_outputs);
+  return [...kinds.entries()]
+    .map(([ref, kind]) => ({ ref, kind }))
+    .toSorted((a, b) => a.ref.localeCompare(b.ref));
 }
 
 export function dependenciesOK(step: StepRecord, steps: readonly StepRecord[]): boolean {
@@ -104,7 +137,9 @@ export function nextSteps(steps: readonly StepRecord[]): StepRecord[] {
   return steps
     .filter(
       (step) =>
-        step.status === "pending" && dependenciesOK(step, steps) && attachmentOK(step, "inputs"),
+        step.status === "pending" &&
+        dependenciesOK(step, steps) &&
+        attachmentOK(step.required_inputs, step.inputs),
     )
     .toSorted((a, b) => a.id - b.id);
 }

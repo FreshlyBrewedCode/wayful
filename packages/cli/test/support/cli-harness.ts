@@ -101,7 +101,6 @@ export function makeCliHarness() {
     const map = options.map ?? "plan";
     const type = options.type ?? "task";
     await mkdir(join(project, ".wayful", "maps", map, "steps"), { recursive: true });
-    await mkdir(join(project, ".wayful", "maps", map, "artifacts"), { recursive: true });
     await mkdir(join(project, ".wayful", "maps", map, "goals"), { recursive: true });
     await mkdir(join(project, ".wayful", "types"), { recursive: true });
     await writeFile(
@@ -110,7 +109,7 @@ export function makeCliHarness() {
     );
     await writeFile(
       join(project, ".wayful", "maps", map, "map.toml"),
-      `format_version = ${CURRENT_FORMAT_VERSION}\nname = "${map}"\nstart = "here"\nstep_id_counter = 1\nartifact_id_counter = 1\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n${options.mapFields ?? ""}`,
+      `format_version = ${CURRENT_FORMAT_VERSION}\nname = "${map}"\nstart = "here"\nstep_id_counter = 1\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n${options.mapFields ?? ""}`,
     );
     const typeSlots = options.typeSlots ?? "required_inputs: []\nrequired_outputs: []\n";
     await writeFile(
@@ -145,38 +144,6 @@ export function makeCliHarness() {
       );
   }
 
-  /** Writes an artifact record directly on disk, mirroring `writeStep`. */
-  async function writeArtifact(
-    project: string,
-    name: string,
-    id: number,
-    options: {
-      map?: string;
-      kind?: string;
-      ref?: string;
-      createdAt?: string;
-      updatedAt?: string;
-    } = {},
-  ) {
-    const map = options.map ?? "plan";
-    const kind = options.kind ?? "document";
-    const ref = options.ref ?? `path/${name}`;
-    const createdAt = options.createdAt ?? FIXTURE_TIME;
-    const updatedAt = options.updatedAt ?? FIXTURE_TIME;
-    await writeFile(
-      join(project, ".wayful", "maps", map, "artifacts", `${id}-${name}.yaml`),
-      `format_version: ${CURRENT_FORMAT_VERSION}\nid: ${id}\nname: ${name}\nkind: ${kind}\nref: ${ref}\ncreated_at: ${createdAt}\nupdated_at: ${updatedAt}\n`,
-    );
-    const mapFile = join(project, ".wayful", "maps", map, "map.toml");
-    const metadata = await readFile(mapFile, "utf8");
-    const artifactIDCounter = Number(metadata.match(/^artifact_id_counter = (\d+)$/m)?.[1] ?? 1);
-    if (artifactIDCounter <= id)
-      await writeFile(
-        mapFile,
-        metadata.replace(/^artifact_id_counter = \d+$/m, `artifact_id_counter = ${id + 1}`),
-      );
-  }
-
   /** Writes a goal record directly on disk, mirroring `writeStep`. */
   async function writeGoal(
     project: string,
@@ -184,22 +151,21 @@ export function makeCliHarness() {
     options: {
       map?: string;
       description?: string;
-      evidence?: string[];
+      outputs?: Array<{ ref: string; slot?: string; kind?: string }>;
+      requiredOutputs?: Array<{ name: string; kind: string }>;
       createdAt?: string;
       updatedAt?: string;
     } = {},
   ) {
     const map = options.map ?? "plan";
     const description = options.description ?? "Original description";
-    const evidence = options.evidence ?? [];
+    const outputs = options.outputs ?? [];
+    const requiredOutputs = options.requiredOutputs ?? [];
     const createdAt = options.createdAt ?? FIXTURE_TIME;
     const updatedAt = options.updatedAt ?? FIXTURE_TIME;
-    const evidenceYaml = evidence.length
-      ? `evidence:\n${evidence.map((e) => `  - ${e}`).join("\n")}\n`
-      : "evidence: []\n";
     await writeFile(
       join(project, ".wayful", "maps", map, "goals", `${name}.md`),
-      `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nname: ${name}\ndescription: ${description}\n${evidenceYaml}created_at: ${createdAt}\nupdated_at: ${updatedAt}\n---\n`,
+      `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nname: ${name}\ndescription: ${description}\noutputs: ${JSON.stringify(outputs)}\nrequired_outputs: ${JSON.stringify(requiredOutputs)}\ncreated_at: ${createdAt}\nupdated_at: ${updatedAt}\n---\n`,
     );
   }
 
@@ -294,7 +260,6 @@ export function makeCliHarness() {
     serveInBackground,
     projectFixture,
     writeStep,
-    writeArtifact,
     writeGoal,
     writeStepFixture,
   };
@@ -307,18 +272,6 @@ export const fetchJson = (url: string, path: string): Promise<any> =>
 export async function breakStep(project: string, filename: string) {
   const file = join(project, ".wayful", "maps", "plan", "steps", filename);
   await writeFile(file, (await readFile(file, "utf8")).replace("status: pending", "status: bogus"));
-}
-
-/** Corrupts a persisted artifact file so it fails to decode, mirroring `breakStep`. */
-export async function breakArtifact(project: string, filename: string) {
-  const file = join(project, ".wayful", "maps", "plan", "artifacts", filename);
-  await writeFile(
-    file,
-    (await readFile(file, "utf8")).replace(
-      `format_version: ${CURRENT_FORMAT_VERSION}`,
-      `format_version: ${CURRENT_FORMAT_VERSION + 1}`,
-    ),
-  );
 }
 
 export function expectCommandError(result: { exitCode: number; stderr: string }) {

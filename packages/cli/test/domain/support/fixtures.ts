@@ -1,6 +1,7 @@
 import { CURRENT_FORMAT_VERSION } from "../../../src/domain/model";
 import type {
-  ArtifactRecord,
+  DerivedArtifact,
+  GoalRecord,
   MapMetadata,
   MapSnapshot,
   StepRecord,
@@ -29,14 +30,21 @@ export function step(overrides: Partial<StepRecord> & Pick<StepRecord, "id" | "n
   };
 }
 
-export function artifact(
-  overrides: Partial<ArtifactRecord> & Pick<ArtifactRecord, "name">,
-): ArtifactRecord {
+export function artifact(overrides: Partial<DerivedArtifact> = {}): DerivedArtifact {
+  return {
+    ref: "git:abc",
+    kind: "document",
+    ...overrides,
+  };
+}
+
+export function goal(overrides: Partial<GoalRecord> & Pick<GoalRecord, "name">): GoalRecord {
   return {
     format_version: CURRENT_FORMAT_VERSION,
-    id: 1,
-    kind: "document",
-    ref: "git:abc",
+    description: "A goal",
+    outputs: [],
+    required_outputs: [],
+    body: "",
     created_at: T,
     updated_at: T,
     ...overrides,
@@ -61,7 +69,6 @@ export function map(overrides: Partial<MapMetadata> = {}): MapMetadata {
     format_version: CURRENT_FORMAT_VERSION,
     name: "plan",
     start: "here",
-    artifact_id_counter: 1,
     created_at: T,
     updated_at: T,
     ...overrides,

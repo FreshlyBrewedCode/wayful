@@ -1,14 +1,24 @@
-import { nextSteps, unfulfilledSlots } from "../graph";
-import type { ArtifactRecord, DecodeError, GoalRecord, MapMetadata, StepRecord } from "../model";
+import { attachmentOK, normalizedAttachments, nextSteps, unfulfilledSlots } from "../graph";
+import type { Slot } from "../identifier";
+import type { DecodeError, DerivedArtifact, GoalRecord, MapMetadata, StepRecord } from "../model";
 import type { StepCounts } from "../status";
-import { capSection, CONTEXT_CAPS, qualifiedArtifactId, qualifiedStepId } from "./shared";
+import { capSection, CONTEXT_CAPS, qualifiedStepId } from "./shared";
 import type { Capped } from "./shared";
+
+export interface GoalAttachmentView {
+  readonly slot: string | undefined;
+  readonly ref: string;
+  readonly kind: string | undefined;
+}
 
 export interface GoalView {
   readonly name: string;
   readonly description: string;
   readonly satisfied: boolean;
-  readonly evidence: readonly string[];
+  readonly outputs: {
+    readonly recorded: readonly GoalAttachmentView[];
+    readonly unfulfilled: readonly Slot[];
+  };
 }
 
 export interface ActionableStepView {
@@ -38,7 +48,7 @@ export interface PendingNotActionableView {
 }
 
 export interface ActivityEntryView {
-  readonly kind: "step" | "artifact" | "goal";
+  readonly kind: "step" | "goal";
   readonly id: string;
   readonly name: string;
   readonly event: string;
@@ -53,10 +63,8 @@ export interface CompletedStepView {
 }
 
 export interface ArtifactView {
-  readonly id: string;
-  readonly name: string;
-  readonly kind: string;
   readonly ref: string;
+  readonly kind: string;
 }
 
 export interface MapContextView {
@@ -85,7 +93,7 @@ function describeStepEvent(step: StepRecord): string {
 export interface BuildMapContextOptions {
   readonly metadata: MapMetadata;
   readonly steps: readonly StepRecord[];
-  readonly artifacts: readonly ArtifactRecord[];
+  readonly artifacts: readonly DerivedArtifact[];
   readonly goals: readonly GoalRecord[];
   readonly problems: readonly DecodeError[];
   /** The `--since` cutoff, already parsed; `undefined` when the flag is absent. */
@@ -102,19 +110,22 @@ export function buildMapContext(options: BuildMapContextOptions): MapContextView
   const { metadata, steps, artifacts, goals, problems, since } = options;
   const mapName = metadata.name;
   const qStep = (id: number) => qualifiedStepId(mapName, id);
-  const qArtifact = (id: number) => qualifiedArtifactId(mapName, id);
-  const artifactByName = new Map(artifacts.map((artifact) => [artifact.name, artifact] as const));
-
   const goalViews: GoalView[] = goals
     .toSorted((a, b) => a.name.localeCompare(b.name))
     .map((goal) => ({
       name: goal.name,
       description: goal.description,
-      satisfied: goal.evidence.length > 0,
-      evidence: goal.evidence.map((name) => {
-        const artifact = artifactByName.get(name);
-        return artifact ? qArtifact(artifact.id) : name;
-      }),
+      satisfied: attachmentOK(goal.required_outputs, goal.outputs),
+      outputs: {
+        recorded: normalizedAttachments(goal.outputs).map((attachment) => ({
+          slot: attachment.slot,
+          ref: attachment.ref,
+          kind:
+            attachment.kind ??
+            goal.required_outputs.find((candidate) => candidate.name === attachment.slot)?.kind,
+        })),
+        unfulfilled: unfulfilledSlots(goal.required_outputs, goal.outputs),
+      },
     }));
 
   const progress: StepCounts = {
@@ -157,7 +168,9 @@ export function buildMapContext(options: BuildMapContextOptions): MapContextView
           name: dependency?.name ?? "(missing)",
           status: dependency?.status ?? "missing",
         }));
-      const missingInputs = unfulfilledSlots(step, "inputs").map((slot) => slot.name);
+      const missingInputs = unfulfilledSlots(step.required_inputs, step.inputs).map(
+        (slot) => slot.name,
+      );
       const reasonParts: string[] = [];
       if (unmetDependencies.length)
         reasonParts.push(
@@ -188,18 +201,11 @@ export function buildMapContext(options: BuildMapContextOptions): MapContextView
       event: describeStepEvent(step),
       at: step.updated_at,
     })),
-    ...artifacts.map((artifact) => ({
-      kind: "artifact" as const,
-      id: qArtifact(artifact.id),
-      name: artifact.name,
-      event: artifact.created_at === artifact.updated_at ? "added" : "updated",
-      at: artifact.updated_at,
-    })),
     ...goals.map((goal) => ({
       kind: "goal" as const,
       id: goal.name,
       name: goal.name,
-      event: goal.evidence.length
+      event: attachmentOK(goal.required_outputs, goal.outputs)
         ? "satisfied"
         : goal.created_at === goal.updated_at
           ? "added"
@@ -238,13 +244,8 @@ export function buildMapContext(options: BuildMapContextOptions): MapContextView
   );
 
   const artifactViews = artifacts
-    .toSorted((a, b) => a.id - b.id)
-    .map((artifact) => ({
-      id: qArtifact(artifact.id),
-      name: artifact.name,
-      kind: artifact.kind,
-      ref: artifact.ref,
-    }));
+    .toSorted((a, b) => a.ref.localeCompare(b.ref))
+    .map((artifact) => ({ ref: artifact.ref, kind: artifact.kind }));
   const artifactSection = capSection(artifactViews, CONTEXT_CAPS.artifacts);
 
   return {

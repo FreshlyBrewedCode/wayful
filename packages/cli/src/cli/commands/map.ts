@@ -3,7 +3,7 @@ import { Command, Flag } from "effect/unstable/cli";
 
 import { WayfulBackend } from "../../backend/Backend";
 import { MapMetadataError } from "../../domain/errors";
-import { nextSteps } from "../../domain/graph";
+import { deriveArtifacts, nextSteps } from "../../domain/graph";
 import type { DecodeError } from "../../domain/model";
 import { mapStatus } from "../../domain/status";
 import { validateMap } from "../../domain/validate";
@@ -112,14 +112,13 @@ const mapShowCommand = Command.make("show", { map: mapFlag, json: jsonFlag }, ({
       const p = yield* resolveProject(root.project);
       const m = yield* resolveMap(map, p);
       const stepsRead = yield* backend.listSteps(m);
-      const artifactsRead = yield* backend.listArtifacts(m);
       const goalsRead = yield* backend.listGoals(m);
       const steps = stepsRead.records;
-      const artifacts = artifactsRead.records;
       const goals = goalsRead.records;
+      const artifacts = deriveArtifacts(steps, goals);
       // A broken sibling never hides a healthy one: render everything that
       // decoded, and report everything that didn't, rather than failing.
-      const errors = [...stepsRead.errors, ...artifactsRead.errors, ...goalsRead.errors];
+      const errors = [...stepsRead.errors, ...goalsRead.errors];
       const value = { ...m.metadata, goals, artifacts, steps, errors };
       const human = [
         `Map ${m.name}`,
@@ -129,9 +128,7 @@ const mapShowCommand = Command.make("show", { map: mapFlag, json: jsonFlag }, ({
           ? goals.flatMap((g) => [`- ${g.name}: ${g.description}`, ...bodyLines(g.body, "  ")])
           : ["- none"]),
         "Artifacts:",
-        ...(artifacts.length
-          ? artifacts.map((a) => `- ${a.name} (${a.kind}): ${a.ref}`)
-          : ["- none"]),
+        ...(artifacts.length ? artifacts.map((a) => `- ${a.ref} (${a.kind})`) : ["- none"]),
         "Steps:",
         ...(steps.length
           ? steps.flatMap((s) => [
@@ -155,8 +152,7 @@ const mapNextCommand = Command.make("next", { map: mapFlag, json: jsonFlag }, ({
       const p = yield* resolveProject(root.project);
       const m = yield* resolveMap(map, p);
       const stepsRead = yield* backend.listSteps(m);
-      const artifactsRead = yield* backend.listArtifacts(m);
-      const errors = [...stepsRead.errors, ...artifactsRead.errors];
+      const errors = [...stepsRead.errors];
       const actionable = nextSteps(stepsRead.records);
       yield* printOutput(
         json,
@@ -179,10 +175,9 @@ const mapStatusCommand = Command.make("status", { map: mapFlag, json: jsonFlag }
       const p = yield* resolveProject(root.project);
       const m = yield* resolveMap(map, p);
       const stepsRead = yield* backend.listSteps(m);
-      const artifactsRead = yield* backend.listArtifacts(m);
       const goalsRead = yield* backend.listGoals(m);
       const steps = stepsRead.records;
-      const errors = [...stepsRead.errors, ...artifactsRead.errors, ...goalsRead.errors];
+      const errors = [...stepsRead.errors, ...goalsRead.errors];
       const status = mapStatus(m.metadata, steps, goalsRead.records);
       const human = [
         `Map ${status.map}`,

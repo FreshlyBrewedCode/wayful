@@ -14,7 +14,7 @@ import {
   stringifyToml,
   writeAtomic,
 } from "../../documents";
-import { artifactsDir, goalFile, goalsDir, mapDir, mapFile, mapsDir, stepsDir } from "../../paths";
+import { goalFile, goalsDir, mapDir, mapFile, mapsDir, stepsDir } from "../../paths";
 import { accessError, collect, fail } from "../records";
 
 export function makeMapOps(fs: FileSystem.FileSystem, path: Path.Path) {
@@ -95,9 +95,6 @@ export function makeMapOps(fs: FileSystem.FileSystem, path: Path.Path) {
           .makeDirectory(stepsDir(path, dir), { recursive: true })
           .pipe(Effect.mapError(() => onCreateError));
         yield* fs
-          .makeDirectory(artifactsDir(path, dir), { recursive: true })
-          .pipe(Effect.mapError(() => onCreateError));
-        yield* fs
           .makeDirectory(goalsDir(path, dir), { recursive: true })
           .pipe(Effect.mapError(() => onCreateError));
         const now = yield* nowISO();
@@ -109,7 +106,6 @@ export function makeMapOps(fs: FileSystem.FileSystem, path: Path.Path) {
             name,
             start: trimmedStart,
             step_id_counter: 1,
-            artifact_id_counter: 1,
             created_at: now,
             updated_at: now,
           }),
@@ -122,7 +118,8 @@ export function makeMapOps(fs: FileSystem.FileSystem, path: Path.Path) {
               format_version: CURRENT_FORMAT_VERSION,
               name: "initial-goal",
               description: trimmedGoal,
-              evidence: [],
+              outputs: [],
+              required_outputs: [{ name: "evidence", kind: "artifact" }],
               created_at: now,
               updated_at: now,
             },
@@ -132,21 +129,5 @@ export function makeMapOps(fs: FileSystem.FileSystem, path: Path.Path) {
       }),
 
     openMap: (project: ProjectHandle, name: string) => openMapHandle(project, name),
-
-    // Rewrites from the raw on-disk record rather than the typed `MapMetadata`
-    // so that `step_id_counter` — filesystem-private state no longer modeled
-    // by `MapMetadata` — survives a rewrite triggered by an unrelated field.
-    setArtifactIdCounter: (map: MapHandle, next: number) =>
-      Effect.gen(function* () {
-        const now = yield* nowISO();
-        const file = mapFile(path, map.dir);
-        const text = yield* readTextFile(fs, file, `cannot read ${file}.`);
-        const raw = (yield* liftSync(() => parseToml(text, file))) as Record<string, unknown>;
-        yield* writeAtomic(
-          fs,
-          file,
-          stringifyToml({ ...raw, artifact_id_counter: next, updated_at: now }),
-        );
-      }),
   };
 }

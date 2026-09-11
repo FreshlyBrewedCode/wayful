@@ -12,8 +12,9 @@ import { Effect, Option, Result } from "effect";
 import { WayfulBackend, type MapHandle, type ProjectHandle } from "../backend/Backend";
 import { fail, resolveMap, resolveProject } from "../scope";
 import type { MapMetadataError, WayfulError } from "../domain/errors";
+import { deriveArtifacts } from "../domain/graph";
 import type {
-  ArtifactRecord,
+  DerivedArtifact,
   GoalRecord,
   MapMetadata,
   MapSnapshot,
@@ -52,7 +53,7 @@ export interface ValidationPayload {
 /** `map show`'s shape: the metadata with its collections folded in. */
 export interface MapViewPayload extends MapMetadata {
   readonly goals: readonly GoalRecord[];
-  readonly artifacts: readonly ArtifactRecord[];
+  readonly artifacts: readonly DerivedArtifact[];
   readonly steps: readonly StepRecord[];
 }
 
@@ -91,11 +92,13 @@ function openMap(project: ProjectHandle, name: string): Read<MapHandle> {
 function readMap(map: MapHandle): Effect.Effect<MapSnapshot, WayfulError, WayfulBackend> {
   return Effect.gen(function* () {
     const backend = yield* WayfulBackend;
+    const steps = (yield* backend.listSteps(map)).records;
+    const goals = (yield* backend.listGoals(map)).records;
     return {
       map: map.metadata,
-      steps: (yield* backend.listSteps(map)).records,
-      artifacts: (yield* backend.listArtifacts(map)).records,
-      goals: (yield* backend.listGoals(map)).records,
+      steps,
+      artifacts: deriveArtifacts(steps, goals),
+      goals,
       types: (yield* backend.listTypes(map.project)).records,
     };
   });

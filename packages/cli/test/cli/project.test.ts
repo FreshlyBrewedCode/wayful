@@ -86,12 +86,15 @@ describe("project and context contracts", () => {
       [["step", "depends", "--help"], "--on STEP"],
       [["step", "input", "--help"], "--slot NAME"],
       [["step", "output", "--help"], "ref REF"],
-      [["artifact", "add", "--help"], "--ref REF"],
+      [["artifact", "show", "--help"], "ref REF"],
+      [["artifact", "list", "--help"], "--json"],
       [["goal", "list", "--help"], "--json"],
       [["goal", "add", "--help"], "--description TEXT"],
       [["goal", "add", "--help"], "--body TEXT"],
-      [["goal", "satisfy", "--help"], "--artifact ARTIFACT"],
-      [["goal", "satisfy", "--help"], "--evidence ARTIFACT"],
+      [["goal", "add", "--help"], "--required-outputs JSON"],
+      [["goal", "output", "--help"], "ref REF"],
+      [["goal", "output", "--help"], "--slot NAME"],
+      [["goal", "satisfy", "--help"], "--goal NAME"],
       [["type", "list", "--help"], "--project DIR"],
       [["type", "show", "--help"], "ARGUMENTS"],
       [["serve", "--help"], "--port PORT"],
@@ -179,7 +182,7 @@ describe("project and context contracts", () => {
     await mkdir(join(project, ".wayful", "maps", "other", "steps"), { recursive: true });
     await writeFile(
       join(project, ".wayful", "maps", "other", "map.toml"),
-      `format_version = ${CURRENT_FORMAT_VERSION}\nname = "other"\nstart = "there"\nstep_id_counter = 1\nartifact_id_counter = 1\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
+      `format_version = ${CURRENT_FORMAT_VERSION}\nname = "other"\nstart = "there"\nstep_id_counter = 1\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
     );
     const missing = invoke(["map", "show"], project);
     expectCommandError(missing);

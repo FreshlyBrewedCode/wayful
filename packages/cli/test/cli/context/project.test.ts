@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { CURRENT_FORMAT_VERSION } from "../../../src/domain/model";
 import { FIXTURE_TIME, makeCliHarness } from "../../support/cli-harness";
 
-const { temporaryDirectory, invoke, projectFixture, writeStep, writeArtifact } = makeCliHarness();
+const { temporaryDirectory, invoke, projectFixture, writeStep } = makeCliHarness();
 
 describe("project scope", () => {
   test("bare context always renders project scope, even with a map named in the environment", async () => {
@@ -54,7 +54,6 @@ describe("project scope", () => {
   test("project scope reports description, root, per-map progress, derived last activity, and step types", async () => {
     const project = await projectFixture();
     await writeStep(project, "alpha", 1, "", { updatedAt: "2024-06-01T00:00:00.000Z" });
-    await writeArtifact(project, "doc", 1);
 
     const result = invoke(["context", "--json"], project);
     expect(result.exitCode).toBe(0);
@@ -81,18 +80,16 @@ describe("project scope", () => {
   test("project scope orders maps by last activity descending, ties by name, no-activity last", async () => {
     const project = await projectFixture({ map: "b-map" });
     await mkdir(join(project, ".wayful", "maps", "a-map", "steps"), { recursive: true });
-    await mkdir(join(project, ".wayful", "maps", "a-map", "artifacts"), { recursive: true });
     await mkdir(join(project, ".wayful", "maps", "a-map", "goals"), { recursive: true });
     await writeFile(
       join(project, ".wayful", "maps", "a-map", "map.toml"),
-      `format_version = ${CURRENT_FORMAT_VERSION}\nname = "a-map"\nstart = "here"\nstep_id_counter = 1\nartifact_id_counter = 1\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
+      `format_version = ${CURRENT_FORMAT_VERSION}\nname = "a-map"\nstart = "here"\nstep_id_counter = 1\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
     );
     await mkdir(join(project, ".wayful", "maps", "c-map", "steps"), { recursive: true });
-    await mkdir(join(project, ".wayful", "maps", "c-map", "artifacts"), { recursive: true });
     await mkdir(join(project, ".wayful", "maps", "c-map", "goals"), { recursive: true });
     await writeFile(
       join(project, ".wayful", "maps", "c-map", "map.toml"),
-      `format_version = ${CURRENT_FORMAT_VERSION}\nname = "c-map"\nstart = "here"\nstep_id_counter = 1\nartifact_id_counter = 1\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
+      `format_version = ${CURRENT_FORMAT_VERSION}\nname = "c-map"\nstart = "here"\nstep_id_counter = 1\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
     );
     // b-map and a two-way tie between a-map/c-map (no activity, so tie broken
     // by name); b-map has a single step giving it activity, sorting it first.
@@ -109,16 +106,24 @@ describe("project scope", () => {
     expect(view.maps[1].lastActivity).toBeUndefined();
     expect(view.maps[2].lastActivity).toBeUndefined();
   });
-  test("a step or artifact reference without a map in context fails loudly rather than silently rendering project scope", async () => {
+  test("a step reference without a map in context fails loudly rather than silently rendering project scope", async () => {
     const project = await projectFixture();
 
-    for (const ref of ["#1", "@1"]) {
-      const result = invoke(["context", ref], project);
-      expect(result.exitCode).toBe(2);
-      expect(result.stderr).toMatch(/^wayful: /);
-      expect(result.stderr).toContain("map context is required");
-      expect(result.stdout).not.toContain("Scope: project");
-    }
+    const result = invoke(["context", "#1"], project);
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toMatch(/^wayful: /);
+    expect(result.stderr).toContain("map context is required");
+    expect(result.stdout).not.toContain("Scope: project");
+  });
+
+  test("an unrecognized reference sigil is rejected outright", async () => {
+    const project = await projectFixture();
+
+    const result = invoke(["context", "@1"], project);
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toMatch(/^wayful: /);
+    expect(result.stderr).toContain("not a recognized reference sigil");
+    expect(result.stdout).not.toContain("Scope: project");
   });
 
   test("a map-qualified bare name is rejected as ambiguous rather than silently rendering project scope", async () => {

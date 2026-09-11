@@ -45,14 +45,33 @@ export interface StepDetail extends Step {
 export interface Goal {
   name: string;
   description: string;
-  evidence: string[];
+  outputs: Attachment[];
+  required_outputs: Slot[];
   body: string;
 }
 
+/** Mirrors the CLI's `attachmentOK` (domain/graph.ts): every required slot has a matching attachment. */
+export function goalSatisfied(goal: Goal): boolean {
+  return goal.required_outputs.every((slot) =>
+    goal.outputs.some((attachment) => "slot" in attachment && attachment.slot === slot.name),
+  );
+}
+
+/** A goal's outputs with each attachment's kind resolved — from the slot for slot-bound attachments. */
+export function goalOutputViews(goal: Goal): { ref: string; kind: string }[] {
+  return goal.outputs.map((attachment) =>
+    "slot" in attachment
+      ? {
+          ref: attachment.ref,
+          kind: goal.required_outputs.find((slot) => slot.name === attachment.slot)?.kind ?? "?",
+        }
+      : { ref: attachment.ref, kind: attachment.kind },
+  );
+}
+
 export interface Artifact {
-  name: string;
-  kind: string;
   ref: string;
+  kind: string;
 }
 
 export interface WayfulMap {

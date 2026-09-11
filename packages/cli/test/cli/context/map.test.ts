@@ -4,15 +4,20 @@ import { join } from "node:path";
 
 import { breakStep, expectCommandError, makeCliHarness } from "../../support/cli-harness";
 
-const { invoke, projectFixture, writeStep, writeArtifact, writeGoal, writeStepFixture } =
-  makeCliHarness();
+const { invoke, projectFixture, writeStep, writeGoal, writeStepFixture } = makeCliHarness();
 
 describe("map scope", () => {
-  test("map scope reports start, goals with satisfied state and qualified evidence, and one-line progress", async () => {
+  test("map scope reports start, goals with satisfied state and their output attachments, and one-line progress", async () => {
     const project = await projectFixture();
-    await writeArtifact(project, "spec", 1);
-    await writeGoal(project, "ship-it", { description: "Ship the thing", evidence: ["spec"] });
-    await writeGoal(project, "polish", { description: "Polish it" });
+    await writeGoal(project, "ship-it", {
+      description: "Ship the thing",
+      requiredOutputs: [{ name: "evidence", kind: "artifact" }],
+      outputs: [{ ref: "file:spec", slot: "evidence" }],
+    });
+    await writeGoal(project, "polish", {
+      description: "Polish it",
+      requiredOutputs: [{ name: "evidence", kind: "artifact" }],
+    });
     await writeStep(project, "alpha", 1);
 
     const result = invoke(["context", "plan", "--json"], project);
@@ -22,20 +27,30 @@ describe("map scope", () => {
     expect(view.map).toBe("plan");
     expect(view.start).toBe("here");
     expect(view.goals).toEqual([
-      { name: "polish", description: "Polish it", satisfied: false, evidence: [] },
+      {
+        name: "polish",
+        description: "Polish it",
+        satisfied: false,
+        outputs: { recorded: [], unfulfilled: [{ name: "evidence", kind: "artifact" }] },
+      },
       {
         name: "ship-it",
         description: "Ship the thing",
         satisfied: true,
-        evidence: ["plan/@1"],
+        outputs: {
+          recorded: [{ slot: "evidence", ref: "file:spec", kind: "artifact" }],
+          unfulfilled: [],
+        },
       },
     ]);
     expect(view.progress).toEqual({ pending: 1, blocked: 0, complete: 0, cancelled: 0 });
 
     const human = invoke(["context", "plan"], project).stdout;
     expect(human).toContain("Scope: map");
-    expect(human).toContain("ship-it: Ship the thing [satisfied] (evidence: plan/@1)");
+    expect(human).toContain("ship-it: Ship the thing [satisfied]");
+    expect(human).toContain("- [evidence] file:spec (artifact)");
     expect(human).toContain("polish: Polish it [not satisfied]");
+    expect(human).toContain("missing [evidence] (artifact)");
     expect(human).toContain("Progress: 1 pending, 0 blocked, 0 complete, 0 cancelled");
   });
 
@@ -223,21 +238,20 @@ describe("map scope", () => {
 
   test("artifacts are listed fully qualified and capped with an omitted count", async () => {
     const project = await projectFixture();
-    for (let i = 1; i <= 25; i++) await writeArtifact(project, `doc-${i}`, i);
+    const outputs = Array.from({ length: 25 }, (_, i) => ({
+      ref: `file:doc-${String(i + 1).padStart(2, "0")}`,
+      kind: "document",
+    }));
+    await writeStepFixture(project, { id: 1, name: "producer", outputs });
 
     const result = invoke(["context", "plan", "--json"], project);
     const view = JSON.parse(result.stdout);
     expect(view.artifacts.items).toHaveLength(20);
     expect(view.artifacts.omitted).toBe(5);
-    expect(view.artifacts.items[0]).toEqual({
-      id: "plan/@1",
-      name: "doc-1",
-      kind: "document",
-      ref: "path/doc-1",
-    });
+    expect(view.artifacts.items[0]).toEqual({ ref: "file:doc-01", kind: "document" });
 
     const human = invoke(["context", "plan"], project).stdout;
-    expect(human).toContain("plan/@1 doc-1 (document): path/doc-1");
+    expect(human).toContain("- file:doc-01 (document)");
     expect(human).toContain("(5 more omitted)");
   });
 

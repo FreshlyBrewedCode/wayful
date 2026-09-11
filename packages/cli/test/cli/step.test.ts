@@ -244,15 +244,14 @@ describe("steps and graph integrity", () => {
     expect(JSON.parse(result.stdout).name).toBe("a");
   });
 
-  test("rejects a dependency or artifact attachment that crosses maps", async () => {
+  test("rejects a dependency that crosses maps", async () => {
     const project = await projectFixture();
     await writeStep(project, "a", 1);
     await writeStep(project, "b", 2);
     await mkdir(join(project, ".wayful", "maps", "other", "steps"), { recursive: true });
-    await mkdir(join(project, ".wayful", "maps", "other", "artifacts"), { recursive: true });
     await writeFile(
       join(project, ".wayful", "maps", "other", "map.toml"),
-      `format_version = ${CURRENT_FORMAT_VERSION}\nname = "other"\nstart = "there"\nstep_id_counter = 1\nartifact_id_counter = 1\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
+      `format_version = ${CURRENT_FORMAT_VERSION}\nname = "other"\nstart = "there"\nstep_id_counter = 1\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
     );
     await writeFile(
       join(project, ".wayful", "maps", "other", "steps", "1-c.md"),

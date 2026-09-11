@@ -37,22 +37,6 @@ describe("maps, types, and readable rendering", () => {
     expect(
       invoke(
         [
-          "artifact",
-          "add",
-          "proof",
-          "--map",
-          "plan",
-          "--kind",
-          "document",
-          "--ref",
-          "# opaque: value",
-        ],
-        project,
-      ).exitCode,
-    ).toBe(0);
-    expect(
-      invoke(
-        [
           "step",
           "create",
           "work",
@@ -68,12 +52,17 @@ describe("maps, types, and readable rendering", () => {
         project,
       ).exitCode,
     ).toBe(0);
+    expect(
+      invoke(
+        ["step", "output", "work", "--map", "plan", "git:# opaque: value", "--kind", "document"],
+        project,
+      ).exitCode,
+    ).toBe(0);
 
     const generated = [
       join(project, ".wayful", "types", "task.md"),
       join(project, ".wayful", "maps", "plan", "goals", "initial-goal.md"),
       join(project, ".wayful", "maps", "plan", "steps", "1-work.md"),
-      join(project, ".wayful", "maps", "plan", "artifacts", "1-proof.yaml"),
     ];
     for (const file of generated) {
       const text = await readFile(file, "utf8");
@@ -81,7 +70,7 @@ describe("maps, types, and readable rendering", () => {
       expect(text).not.toMatch(/^\{.*\}$/m);
     }
     expect(await readFile(generated[2], "utf8")).toContain(
-      "dependencies: \n  []\ninputs: \n  []\noutputs: \n  []\n",
+      "dependencies: \n  []\ninputs: \n  []\n",
     );
     expect(await readFile(generated[2], "utf8")).toContain(
       "required_inputs: \n  - name: brief\n    kind: document\n",
@@ -89,7 +78,7 @@ describe("maps, types, and readable rendering", () => {
     expect(await readFile(generated[1], "utf8")).toContain("Completion notes.");
     const shown = JSON.parse(invoke(["map", "show", "--map", "plan", "--json"], project).stdout);
     expect(shown.goals[0].body).toBe("Completion notes.");
-    expect(shown.artifacts[0].ref).toBe("# opaque: value");
+    expect(shown.artifacts[0].ref).toBe("git:# opaque: value");
   });
 
   test("creates maps with required fields, no overwrite, and deterministic JSON read views", async () => {
@@ -133,13 +122,11 @@ describe("maps, types, and readable rendering", () => {
         format_version: CURRENT_FORMAT_VERSION,
         name: "plan",
         start: "here",
-        artifact_id_counter: 1,
       },
       {
         format_version: CURRENT_FORMAT_VERSION,
         name: "release-plan",
         start: "now",
-        artifact_id_counter: 1,
       },
     ]);
   });
@@ -252,7 +239,7 @@ describe("maps, types, and readable rendering", () => {
     for (const restriction of ['["task", "task"]', '["missing"]']) {
       await writeFile(
         mapFile,
-        `format_version = ${CURRENT_FORMAT_VERSION}\nname = "plan"\nstart = "here"\nstep_id_counter = 1\nartifact_id_counter = 1\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\nallowed_step_types = ${restriction}\n`,
+        `format_version = ${CURRENT_FORMAT_VERSION}\nname = "plan"\nstart = "here"\nstep_id_counter = 1\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\nallowed_step_types = ${restriction}\n`,
       );
       const validation = invoke(["map", "validate", "--map", "plan"], project);
       expect(validation.exitCode).toBe(1);

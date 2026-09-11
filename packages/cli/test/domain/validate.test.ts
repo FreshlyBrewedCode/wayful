@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { CURRENT_FORMAT_VERSION } from "../../src/domain/model";
 import { validateMap } from "../../src/domain/validate";
-import { T, artifact, map, snapshot, step } from "./support/fixtures";
+import { goal, map, snapshot, step } from "./support/fixtures";
 
 describe("validateMap", () => {
   test("returns no errors for a coherent, fully-satisfied map", () => {
@@ -11,17 +10,15 @@ describe("validateMap", () => {
     expect(validateMap(snap)).toEqual([]);
   });
 
-  test("flags duplicate step identity and duplicate artifact identity", () => {
+  test("flags duplicate step identity", () => {
     const snap = snapshot({
       steps: [
         step({ id: 1, name: "work", status: "complete", completion_summary: "done" }),
         step({ id: 1, name: "work", status: "complete", completion_summary: "done" }),
       ],
-      artifacts: [artifact({ name: "proof" }), artifact({ name: "proof" })],
     });
     const errors = validateMap(snap);
     expect(errors).toContain("duplicate step identity.");
-    expect(errors).toContain("duplicate artifact identity.");
   });
 
   test("flags an unknown or disallowed step type", () => {
@@ -127,40 +124,28 @@ describe("validateMap", () => {
     expect(validateMap(snap, { includeProgress: false })).toContain("dependency cycle detected.");
   });
 
-  test("flags unsatisfied and missing-evidence goals", () => {
+  test("flags unsatisfied and invalid-attachment goals", () => {
+    const requiredOutputs = [{ name: "evidence", kind: "artifact" }];
     const unsatisfied = snapshot({
-      goals: [
-        {
-          format_version: CURRENT_FORMAT_VERSION,
-          name: "release",
-          description: "Ship",
-          evidence: [],
-          body: "",
-          created_at: T,
-          updated_at: T,
-        },
-      ],
+      goals: [goal({ name: "release", description: "Ship", required_outputs: requiredOutputs })],
     });
     expect(validateMap(unsatisfied)).toContain("goal 'release' is not satisfied.");
     expect(validateMap(unsatisfied, { includeProgress: false })).not.toContain(
       "goal 'release' is not satisfied.",
     );
 
-    const missingEvidence = snapshot({
+    const unknownSlot = snapshot({
       goals: [
-        {
-          format_version: CURRENT_FORMAT_VERSION,
+        goal({
           name: "release",
           description: "Ship",
-          evidence: ["absent"],
-          body: "",
-          created_at: T,
-          updated_at: T,
-        },
+          required_outputs: requiredOutputs,
+          outputs: [{ slot: "absent", ref: "file:proof.md" }],
+        }),
       ],
     });
-    expect(validateMap(missingEvidence, { includeProgress: false })).toContain(
-      "goal 'release' has missing evidence.",
+    expect(validateMap(unknownSlot, { includeProgress: false })).toContain(
+      "goal 'release' has an unknown outputs slot 'absent'.",
     );
   });
 });

@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Option } from "effect";
 import { TestClock } from "effect/testing";
-import { readdir, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { WayfulError } from "../../src/domain/errors";
-import { CURRENT_FORMAT_VERSION, type NewArtifactRecord } from "../../src/domain/model";
+import { CURRENT_FORMAT_VERSION } from "../../src/domain/model";
 import {
   T0,
   T1,
@@ -169,107 +169,6 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
     expect(steps.errors[0]?.message).toContain("does not match identity");
   });
 
-  test("createArtifact refuses a name already used by a .yml or .yaml record", async () => {
-    const map = await initializedMap();
-    const artifact: NewArtifactRecord = {
-      format_version: CURRENT_FORMAT_VERSION,
-      id: 1,
-      name: "proof",
-      kind: "document",
-      ref: "git:one",
-    };
-    await run(
-      Effect.gen(function* () {
-        const b = yield* backend();
-        yield* b.createArtifact(map, artifact);
-      }),
-    );
-    const yamlError = await runFailure(
-      Effect.gen(function* () {
-        const b = yield* backend();
-        yield* b.createArtifact(map, { ...artifact, ref: "git:two" });
-      }),
-    );
-    expect((yamlError as WayfulError).message).toContain("already exists");
-
-    await writeFile(
-      join(map.dir, "artifacts", "2-other.yml"),
-      `format_version: ${CURRENT_FORMAT_VERSION}\nid: 2\nname: other\nkind: document\nref: git:one\ncreated_at: ${T0}\nupdated_at: ${T0}\n`,
-    );
-    const ymlError = await runFailure(
-      Effect.gen(function* () {
-        const b = yield* backend();
-        yield* b.createArtifact(map, {
-          format_version: CURRENT_FORMAT_VERSION,
-          id: 2,
-          name: "other",
-          kind: "document",
-          ref: "git:two",
-        });
-      }),
-    );
-    expect((ymlError as WayfulError).message).toContain("already exists");
-  });
-
-  test("createArtifact writes an id-prefixed filename and stamps timestamps from the injected clock", async () => {
-    const map = await initializedMap();
-    const artifacts = await run(
-      Effect.gen(function* () {
-        const b = yield* backend();
-        yield* b.createArtifact(map, {
-          format_version: CURRENT_FORMAT_VERSION,
-          id: 3,
-          name: "proof",
-          kind: "document",
-          ref: "git:abc",
-        });
-        return yield* b.listArtifacts(map);
-      }),
-    );
-    const entries = await readdir(join(map.dir, "artifacts"));
-    expect(entries).toContain("3-proof.yaml");
-    expect(artifacts.errors).toEqual([]);
-    expect(artifacts.records).toEqual([
-      {
-        format_version: CURRENT_FORMAT_VERSION,
-        id: 3,
-        name: "proof",
-        kind: "document",
-        ref: "git:abc",
-        created_at: T0,
-        updated_at: T0,
-      },
-    ]);
-  });
-
-  test("listArtifacts decodes both .yaml and .yml records sorted by name", async () => {
-    const map = await initializedMap();
-    await run(
-      Effect.gen(function* () {
-        const b = yield* backend();
-        yield* b.createArtifact(map, {
-          format_version: CURRENT_FORMAT_VERSION,
-          id: 1,
-          name: "zeta",
-          kind: "document",
-          ref: "git:z",
-        });
-      }),
-    );
-    await writeFile(
-      join(map.dir, "artifacts", "2-alpha.yml"),
-      `format_version: ${CURRENT_FORMAT_VERSION}\nid: 2\nname: alpha\nkind: document\nref: git:a\ncreated_at: ${T0}\nupdated_at: ${T0}\n`,
-    );
-    const artifacts = await run(
-      Effect.gen(function* () {
-        const b = yield* backend();
-        return yield* b.listArtifacts(map);
-      }),
-    );
-    expect(artifacts.errors).toEqual([]);
-    expect(artifacts.records.map((a) => a.name)).toEqual(["alpha", "zeta"]);
-  });
-
   test("createGoal then listGoals round-trips and preserves the Markdown body, saveGoal advances updated_at from the injected clock", async () => {
     const map = await initializedMap();
     const goals = await run(
@@ -279,12 +178,16 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
           format_version: CURRENT_FORMAT_VERSION,
           name: "release",
           description: "Ship it",
-          evidence: [],
+          outputs: [],
+          required_outputs: [{ name: "evidence", kind: "artifact" }],
           body: "Acceptance notes.",
         });
         const [, persisted] = (yield* b.listGoals(map)).records;
         yield* TestClock.adjust("1 hour");
-        yield* b.saveGoal(map, { ...persisted, evidence: ["proof"] });
+        yield* b.saveGoal(map, {
+          ...persisted,
+          outputs: [{ slot: "evidence", ref: "file:proof.md" }],
+        });
         return yield* b.listGoals(map);
       }),
     );
@@ -294,7 +197,8 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
         format_version: CURRENT_FORMAT_VERSION,
         name: "initial-goal",
         description: "done",
-        evidence: [],
+        outputs: [],
+        required_outputs: [{ name: "evidence", kind: "artifact" }],
         body: "",
         created_at: T0,
         updated_at: T0,
@@ -303,7 +207,8 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
         format_version: CURRENT_FORMAT_VERSION,
         name: "release",
         description: "Ship it",
-        evidence: ["proof"],
+        outputs: [{ slot: "evidence", ref: "file:proof.md" }],
+        required_outputs: [{ name: "evidence", kind: "artifact" }],
         body: "Acceptance notes.",
         created_at: T0,
         updated_at: T1,
@@ -320,7 +225,8 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
           format_version: CURRENT_FORMAT_VERSION,
           name: "release",
           description: "Ship it",
-          evidence: [],
+          outputs: [],
+          required_outputs: [{ name: "evidence", kind: "artifact" }],
           body: "",
         });
       }),
@@ -332,7 +238,8 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
           format_version: CURRENT_FORMAT_VERSION,
           name: "release",
           description: "Ship it again",
-          evidence: [],
+          outputs: [],
+          required_outputs: [{ name: "evidence", kind: "artifact" }],
           body: "",
         });
       }),

@@ -2,11 +2,9 @@ import { Context, type Effect, type Option } from "effect";
 
 import type { MapMetadataError, WayfulError } from "../domain/errors";
 import type {
-  ArtifactRecord,
   CollectionRead,
   GoalRecord,
   MapMetadata,
-  NewArtifactRecord,
   NewGoalRecord,
   NewStepRecord,
   StepRecord,
@@ -61,10 +59,6 @@ export class WayfulBackend extends Context.Service<
       project: ProjectHandle,
       name: string,
     ) => Effect.Effect<MapHandle, WayfulError | MapMetadataError>;
-    readonly setArtifactIdCounter: (
-      map: MapHandle,
-      next: number,
-    ) => Effect.Effect<void, WayfulError>;
 
     readonly listSteps: (map: MapHandle) => Effect.Effect<CollectionRead<StepRecord>, WayfulError>;
     readonly createStep: (
@@ -72,14 +66,6 @@ export class WayfulBackend extends Context.Service<
       step: NewStepRecord,
     ) => Effect.Effect<StepRecord, WayfulError>;
     readonly saveStep: (map: MapHandle, step: StepRecord) => Effect.Effect<void, WayfulError>;
-
-    readonly listArtifacts: (
-      map: MapHandle,
-    ) => Effect.Effect<CollectionRead<ArtifactRecord>, WayfulError>;
-    readonly createArtifact: (
-      map: MapHandle,
-      artifact: NewArtifactRecord,
-    ) => Effect.Effect<void, WayfulError>;
 
     readonly listGoals: (map: MapHandle) => Effect.Effect<CollectionRead<GoalRecord>, WayfulError>;
     readonly createGoal: (map: MapHandle, goal: NewGoalRecord) => Effect.Effect<void, WayfulError>;

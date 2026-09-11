@@ -1,19 +1,24 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { CURRENT_FORMAT_VERSION } from "../../src/domain/model";
 import {
   FIXTURE_TIME,
-  breakArtifact,
+  breakStep,
   expectCommandError,
-  expectTimestamps,
   fetchJson,
   makeCliHarness,
 } from "../support/cli-harness";
 
-const { temporaryDirectory, invoke, serveInBackground, projectFixture, writeStep, writeArtifact } =
-  makeCliHarness();
+const {
+  temporaryDirectory,
+  invoke,
+  serveInBackground,
+  projectFixture,
+  writeStep,
+  writeStepFixture,
+} = makeCliHarness();
 
 describe("artifacts, goals, and validation", () => {
   test("creates, preserves, and shows optional goal bodies", async () => {
@@ -29,6 +34,8 @@ describe("artifacts, goals, and validation", () => {
           "release",
           "--description",
           "Approved",
+          "--required-outputs",
+          '[{"name":"evidence","kind":"artifact"}]',
           "--body",
           "Acceptance details.\nSecond line.",
         ],
@@ -44,15 +51,12 @@ describe("artifacts, goals, and validation", () => {
 
     expect(
       invoke(
-        ["artifact", "add", "proof", "--map", "plan", "--kind", "document", "--ref", "git:abc"],
+        ["goal", "output", "--map", "plan", "--goal", "release", "git:abc", "--slot", "evidence"],
         project,
       ).exitCode,
     ).toBe(0);
     expect(
-      invoke(
-        ["goal", "satisfy", "--map", "plan", "--goal", "release", "--artifact", "@proof"],
-        project,
-      ).exitCode,
+      invoke(["goal", "satisfy", "--map", "plan", "--goal", "release"], project).exitCode,
     ).toBe(0);
     const map = invoke(["map", "show", "--map", "plan", "--json"], project);
     expect(JSON.parse(map.stdout).goals[0].body).toBe("Acceptance details.\nSecond line.");
@@ -64,10 +68,7 @@ describe("artifacts, goals, and validation", () => {
     ).toContain("Acceptance details.\nSecond line.");
   });
 
-  test("accepts sigil'd '#name' and '@name' forms at every migrated reference slot", async () => {
-    // Bare-name forms stay covered by the tests above and below (additivity);
-    // this exercises the sigil'd alternative at every slot that accepts the
-    // shared reference grammar, so both spellings are proven at each one.
+  test("accepts a sigil'd '#name' step reference at every migrated slot", async () => {
     const project = await projectFixture();
     await writeStep(project, "alpha", 1);
     await writeStep(project, "beta", 2);
@@ -93,12 +94,6 @@ describe("artifacts, goals, and validation", () => {
     ).toBe(0);
 
     expect(
-      invoke(
-        ["artifact", "add", "evidence", "--map", "plan", "--kind", "document", "--ref", "git:sig"],
-        project,
-      ).exitCode,
-    ).toBe(0);
-    expect(
       invoke(["step", "output", "#beta", "--map", "plan", "git:sig", "--kind", "document"], project)
         .exitCode,
     ).toBe(0);
@@ -117,74 +112,15 @@ describe("artifacts, goals, and validation", () => {
         project,
       ).exitCode,
     ).toBe(0);
-
-    expect(
-      invoke(
-        ["goal", "add", "--map", "plan", "--name", "ship", "--description", "Ship it"],
-        project,
-      ).exitCode,
-    ).toBe(0);
-    expect(
-      invoke(
-        ["goal", "satisfy", "--map", "plan", "--goal", "ship", "--artifact", "@evidence"],
-        project,
-      ).exitCode,
-    ).toBe(0);
-
-    // --evidence is a peer spelling of --artifact, not a replacement; prove it
-    // also accepts the sigil'd grammar, on a second goal and artifact.
-    expect(
-      invoke(
-        [
-          "artifact",
-          "add",
-          "evidence-two",
-          "--map",
-          "plan",
-          "--kind",
-          "document",
-          "--ref",
-          "git:2",
-        ],
-        project,
-      ).exitCode,
-    ).toBe(0);
-    expect(
-      invoke(
-        ["goal", "add", "--map", "plan", "--name", "ship-two", "--description", "Ship it too"],
-        project,
-      ).exitCode,
-    ).toBe(0);
-    expect(
-      invoke(
-        ["goal", "satisfy", "--map", "plan", "--goal", "ship-two", "--evidence", "@evidence-two"],
-        project,
-      ).exitCode,
-    ).toBe(0);
   });
 
-  test("registers opaque artifacts once and attaches them by explicit matching slots or supplementarily", async () => {
-    const project = await projectFixture({
-      typeSlots:
-        "required_inputs:\n  - name: brief\n    kind: document\nrequired_outputs:\n  - name: report\n    kind: document\n",
-    });
+  test("attaches refs by explicit matching slots or supplementarily, and gates completion on required output slots", async () => {
+    const project = await projectFixture();
     await writeStep(
       project,
       "work",
       1,
       "required_inputs:\n  - name: brief\n    kind: document\nrequired_outputs:\n  - name: report\n    kind: document\n",
-    );
-    expect(
-      invoke(
-        ["artifact", "add", "proof", "--map", "plan", "--kind", "document", "--ref", "git:abc"],
-        project,
-      ).exitCode,
-    ).toBe(0);
-    expectCommandError(
-      invoke(
-        ["artifact", "add", "proof", "--map", "plan", "--kind", "document", "--ref", "git:def"],
-        project,
-      ),
     );
     expect(
       invoke(["step", "input", "work", "--map", "plan", "git:abc", "--slot", "brief"], project)
@@ -217,172 +153,128 @@ describe("artifacts, goals, and validation", () => {
     );
   });
 
-  test("refuses an artifact name already represented by a .yml record", async () => {
+  test("artifact show prints an artifact's ref and kind, derived from its attachments", async () => {
     const project = await projectFixture();
-    await writeFile(
-      join(project, ".wayful", "maps", "plan", "artifacts", "1-proof.yml"),
-      `format_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: proof\nkind: document\nref: git:one\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n`,
-    );
-    expectCommandError(
-      invoke(
-        ["artifact", "add", "proof", "--map", "plan", "--kind", "document", "--ref", "git:two"],
-        project,
-      ),
-    );
-    await expect(
-      readFile(join(project, ".wayful", "maps", "plan", "artifacts", "1-proof.yaml"), "utf8"),
-    ).rejects.toThrow();
-  });
-
-  test("versions created artifacts, stamps timestamps, and rejects missing, malformed, or unsupported artifact versions", async () => {
-    const project = await projectFixture();
-    expect(
-      invoke(
-        ["artifact", "add", "proof", "--map", "plan", "--kind", "document", "--ref", "git:one"],
-        project,
-      ).exitCode,
-    ).toBe(0);
-    const artifactFile = join(project, ".wayful", "maps", "plan", "artifacts", "1-proof.yaml");
-    const artifactText = await readFile(artifactFile, "utf8");
-    expect(artifactText).toContain(`format_version: ${CURRENT_FORMAT_VERSION}`);
-    expect(artifactText).toMatch(/created_at: \d{4}-\d{2}-\d{2}T/);
-    expect(artifactText).toMatch(/updated_at: \d{4}-\d{2}-\d{2}T/);
-    for (const replacement of [
-      "",
-      "format_version: nope",
-      `format_version: ${CURRENT_FORMAT_VERSION + 1}`,
-    ]) {
-      const original = await readFile(artifactFile, "utf8");
-      await writeFile(
-        artifactFile,
-        original.replace(`format_version: ${CURRENT_FORMAT_VERSION}`, replacement),
-      );
-      const validation = invoke(["map", "validate", "--map", "plan"], project);
-      expect(validation.exitCode).toBe(1);
-      // A malformed artifact is a broken sibling, not the map itself: `map
-      // show` still renders the healthy records and reports the skip.
-      const show = invoke(["map", "show", "--map", "plan", "--json"], project);
-      expect(show.exitCode).toBe(0);
-      const shown = JSON.parse(show.stdout);
-      expect(shown.artifacts).toEqual([]);
-      expect(shown.errors).toHaveLength(1);
-      expect(shown.errors[0].file).toContain("1-proof.yaml");
-      await writeFile(artifactFile, original);
-    }
-  });
-
-  test("artifact show prints an artifact's full record by reference, accepting the full reference grammar", async () => {
-    const project = await projectFixture();
-    await writeArtifact(project, "brief", 1, { kind: "document", ref: "docs/brief.md" });
-    await mkdir(join(project, ".wayful", "maps", "elsewhere", "steps"), { recursive: true });
-    await mkdir(join(project, ".wayful", "maps", "elsewhere", "artifacts"), { recursive: true });
-    await mkdir(join(project, ".wayful", "maps", "elsewhere", "goals"), { recursive: true });
-    await writeFile(
-      join(project, ".wayful", "maps", "elsewhere", "map.toml"),
-      `format_version = ${CURRENT_FORMAT_VERSION}\nname = "elsewhere"\nstart = "here"\nstep_id_counter = 1\nartifact_id_counter = 2\ncreated_at = "${FIXTURE_TIME}"\nupdated_at = "${FIXTURE_TIME}"\n`,
-    );
-    await writeArtifact(project, "other-map-doc", 1, {
-      map: "elsewhere",
-      kind: "document",
-      ref: "x",
+    await writeStepFixture(project, {
+      id: 1,
+      name: "producer",
+      outputs: [{ ref: "file:docs/brief.md", kind: "document" }],
     });
 
-    for (const args of [
-      ["artifact", "show", "@1", "--map", "plan"],
-      ["artifact", "show", "@brief", "--map", "plan"],
-      ["artifact", "show", "plan/@1"],
-      ["artifact", "show", "plan/@brief"],
-    ]) {
-      const result = invoke([...args, "--json"], project);
-      expect(result.exitCode).toBe(0);
-      const view = JSON.parse(result.stdout);
-      expect(view.id).toBe("plan/@1");
-      expect(view.name).toBe("brief");
-      expect(view.kind).toBe("document");
-      expect(view.ref).toBe("docs/brief.md");
-      expectTimestamps(view);
-    }
-
-    // A map prefix on the reference overrides --map/WAYFUL_MAP.
-    const crossMap = invoke(
-      ["artifact", "show", "elsewhere/@1", "--map", "plan", "--json"],
+    const result = invoke(
+      ["artifact", "show", "file:docs/brief.md", "--map", "plan", "--json"],
       project,
     );
-    expect(crossMap.exitCode).toBe(0);
-    expect(JSON.parse(crossMap.stdout).id).toBe("elsewhere/@1");
+    expect(result.exitCode).toBe(0);
+    const view = JSON.parse(result.stdout);
+    expect(view.ref).toBe("file:docs/brief.md");
+    expect(view.kind).toBe("document");
 
-    const human = invoke(["artifact", "show", "@1", "--map", "plan"], project).stdout;
-    expect(human).toContain("plan/@1 brief");
+    const human = invoke(
+      ["artifact", "show", "file:docs/brief.md", "--map", "plan"],
+      project,
+    ).stdout;
+    expect(human).toContain("Ref: file:docs/brief.md");
     expect(human).toContain("Kind: document");
-    expect(human).toContain("Reference: docs/brief.md");
 
-    expectCommandError(invoke(["artifact", "show", "@does-not-exist", "--map", "plan"], project));
+    expectCommandError(
+      invoke(["artifact", "show", "file:does-not-exist", "--map", "plan"], project),
+    );
   });
 
-  test("artifact list prints every artifact on a map, uncapped, with fully-qualified ids", async () => {
+  test("artifact list prints every artifact on a map, uncapped, sorted by ref", async () => {
     const project = await projectFixture();
-    await writeArtifact(project, "alpha", 1, { kind: "document", ref: "a" });
-    await writeArtifact(project, "beta", 2, { kind: "document", ref: "b" });
+    await writeStepFixture(project, {
+      id: 1,
+      name: "producer",
+      outputs: [
+        { ref: "file:b", kind: "document" },
+        { ref: "file:a", kind: "document" },
+      ],
+    });
 
     const result = invoke(["artifact", "list", "--map", "plan", "--json"], project);
     expect(result.exitCode).toBe(0);
-    const list = JSON.parse(result.stdout);
-    expect(list.map((a: { id: string; name: string }) => [a.id, a.name])).toEqual([
-      ["plan/@1", "alpha"],
-      ["plan/@2", "beta"],
+    expect(JSON.parse(result.stdout)).toEqual([
+      { ref: "file:a", kind: "document" },
+      { ref: "file:b", kind: "document" },
     ]);
 
     const human = invoke(["artifact", "list", "--map", "plan"], project).stdout;
-    expect(human).toContain("- plan/@1 alpha (document): a");
-    expect(human).toContain("- plan/@2 beta (document): b");
+    expect(human).toContain("- file:a (document)");
+    expect(human).toContain("- file:b (document)");
 
     const empty = invoke(["artifact", "list", "--map", "plan"], await projectFixture()).stdout;
     expect(empty).toContain("- none");
   });
 
-  test("artifact list and artifact show reject a broken sibling and address a malformed artifact as an error", async () => {
+  test("artifact list and artifact show reject a broken sibling step", async () => {
     const project = await projectFixture();
-    await writeArtifact(project, "good", 1);
-    await writeArtifact(project, "bad", 2);
-    await breakArtifact(project, "2-bad.yaml");
+    await writeStepFixture(project, {
+      id: 1,
+      name: "good",
+      outputs: [{ ref: "file:good", kind: "document" }],
+    });
+    await writeStepFixture(project, { id: 2, name: "bad" });
+    await breakStep(project, "2-bad.md");
 
     expectCommandError(invoke(["artifact", "list", "--map", "plan"], project));
-    expectCommandError(invoke(["artifact", "show", "@2", "--map", "plan"], project));
+    expectCommandError(invoke(["artifact", "show", "file:good", "--map", "plan"], project));
   });
 
-  test("adds, lists, and satisfies named goals only with existing evidence and no re-satisfaction", async () => {
+  test("adds, lists, and satisfies named goals only once required output slots are fulfilled", async () => {
     const project = await projectFixture();
     expectCommandError(
       invoke(["goal", "add", "--map", "plan", "--description", "Missing name"], project),
     );
-    expect(
-      invoke(
-        ["goal", "add", "--map", "plan", "--name", "release", "--description", "Approved"],
-        project,
-      ).exitCode,
-    ).toBe(0);
-    expect(invoke(["goal", "list", "--map", "plan", "--json"], project).exitCode).toBe(0);
     expectCommandError(
       invoke(
-        ["goal", "satisfy", "--map", "plan", "--goal", "release", "--artifact", "@missing"],
+        [
+          "goal",
+          "add",
+          "--map",
+          "plan",
+          "--name",
+          "release",
+          "--description",
+          "Approved",
+          "--required-outputs",
+          "[]",
+        ],
         project,
       ),
     );
     expect(
       invoke(
-        ["artifact", "add", "approval", "--map", "plan", "--kind", "document", "--ref", "pr:42"],
+        [
+          "goal",
+          "add",
+          "--map",
+          "plan",
+          "--name",
+          "release",
+          "--description",
+          "Approved",
+          "--required-outputs",
+          '[{"name":"evidence","kind":"artifact"}]',
+        ],
+        project,
+      ).exitCode,
+    ).toBe(0);
+    expect(invoke(["goal", "list", "--map", "plan", "--json"], project).exitCode).toBe(0);
+    expectCommandError(invoke(["goal", "satisfy", "--map", "plan", "--goal", "release"], project));
+    expect(
+      invoke(
+        ["goal", "output", "--map", "plan", "--goal", "release", "pr:42", "--slot", "evidence"],
         project,
       ).exitCode,
     ).toBe(0);
     expect(
-      invoke(
-        ["goal", "satisfy", "--map", "plan", "--goal", "release", "--artifact", "@approval"],
-        project,
-      ).exitCode,
+      invoke(["goal", "satisfy", "--map", "plan", "--goal", "release"], project).exitCode,
     ).toBe(0);
     expectCommandError(
       invoke(
-        ["goal", "satisfy", "--map", "plan", "--goal", "release", "--artifact", "@approval"],
+        ["goal", "output", "--map", "plan", "--goal", "release", "pr:43", "--slot", "evidence"],
         project,
       ),
     );
@@ -493,7 +385,7 @@ describe("artifacts, goals, and validation", () => {
         "--description",
         "Must not write",
       ],
-      ["artifact", "add", "proof", "extra", "--map", "plan", "--kind", "document", "--ref", "ref"],
+      ["artifact", "show", "file:x", "extra", "--map", "plan"],
       [
         "goal",
         "add",
@@ -518,7 +410,7 @@ describe("artifacts, goals, and validation", () => {
     ).toBe(0);
   });
 
-  test("rejects malformed step attachments and duplicate YAML artifact identities", async () => {
+  test("rejects malformed step attachments", async () => {
     const project = await projectFixture();
     await writeStep(
       project,
@@ -526,18 +418,9 @@ describe("artifacts, goals, and validation", () => {
       1,
       "inputs:\n  - ref: git:orphan\noutputs: []\nrequired_inputs: []\nrequired_outputs: []\n",
     );
-    await writeFile(
-      join(project, ".wayful", "maps", "plan", "artifacts", "1-proof.yaml"),
-      `format_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: proof\nkind: document\nref: git:one\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n`,
-    );
-    await writeFile(
-      join(project, ".wayful", "maps", "plan", "artifacts", "1-proof.yml"),
-      `format_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: proof\nkind: document\nref: git:two\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n`,
-    );
     const result = invoke(["map", "validate", "--map", "plan"], project);
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("has an invalid inputs attachment");
-    expect(result.stderr).toContain("duplicate artifact identity");
   });
 
   test("validates manually authored slot attachments in both directions", async () => {
@@ -601,19 +484,36 @@ describe("artifacts, goals, and validation", () => {
     await writeStep(project, "first", 1);
     await writeStep(project, "first", 2);
     const mapDirectory = join(project, ".wayful", "maps", "plan");
-    await writeFile(
-      join(mapDirectory, "artifacts", "1-existing.yaml"),
-      `format_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: existing\nkind: document\nref: git:existing\ncreated_at: ${FIXTURE_TIME}\nupdated_at: ${FIXTURE_TIME}\n`,
-    );
     const beforeFirst = await readFile(join(mapDirectory, "steps", "1-first.md"), "utf8");
     const beforeSecond = await readFile(join(mapDirectory, "steps", "2-first.md"), "utf8");
     const beforeMap = await readFile(join(mapDirectory, "map.toml"), "utf8");
 
     expect(invoke(["map", "validate", "--map", "plan"], project).exitCode).toBe(1);
     for (const args of [
-      ["artifact", "add", "proof", "--map", "plan", "--kind", "document", "--ref", "git:one"],
-      ["goal", "add", "--map", "plan", "--name", "release", "--description", "Released"],
-      ["goal", "satisfy", "--map", "plan", "--goal", "initial-goal", "--artifact", "@existing"],
+      [
+        "goal",
+        "add",
+        "--map",
+        "plan",
+        "--name",
+        "release",
+        "--description",
+        "Released",
+        "--required-outputs",
+        '[{"name":"evidence","kind":"artifact"}]',
+      ],
+      [
+        "goal",
+        "output",
+        "--map",
+        "plan",
+        "--goal",
+        "release",
+        "git:existing",
+        "--kind",
+        "document",
+      ],
+      ["goal", "satisfy", "--map", "plan", "--goal", "release"],
       [
         "step",
         "create",
@@ -639,9 +539,6 @@ describe("artifacts, goals, and validation", () => {
     expect(await readFile(join(mapDirectory, "steps", "1-first.md"), "utf8")).toBe(beforeFirst);
     expect(await readFile(join(mapDirectory, "steps", "2-first.md"), "utf8")).toBe(beforeSecond);
     expect(await readFile(join(mapDirectory, "map.toml"), "utf8")).toBe(beforeMap);
-    await expect(
-      readFile(join(mapDirectory, "artifacts", "2-proof.yaml"), "utf8"),
-    ).rejects.toThrow();
     await expect(readFile(join(mapDirectory, "goals", "release.md"), "utf8")).rejects.toThrow();
     await expect(readFile(join(mapDirectory, "steps", "3-new-work.md"), "utf8")).rejects.toThrow();
   });
@@ -686,7 +583,18 @@ describe("artifacts, goals, and validation", () => {
     const project = await projectFixture();
     expect(
       invoke(
-        ["goal", "add", "--map", "plan", "--name", "release", "--description", "Release it"],
+        [
+          "goal",
+          "add",
+          "--map",
+          "plan",
+          "--name",
+          "release",
+          "--description",
+          "Release it",
+          "--required-outputs",
+          '[{"name":"evidence","kind":"artifact"}]',
+        ],
         project,
       ).exitCode,
     ).toBe(0);
