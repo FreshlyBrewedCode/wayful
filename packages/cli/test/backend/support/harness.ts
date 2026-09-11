@@ -20,15 +20,26 @@ export const TestLayer = FileSystemBackend.pipe(
   Layer.provideMerge(TestClock.layer()),
 );
 
-export function run<A, E>(effect: Effect.Effect<A, E, MapStore | ProjectStore>): Promise<A> {
-  return Effect.runPromise(effect.pipe(Effect.provide(TestLayer)) as Effect.Effect<A, E, never>);
+/**
+ * Binds `run`/`runFailure` to a specific layer, so the parameterized
+ * MapStore contract suite can supply the layer under test instead of always
+ * reaching for the filesystem-pinned `TestLayer`.
+ */
+export function makeRunners<R>(layer: Layer.Layer<R>) {
+  function run<A, E>(effect: Effect.Effect<A, E, R>): Promise<A> {
+    return Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<A, E, never>);
+  }
+
+  function runFailure<A, E>(effect: Effect.Effect<A, E, R>): Promise<E> {
+    return Effect.runPromise(
+      effect.pipe(Effect.flip, Effect.provide(layer)) as Effect.Effect<E, A, never>,
+    );
+  }
+
+  return { run, runFailure };
 }
 
-export function runFailure<A, E>(effect: Effect.Effect<A, E, MapStore | ProjectStore>): Promise<E> {
-  return Effect.runPromise(
-    effect.pipe(Effect.flip, Effect.provide(TestLayer)) as Effect.Effect<E, A, never>,
-  );
-}
+export const { run, runFailure } = makeRunners<MapStore | ProjectStore>(TestLayer);
 
 export function backend() {
   return Effect.gen(function* () {
