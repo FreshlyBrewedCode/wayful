@@ -719,6 +719,50 @@ describe("GithubMapStore: saveStep status transitions", () => {
     ).toBe(false);
   });
 
+  test("rejects retaining a foreign dependency rather than persisting or deleting it", async () => {
+    const current = stepIssue(5, { name: "alpha", description: "first" });
+    const { record, requests } = recorder();
+    const step: StepRecord = {
+      format_version: 4,
+      id: 5,
+      name: "alpha",
+      type: "research",
+      description: "first",
+      status: "pending",
+      dependencies: [99],
+      inputs: [],
+      outputs: [],
+      required_inputs: [],
+      required_outputs: [],
+      body: "",
+      created_at: ISSUE_TIME,
+      updated_at: ISSUE_TIME,
+    };
+    const error = await runGithubMapStore(
+      (request) => {
+        record(request);
+        const path = new URL(request.url).pathname;
+        if (request.method === "GET" && path === "/repos/acme/widgets/issues/5")
+          return jsonResponse(200, current);
+        if (
+          request.method === "GET" &&
+          path === "/repos/acme/widgets/issues/5/dependencies/blocked_by"
+        )
+          return jsonResponse(200, [issueJson(99, { id: 1099 })]);
+        if (request.method === "GET" && path.endsWith("/issues/7/sub_issues"))
+          return jsonResponse(200, [current]);
+        throw new Error(`unexpected ${request.method} ${request.url}`);
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        return yield* Effect.flip(store.saveStep(mapHandle(), step));
+      }),
+    );
+    expect(error.message).toContain("same map");
+    expect(requests.some((r) => r.method === "DELETE")).toBe(false);
+    expect(requests.some((r) => r.method === "POST")).toBe(false);
+  });
+
   test("a description and body update rewrites the title and body without a state edit", async () => {
     const current = stepIssue(5, { name: "alpha", description: "old", body: "old prose" });
     const { record, requests } = recorder();

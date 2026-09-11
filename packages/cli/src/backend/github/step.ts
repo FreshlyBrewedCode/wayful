@@ -66,10 +66,7 @@ export const dependencyOutsideMapError = (dependency: number): WayfulError =>
  * `WayfulError` on any missing or malformed field so a collection read can
  * collect it as a `DecodeError`.
  */
-export function decodeStepIssue(
-  issue: GithubIssue,
-  dependencies: readonly number[] = [],
-): StepRecord {
+export function decodeStepIssue(issue: GithubIssue, dependencies: readonly number[]): StepRecord {
   if (!issue.labels.includes(WAYFUL_STEP_LABEL))
     fail(`#${issue.number} is missing the wayful:step label.`);
   const { body, data } = decodeIssueBody(issue.body ?? "");

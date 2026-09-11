@@ -32,7 +32,7 @@ import {
   type IssuePatch,
 } from "./api";
 import { GithubCredentials } from "./credentials";
-import { encodeIssueBody } from "./issue";
+import { encodeIssueBody, type GithubIssue } from "./issue";
 import {
   WAYFUL_BLOCKED_LABEL,
   WAYFUL_MAP_LABEL,
@@ -51,6 +51,27 @@ const unsupported = (what: string) => fail(`the github backend does not support 
 
 function describeError(error: unknown): string {
   return error instanceof WayfulError ? error.message : String(error);
+}
+
+/**
+ * A map's `wayful:step` sub-issues keyed by issue number → database id. Only a
+ * `wayful:step` child is a valid dependency, and the database id is what a
+ * native `blocked_by` edge is addressed by.
+ */
+function stepIdsFrom(issues: readonly GithubIssue[]): Map<number, number> {
+  const ids = new Map<number, number>();
+  for (const issue of issues)
+    if (issue.labels.includes(WAYFUL_STEP_LABEL)) ids.set(issue.number, issue.id);
+  return ids;
+}
+
+/** Throws the named cross-map error for the first dependency absent from `stepIds`. */
+function assertDependenciesInMap(
+  dependencies: Iterable<number>,
+  stepIds: ReadonlyMap<number, number>,
+): void {
+  for (const dependency of dependencies)
+    if (!stepIds.has(dependency)) throw dependencyOutsideMapError(dependency);
 }
 
 /** The status as GitHub's native state and reason; blocked is a label, not a state. */
@@ -205,11 +226,11 @@ export function makeGithubMapStore() {
           const issues = yield* listSubIssues(ref, token, parent);
           // Sub-issues are steps and goals together; a goal (or a foreign
           // sub-issue) is not a step and is skipped, not an error.
-          const stepIssues = issues.filter((issue) => issue.labels.includes(WAYFUL_STEP_LABEL));
-          const stepNumbers = new Set(stepIssues.map((issue) => issue.number));
+          const stepIds = stepIdsFrom(issues);
           const records: StepRecord[] = [];
           const errors: DecodeError[] = [];
-          for (const issue of stepIssues) {
+          for (const issue of issues) {
+            if (!issue.labels.includes(WAYFUL_STEP_LABEL)) continue;
             // A step's dependencies are native `blocked_by` edges and so are a
             // second read per step. An API failure fails the whole listing
             // rather than masquerading as a malformed record.
@@ -219,8 +240,7 @@ export function makeGithubMapStore() {
               // Issue numbers are repo-global, so a `blocked_by` edge can point
               // anywhere in the repo. Only a `wayful:step` sub-issue of this
               // same map is a valid dependency.
-              for (const dependency of dependencies)
-                if (!stepNumbers.has(dependency)) throw dependencyOutsideMapError(dependency);
+              assertDependenciesInMap(dependencies, stepIds);
               records.push(decodeStepIssue(issue, dependencies));
             } catch (error) {
               errors.push({ file: `#${issue.number}`, message: describeError(error) });
@@ -241,14 +261,8 @@ export function makeGithubMapStore() {
           // sub-issues before the issue is created, so a foreign edge fails
           // without leaving a half-built step behind. The same lookup resolves
           // each blocking issue's database id for the native edge.
-          const stepIds = new Map(
-            existing
-              .filter((subIssue) => subIssue.labels.includes(WAYFUL_STEP_LABEL))
-              .map((subIssue) => [subIssue.number, subIssue.id] as const),
-          );
-          for (const dependency of step.dependencies)
-            if (!stepIds.has(dependency))
-              return yield* Effect.fail(dependencyOutsideMapError(dependency));
+          const stepIds = stepIdsFrom(existing);
+          yield* liftSync(() => assertDependenciesInMap(step.dependencies, stepIds));
           // Types live on disk and are maintained by hand, so the label for a
           // type is created on demand here; the sync command is the re-runnable
           // sweep for type files added without a `step create`.
@@ -304,25 +318,20 @@ export function makeGithubMapStore() {
           );
 
           // The dependency diff is validated before any mutation, so a foreign
-          // edge fails the save before it can make a partial write. An addition
-          // needs the blocking issue's database id, and looking it up among
-          // this map's step sub-issues *is* the cross-map check: an issue number
-          // is repo-global, so only a `wayful:step` child of this map is valid.
+          // edge fails the save before it can make a partial write. Every
+          // desired dependency must be a `wayful:step` sub-issue of this map —
+          // an issue number is repo-global, so only a child of this map is
+          // valid — and looking them up also resolves the database ids native
+          // edges are addressed by.
           const currentDependencies = new Set(current.dependencies);
           const desiredDependencies = new Set(step.dependencies);
           const added = [...desiredDependencies].filter((id) => !currentDependencies.has(id));
           const removed = [...currentDependencies].filter((id) => !desiredDependencies.has(id));
-          const addedIds = new Map<number, number>();
-          if (added.length > 0) {
-            const parent = yield* mapNumber(map);
-            const subIssues = yield* listSubIssues(ref, token, parent);
-            for (const subIssue of subIssues)
-              if (subIssue.labels.includes(WAYFUL_STEP_LABEL))
-                addedIds.set(subIssue.number, subIssue.id);
-            for (const dependency of added)
-              if (!addedIds.has(dependency))
-                return yield* Effect.fail(dependencyOutsideMapError(dependency));
-          }
+          const stepIds =
+            desiredDependencies.size > 0
+              ? stepIdsFrom(yield* listSubIssues(ref, token, yield* mapNumber(map)))
+              : new Map<number, number>();
+          yield* liftSync(() => assertDependenciesInMap(desiredDependencies, stepIds));
 
           // The body carries the prose and the structured residue (slots,
           // attachments, and the reason/summary fields), so compare the full
@@ -371,7 +380,7 @@ export function makeGithubMapStore() {
             blockedBy.map((blocking) => [blocking.number, blocking.id] as const),
           );
           for (const dependency of added)
-            yield* addBlockedBy(ref, token, step.id, addedIds.get(dependency)!);
+            yield* addBlockedBy(ref, token, step.id, stepIds.get(dependency)!);
           for (const dependency of removed) {
             const blockingId = blockingIds.get(dependency);
             if (blockingId !== undefined) yield* removeBlockedBy(ref, token, step.id, blockingId);
