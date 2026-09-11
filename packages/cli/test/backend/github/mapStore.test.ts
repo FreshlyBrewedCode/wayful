@@ -82,7 +82,11 @@ describe("GithubMapStore: createMap", () => {
     let created: HttpClientRequest.HttpClientRequest | undefined;
     await run(
       (request) => {
+        const pathname = new URL(request.url).pathname;
         if (request.method === "GET") return jsonResponse(200, []);
+        if (pathname.endsWith("/sub_issues")) return jsonResponse(201, issueJson(13));
+        const body = JSON.parse(bodyText(request)) as { labels: string[] };
+        if (!body.labels.includes("wayful:map")) return jsonResponse(201, issueJson(13));
         created = request;
         return jsonResponse(201, issueJson(12, { title: "here" }));
       },
@@ -185,13 +189,16 @@ describe("GithubMapStore: listMaps", () => {
     const issues: Record<string, unknown>[] = [];
     const names = await run(
       (request) => {
+        const pathname = new URL(request.url).pathname;
+        if (request.method === "POST" && pathname.endsWith("/sub_issues"))
+          return jsonResponse(201, issueJson(43));
         if (request.method === "POST") {
           const body = JSON.parse(bodyText(request)) as {
             title: string;
             body: string;
             labels: string[];
           };
-          const created = issueJson(42, {
+          const created = issueJson(body.labels.includes("wayful:map") ? 42 : 43, {
             title: body.title,
             body: body.body,
             labels: body.labels.map((name) => ({ name })),
@@ -203,7 +210,12 @@ describe("GithubMapStore: listMaps", () => {
       },
       Effect.gen(function* () {
         const store = yield* MapStore;
-        yield* store.createMap(project, { name: "alpha", start: "here", goal: "", goalBody: "" });
+        yield* store.createMap(project, {
+          name: "alpha",
+          start: "here",
+          goal: "done",
+          goalBody: "",
+        });
         return (yield* store.listMaps(project)).records.map((map) => map.name);
       }),
     );
