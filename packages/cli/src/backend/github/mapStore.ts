@@ -1,4 +1,4 @@
-import { Effect, Layer, Ref } from "effect";
+import { Effect, Fiber, FileSystem, Layer, Path, Ref, Schedule } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { WayfulError } from "../../domain/errors";
@@ -199,6 +199,11 @@ export function makeGithubMapStore() {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const http = yield* GithubHttp;
     const projectStore = yield* ProjectStore;
+    // Records come from the network, but refs still resolve against the local
+    // checkout (see `readArtifact` below), which needs the same `FileSystem`/
+    // `Path` services the filesystem backend closes over.
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
     const cache = yield* Ref.make(new Map<string, ResolvedRepo>());
     // One command reads a map's snapshot at most once: a `map status` that
     // reaches for the same map twice must not pay for the GraphQL query twice.
@@ -638,7 +643,7 @@ export function makeGithubMapStore() {
       // Records come from the network, but refs still resolve against the
       // local checkout: the project config and type files already require one,
       // and a missing checkout is a clear error rather than a crash.
-      readArtifact: makeReadArtifact({ snapshot }),
+      readArtifact: makeReadArtifact({ fs, path, snapshot }),
       // ETag polling stands in for the filesystem watcher: each tick revalidates
       // with conditional GETs, so an idle project spends no rate limit, and a
       // changed fingerprint invalidates the memoized snapshots before notifying.
@@ -647,31 +652,26 @@ export function makeGithubMapStore() {
           Effect.gen(function* () {
             const { ref, token } = yield* context(project);
             const revision = withInfra(readRevision(ref, token));
-            let stopped = false;
-            let previous: string | undefined;
-            let inFlight = false;
-            const tick = async () => {
-              if (stopped || inFlight) return;
-              inFlight = true;
-              try {
-                const next = await Effect.runPromise(revision);
-                if (stopped) return;
-                if (previous !== undefined && next !== previous) {
-                  await Effect.runPromise(invalidateProjectSnapshots(project));
-                  onChange();
-                }
-                previous = next;
-              } catch {
-                // A failed poll is not fatal; the next tick retries.
-              } finally {
-                inFlight = false;
+            const previous = yield* Ref.make<string | undefined>(undefined);
+            const tick = Effect.gen(function* () {
+              const next = yield* revision;
+              const last = yield* Ref.get(previous);
+              if (last !== undefined && next !== last) {
+                yield* invalidateProjectSnapshots(project);
+                onChange();
               }
-            };
-            const timer = setInterval(() => void tick(), REVISION_POLL_MS);
-            void tick();
+              yield* Ref.set(previous, next);
+              // A failed poll is not fatal; the next tick retries.
+            }).pipe(Effect.ignore);
+            // `Effect.repeat` runs `tick` once immediately, then again on
+            // every `Schedule.spaced` step; because each step only starts
+            // after the previous one settles, ticks can never overlap, which
+            // is what the old `inFlight` flag guarded against by hand.
+            const fiber = yield* Effect.repeat(tick, Schedule.spaced(REVISION_POLL_MS)).pipe(
+              Effect.forkDetach,
+            );
             return () => {
-              stopped = true;
-              clearInterval(timer);
+              Effect.runFork(Fiber.interrupt(fiber));
             };
           }),
         ),
