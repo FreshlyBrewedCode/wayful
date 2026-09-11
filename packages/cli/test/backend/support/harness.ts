@@ -6,7 +6,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { WayfulBackend } from "../../../src/backend/Backend";
+import { MapStore } from "../../../src/backend/MapStore";
+import { ProjectStore } from "../../../src/backend/ProjectStore";
 import { FileSystemBackend } from "../../../src/backend/filesystem/layer";
 import { CURRENT_FORMAT_VERSION, type NewStepRecord } from "../../../src/domain/model";
 
@@ -19,11 +20,11 @@ export const TestLayer = FileSystemBackend.pipe(
   Layer.provideMerge(TestClock.layer()),
 );
 
-export function run<A, E>(effect: Effect.Effect<A, E, WayfulBackend>): Promise<A> {
+export function run<A, E>(effect: Effect.Effect<A, E, MapStore | ProjectStore>): Promise<A> {
   return Effect.runPromise(effect.pipe(Effect.provide(TestLayer)) as Effect.Effect<A, E, never>);
 }
 
-export function runFailure<A, E>(effect: Effect.Effect<A, E, WayfulBackend>): Promise<E> {
+export function runFailure<A, E>(effect: Effect.Effect<A, E, MapStore | ProjectStore>): Promise<E> {
   return Effect.runPromise(
     effect.pipe(Effect.flip, Effect.provide(TestLayer)) as Effect.Effect<E, A, never>,
   );
@@ -31,7 +32,9 @@ export function runFailure<A, E>(effect: Effect.Effect<A, E, WayfulBackend>): Pr
 
 export function backend() {
   return Effect.gen(function* () {
-    return yield* WayfulBackend;
+    const projectStore = yield* ProjectStore;
+    const mapStore = yield* MapStore;
+    return { ...projectStore, ...mapStore };
   });
 }
 

@@ -1,7 +1,7 @@
 import { Console, Effect, Option } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 
-import { WayfulBackend } from "../../backend/Backend";
+import { ProjectStore } from "../../backend/ProjectStore";
 import { liftSync } from "../../backend/filesystem/documents";
 import { nonEmpty } from "../../domain/identifier";
 import { handle } from "../render";
@@ -21,13 +21,13 @@ export const initCommand = Command.make(
       false,
       Effect.gen(function* () {
         const root = yield* wayfulRoot;
-        const backend = yield* WayfulBackend;
+        const projectStore = yield* ProjectStore;
         const directory = Option.getOrElse(root.project, () => process.cwd());
         const resolvedDescription = yield* Option.match(description, {
           onNone: () => Effect.succeed(""),
           onSome: (value) => liftSync(() => nonEmpty(value, "project description")),
         });
-        yield* backend.initProject({ directory, description: resolvedDescription });
+        yield* projectStore.initProject({ directory, description: resolvedDescription });
         yield* Console.log("Initialized Wayful project.");
       }),
     ),

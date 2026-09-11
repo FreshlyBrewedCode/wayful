@@ -1,7 +1,8 @@
 import { Effect, Option } from "effect";
 import { Argument, Command } from "effect/unstable/cli";
 
-import { WayfulBackend, type MapHandle, type ProjectHandle } from "../../../backend/Backend";
+import type { MapHandle, MapStore } from "../../../backend/MapStore";
+import type { ProjectHandle, ProjectStore } from "../../../backend/ProjectStore";
 import { liftSync } from "../../../backend/filesystem/documents";
 import { MapMetadataError, WayfulError } from "../../../domain/errors";
 import { slots } from "../../../domain/identifier";
@@ -71,7 +72,7 @@ export function resolveStepTarget(
 ): Effect.Effect<
   { readonly map: MapHandle; readonly token: ReferenceToken },
   WayfulError | MapMetadataError,
-  WayfulBackend
+  MapStore | ProjectStore
 > {
   return Effect.gen(function* () {
     const ref = yield* liftSync(() => expectStep(reference));

@@ -1,7 +1,8 @@
 import { Console, Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 
-import { WayfulBackend } from "../../../backend/Backend";
+import { MapStore } from "../../../backend/MapStore";
+import { ProjectStore } from "../../../backend/ProjectStore";
 import { liftSync } from "../../../backend/filesystem/documents";
 import { identifier, nonEmpty } from "../../../domain/identifier";
 import { CURRENT_FORMAT_VERSION, type NewStepRecord } from "../../../domain/model";
@@ -57,17 +58,18 @@ export const stepCreateCommand = Command.make(
       false,
       Effect.gen(function* () {
         const parent = yield* stepParent;
-        const backend = yield* WayfulBackend;
+        const mapStore = yield* MapStore;
+        const projectStore = yield* ProjectStore;
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const map = yield* resolveMap(parent.map, project);
         yield* assertWritableMapIntegrity(map);
-        const steps = yield* strict(yield* backend.listSteps(map));
+        const steps = yield* strict(yield* mapStore.listSteps(map));
         const stepName = yield* liftSync(() => identifier(name, "step name", true));
         if (steps.some((s) => s.name === stepName))
           yield* fail(`step '${stepName}' already exists.`);
         const typeName = yield* liftSync(() => identifier(type, "step type"));
-        const typeDefinition = yield* backend.getType(project, typeName);
+        const typeDefinition = yield* projectStore.getType(project, typeName);
         if (map.metadata.allowed_step_types && !map.metadata.allowed_step_types.includes(typeName))
           yield* fail(`type '${typeName}' is not allowed by this map.`);
         const requiredInputSlots = yield* resolveSlotOverride(
@@ -96,7 +98,7 @@ export const stepCreateCommand = Command.make(
           required_outputs: requiredOutputSlots,
           body,
         };
-        const created = yield* backend.createStep(map, step);
+        const created = yield* mapStore.createStep(map, step);
         yield* Console.log(`Created step ${created.id} '${stepName}'.`);
       }),
     ),
@@ -110,13 +112,14 @@ export const stepShowCommand = Command.make(
       json,
       Effect.gen(function* () {
         const parent = yield* stepParent;
-        const backend = yield* WayfulBackend;
+        const mapStore = yield* MapStore;
+        const projectStore = yield* ProjectStore;
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
-        const steps = yield* strict(yield* backend.listSteps(map));
+        const steps = yield* strict(yield* mapStore.listSteps(map));
         const target = yield* findStep(steps, token);
-        const instructions = yield* backend.getType(project, target.type).pipe(
+        const instructions = yield* projectStore.getType(project, target.type).pipe(
           Effect.map((type) => type.instructions),
           Effect.catch(() =>
             Effect.succeed("unavailable: referenced type is missing or malformed."),
@@ -155,12 +158,12 @@ export const stepUpdateCommand = Command.make(
       false,
       Effect.gen(function* () {
         const parent = yield* stepParent;
-        const backend = yield* WayfulBackend;
+        const mapStore = yield* MapStore;
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
         yield* assertWritableMapIntegrity(map);
-        const steps = yield* strict(yield* backend.listSteps(map));
+        const steps = yield* strict(yield* mapStore.listSteps(map));
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         if (target.status !== "pending") yield* fail("only pending steps can be updated.");
@@ -170,7 +173,7 @@ export const stepUpdateCommand = Command.make(
           ? yield* liftSync(() => nonEmpty(description.value, "step description"))
           : target.description;
         const nextBody = Option.getOrElse(body, () => target.body);
-        yield* backend.saveStep(map, { ...target, description: nextDescription, body: nextBody });
+        yield* mapStore.saveStep(map, { ...target, description: nextDescription, body: nextBody });
         yield* Console.log(`Updated step '${target.name}'.`);
       }),
     ),

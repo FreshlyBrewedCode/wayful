@@ -9,10 +9,10 @@
 
 import { Effect, Option, Result } from "effect";
 
-import { WayfulBackend, type MapHandle, type ProjectHandle } from "../backend/Backend";
+import { MapStore, type MapHandle } from "../backend/MapStore";
+import { ProjectStore, type ProjectHandle } from "../backend/ProjectStore";
 import { fail, resolveMap, resolveProject } from "../scope";
 import type { MapMetadataError, WayfulError } from "../domain/errors";
-import { deriveArtifacts } from "../domain/graph";
 import type {
   DerivedArtifact,
   GoalRecord,
@@ -75,8 +75,8 @@ export interface StepDetailPayload extends StepRecord {
  */
 export type ProjectHint = string;
 
-type Api<A> = Effect.Effect<A, never, WayfulBackend>;
-type Read<A> = Effect.Effect<A, WayfulError | MapMetadataError, WayfulBackend>;
+type Api<A> = Effect.Effect<A, never, MapStore | ProjectStore>;
+type Read<A> = Effect.Effect<A, WayfulError | MapMetadataError, MapStore | ProjectStore>;
 
 const openProject = (hint: ProjectHint) => resolveProject(Option.some(hint));
 
@@ -89,18 +89,10 @@ function openMap(project: ProjectHandle, name: string): Read<MapHandle> {
 }
 
 /** Everything a map-scoped response is assembled from, read once. */
-function readMap(map: MapHandle): Effect.Effect<MapSnapshot, WayfulError, WayfulBackend> {
+function readMap(map: MapHandle): Effect.Effect<MapSnapshot, WayfulError, MapStore> {
   return Effect.gen(function* () {
-    const backend = yield* WayfulBackend;
-    const steps = (yield* backend.listSteps(map)).records;
-    const goals = (yield* backend.listGoals(map)).records;
-    return {
-      map: map.metadata,
-      steps,
-      artifacts: deriveArtifacts(steps, goals),
-      goals,
-      types: (yield* backend.listTypes(map.project)).records,
-    };
+    const mapStore = yield* MapStore;
+    return (yield* mapStore.snapshot(map)).snapshot;
   });
 }
 
@@ -126,7 +118,8 @@ function orError<A>(read: Read<A>): Api<A | ErrorPayload> {
 /** `GET /api/overview` — the project, every map's status, and the type library. */
 export function overview(hint: ProjectHint): Api<OverviewPayload> {
   return Effect.gen(function* () {
-    const backend = yield* WayfulBackend;
+    const mapStore = yield* MapStore;
+    const projectStore = yield* ProjectStore;
     const opened = yield* Effect.result(openProject(hint));
     if (Result.isFailure(opened))
       return {
@@ -135,8 +128,8 @@ export function overview(hint: ProjectHint): Api<OverviewPayload> {
         types: [],
       };
     const project = opened.success;
-    const maps = yield* Effect.result(backend.listMaps(project));
-    const types = yield* Effect.result(backend.listTypes(project));
+    const maps = yield* Effect.result(mapStore.listMaps(project));
+    const types = yield* Effect.result(projectStore.listTypes(project));
     const summaries: MapSummaryPayload[] = [];
     for (const metadata of Result.isSuccess(maps) ? maps.success.records : []) {
       // A map that has become unreadable since it was listed still belongs on
@@ -185,15 +178,16 @@ export function stepDetail(
 ): Api<StepDetailPayload | ErrorPayload> {
   return orError(
     Effect.gen(function* () {
-      const backend = yield* WayfulBackend;
+      const mapStore = yield* MapStore;
+      const projectStore = yield* ProjectStore;
       const project = yield* openProject(hint);
       const map = yield* openMap(project, mapName);
-      const steps = (yield* backend.listSteps(map)).records;
+      const steps = (yield* mapStore.listSteps(map)).records;
       const target = /^\d+$/.test(reference)
         ? steps.find((step) => step.id === Number(reference))
         : steps.find((step) => step.name === reference);
       if (!target) return yield* fail(`step '${reference}' does not exist.`);
-      const instructions = yield* backend.getType(project, target.type).pipe(
+      const instructions = yield* projectStore.getType(project, target.type).pipe(
         Effect.map((type) => type.instructions),
         Effect.catch(() => Effect.succeed("unavailable: referenced type is missing or malformed.")),
       );

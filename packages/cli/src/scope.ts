@@ -1,8 +1,10 @@
 import { Effect, Option } from "effect";
 
-import { WayfulBackend, type MapHandle, type ProjectHandle } from "./backend/Backend";
+import type { MapHandle } from "./backend/MapStore";
+import { MapStore } from "./backend/MapStore";
+import type { ProjectHandle } from "./backend/ProjectStore";
+import { ProjectStore } from "./backend/ProjectStore";
 import { MapMetadataError, WayfulError } from "./domain/errors";
-import { deriveArtifacts } from "./domain/graph";
 import type { CollectionRead, DecodeError, MapSnapshot } from "./domain/model";
 import { validateMap } from "./domain/validate";
 
@@ -28,26 +30,27 @@ function envOption(name: string): Option.Option<string> {
 
 export function resolveProject(
   projectFlag: Option.Option<string>,
-): Effect.Effect<ProjectHandle, WayfulError, WayfulBackend> {
+): Effect.Effect<ProjectHandle, WayfulError, ProjectStore> {
   return Effect.gen(function* () {
-    const backend = yield* WayfulBackend;
+    const projectStore = yield* ProjectStore;
     const hint = Option.orElse(projectFlag, () => envOption("WAYFUL_PROJECT"));
-    return yield* backend.openProject(hint);
+    return yield* projectStore.openProject(hint);
   });
 }
 
 export function resolveMap(
   mapFlag: Option.Option<string>,
   project: ProjectHandle,
-): Effect.Effect<MapHandle, WayfulError | MapMetadataError, WayfulBackend> {
+): Effect.Effect<MapHandle, WayfulError | MapMetadataError, MapStore | ProjectStore> {
   return Effect.gen(function* () {
-    const backend = yield* WayfulBackend;
+    const mapStore = yield* MapStore;
+    const projectStore = yield* ProjectStore;
     const name = Option.orElse(mapFlag, () => envOption("WAYFUL_MAP"));
     if (Option.isNone(name))
       return yield* fail("map context is required; pass --map or set WAYFUL_MAP.");
-    const map = yield* backend.openMap(project, name.value);
+    const map = yield* mapStore.openMap(project, name.value);
     if (map.metadata.allowed_step_types !== undefined) {
-      const types = yield* backend.listTypes(project);
+      const types = yield* projectStore.listTypes(project);
       const known = new Set(types.records.map((type) => type.name));
       if (map.metadata.allowed_step_types.some((type) => !known.has(type)))
         return yield* Effect.fail(
@@ -69,44 +72,28 @@ export function resolveReferencedMap(
   refMap: string | undefined,
   mapFlag: Option.Option<string>,
   project: ProjectHandle,
-): Effect.Effect<MapHandle, WayfulError | MapMetadataError, WayfulBackend> {
+): Effect.Effect<MapHandle, WayfulError | MapMetadataError, MapStore | ProjectStore> {
   return refMap !== undefined
     ? resolveMap(Option.some(refMap), project)
     : resolveMap(mapFlag, project);
 }
 
 /**
- * Assembles a map's full snapshot from the backend's skip-and-collect reads,
- * alongside every decode error collected across its steps, goals, and
- * project types. Artifacts carry no record of their own (ADR-0004) and are
- * derived from the steps' and goals' attachments once those decode.
- * Reading stays lenient here — the snapshot holds
- * whatever decoded successfully — and it is up to the caller whether the
- * accompanying `errors` block further processing (`assertWritableMapIntegrity`,
- * `map validate`) or are only reported (`map show`, `map status`, `map next`).
+ * Assembles a map's full snapshot in one backend round trip, alongside every
+ * decode error collected across its steps, goals, and project types.
+ * Artifacts carry no record of their own (ADR-0004) and are derived from the
+ * steps' and goals' attachments once those decode. Reading stays lenient
+ * here — the snapshot holds whatever decoded successfully — and it is up to
+ * the caller whether the accompanying `errors` block further processing
+ * (`assertWritableMapIntegrity`, `map validate`) or are only reported
+ * (`map show`, `map status`, `map next`).
  */
 export function buildSnapshot(
   map: MapHandle,
-): Effect.Effect<
-  { snapshot: MapSnapshot; errors: readonly DecodeError[] },
-  WayfulError,
-  WayfulBackend
-> {
+): Effect.Effect<{ snapshot: MapSnapshot; errors: readonly DecodeError[] }, WayfulError, MapStore> {
   return Effect.gen(function* () {
-    const backend = yield* WayfulBackend;
-    const steps = yield* backend.listSteps(map);
-    const goals = yield* backend.listGoals(map);
-    const types = yield* backend.listTypes(map.project);
-    return {
-      snapshot: {
-        map: map.metadata,
-        steps: steps.records,
-        artifacts: deriveArtifacts(steps.records, goals.records),
-        goals: goals.records,
-        types: types.records,
-      },
-      errors: [...steps.errors, ...goals.errors, ...types.errors],
-    };
+    const mapStore = yield* MapStore;
+    return yield* mapStore.snapshot(map);
   });
 }
 
@@ -119,7 +106,7 @@ export function buildSnapshot(
  */
 export function assertWritableMapIntegrity(
   map: MapHandle,
-): Effect.Effect<void, WayfulError, WayfulBackend> {
+): Effect.Effect<void, WayfulError, MapStore> {
   return Effect.gen(function* () {
     const { snapshot, errors: readErrors } = yield* buildSnapshot(map);
     const validationErrors = validateMap(snapshot, { includeProgress: false });

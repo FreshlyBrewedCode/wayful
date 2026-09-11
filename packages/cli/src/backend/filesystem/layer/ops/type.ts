@@ -3,7 +3,7 @@ import { Effect, FileSystem, Path } from "effect";
 import { WayfulError } from "../../../../domain/errors";
 import { identifier } from "../../../../domain/identifier";
 import type { TypeDefinition } from "../../../../domain/model";
-import type { ProjectHandle } from "../../../Backend";
+import type { ProjectHandle } from "../../../ProjectStore";
 import { decodeType } from "../../decode";
 import { liftSync, parseFrontmatter, readTextFile } from "../../documents";
 import { typeFile, typesDir } from "../../paths";

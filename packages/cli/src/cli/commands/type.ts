@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { Argument, Command } from "effect/unstable/cli";
 
-import { WayfulBackend } from "../../backend/Backend";
+import { ProjectStore } from "../../backend/ProjectStore";
 import { resolveProject, strict } from "../../scope";
 import { jsonFlag } from "../flags";
 import { handle, printOutput } from "../render";
@@ -12,9 +12,9 @@ const typeListCommand = Command.make("list", { json: jsonFlag }, ({ json }) =>
     json,
     Effect.gen(function* () {
       const root = yield* wayfulRoot;
-      const backend = yield* WayfulBackend;
+      const projectStore = yield* ProjectStore;
       const p = yield* resolveProject(root.project);
-      const types = yield* strict(yield* backend.listTypes(p));
+      const types = yield* strict(yield* projectStore.listTypes(p));
       yield* printOutput(json, types, types.map((t) => `${t.name}: ${t.description}`).join("\n"));
     }),
   ),
@@ -34,9 +34,9 @@ const typeShowCommand = Command.make(
       json,
       Effect.gen(function* () {
         const root = yield* wayfulRoot;
-        const backend = yield* WayfulBackend;
+        const projectStore = yield* ProjectStore;
         const p = yield* resolveProject(root.project);
-        const type = yield* backend.getType(p, name);
+        const type = yield* projectStore.getType(p, name);
         const human = `${type.name}: ${type.description}\nInstructions:\n${type.instructions || "(empty)"}`;
         yield* printOutput(json, type, human);
       }),

@@ -2,7 +2,7 @@ import { Effect, FileSystem, Path, Semaphore } from "effect";
 
 import { WayfulError } from "../../../../domain/errors";
 import { closesStep, type NewStepRecord, type StepRecord } from "../../../../domain/model";
-import type { MapHandle } from "../../../Backend";
+import type { MapHandle } from "../../../MapStore";
 import { decodeStep } from "../../decode";
 import {
   buildMarkdown,
@@ -14,7 +14,7 @@ import {
   stringifyToml,
   writeAtomic,
 } from "../../documents";
-import { mapFile, stepFile, stepsDir } from "../../paths";
+import { mapDir, mapFile, stepFile, stepsDir } from "../../paths";
 import { accessError, collect, fail, stepToDocument } from "../records";
 
 export function makeStepOps(fs: FileSystem.FileSystem, path: Path.Path) {
@@ -30,9 +30,9 @@ export function makeStepOps(fs: FileSystem.FileSystem, path: Path.Path) {
     return lock;
   };
 
-  const allocateStepId = (mapDir: string): Effect.Effect<number, WayfulError> =>
+  const allocateStepId = (dir: string): Effect.Effect<number, WayfulError> =>
     Effect.gen(function* () {
-      const file = mapFile(path, mapDir);
+      const file = mapFile(path, dir);
       const text = yield* readTextFile(fs, file, `cannot read ${file}.`);
       const raw = (yield* liftSync(() => parseToml(text, file))) as Record<string, unknown>;
       const counter = raw.step_id_counter;
@@ -49,7 +49,7 @@ export function makeStepOps(fs: FileSystem.FileSystem, path: Path.Path) {
   return {
     listSteps: (map: MapHandle) =>
       Effect.gen(function* () {
-        const dir = stepsDir(path, map.dir);
+        const dir = stepsDir(path, mapDir(path, map.project.root, map.name));
         const files = yield* fs
           .readDirectory(dir)
           .pipe(Effect.mapError(() => new WayfulError({ message: "cannot read steps." })));
@@ -71,11 +71,12 @@ export function makeStepOps(fs: FileSystem.FileSystem, path: Path.Path) {
         };
       }),
 
-    createStep: (map: MapHandle, step: NewStepRecord) =>
-      lockFor(map.dir).withPermits(1)(
+    createStep: (map: MapHandle, step: NewStepRecord) => {
+      const dir = mapDir(path, map.project.root, map.name);
+      return lockFor(dir).withPermits(1)(
         Effect.gen(function* () {
-          const id = yield* allocateStepId(map.dir);
-          const file = stepFile(path, map.dir, id, step.name);
+          const id = yield* allocateStepId(dir);
+          const file = stepFile(path, dir, id, step.name);
           const exists = yield* fs.exists(file).pipe(Effect.mapError(accessError));
           if (exists) yield* fail(`step '${step.name}' already exists.`);
           const now = yield* nowISO();
@@ -89,7 +90,8 @@ export function makeStepOps(fs: FileSystem.FileSystem, path: Path.Path) {
           yield* writeAtomic(fs, file, buildMarkdown(stepToDocument(record), record.body));
           return record;
         }),
-      ),
+      );
+    },
 
     saveStep: (map: MapHandle, step: StepRecord) =>
       Effect.gen(function* () {
@@ -101,7 +103,7 @@ export function makeStepOps(fs: FileSystem.FileSystem, path: Path.Path) {
         };
         yield* writeAtomic(
           fs,
-          stepFile(path, map.dir, record.id, record.name),
+          stepFile(path, mapDir(path, map.project.root, map.name), record.id, record.name),
           buildMarkdown(stepToDocument(record), record.body),
         );
       }),

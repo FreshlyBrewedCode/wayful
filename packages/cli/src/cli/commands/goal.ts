@@ -1,7 +1,7 @@
 import { Console, Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 
-import { WayfulBackend } from "../../backend/Backend";
+import { MapStore } from "../../backend/MapStore";
 import { liftSync } from "../../backend/filesystem/documents";
 import { normalizeRef } from "../../domain/artifact-ref";
 import { WayfulError } from "../../domain/errors";
@@ -24,11 +24,11 @@ const goalListCommand = Command.make("list", { json: jsonFlag }, ({ json }) =>
     json,
     Effect.gen(function* () {
       const parent = yield* goalParent;
-      const backend = yield* WayfulBackend;
+      const mapStore = yield* MapStore;
       const root = yield* wayfulRoot;
       const project = yield* resolveProject(root.project);
       const map = yield* resolveMap(parent.map, project);
-      const goals = yield* strict(yield* backend.listGoals(map));
+      const goals = yield* strict(yield* mapStore.listGoals(map));
       const human = goals
         .flatMap((g) => [`${g.name}: ${g.description}`, ...bodyLines(g.body)])
         .join("\n");
@@ -73,7 +73,7 @@ const goalAddCommand = Command.make(
       false,
       Effect.gen(function* () {
         const parent = yield* goalParent;
-        const backend = yield* WayfulBackend;
+        const mapStore = yield* MapStore;
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const map = yield* resolveMap(parent.map, project);
@@ -83,7 +83,7 @@ const goalAddCommand = Command.make(
           nonEmpty(description, "goal description"),
         );
         const requiredOutputSlots = yield* liftSync(() => parseRequiredOutputs(requiredOutputs));
-        yield* backend.createGoal(map, {
+        yield* mapStore.createGoal(map, {
           format_version: CURRENT_FORMAT_VERSION,
           name: resolvedName,
           description: resolvedDescription,
@@ -120,13 +120,13 @@ const goalOutputCommand = Command.make(
       false,
       Effect.gen(function* () {
         const parent = yield* goalParent;
-        const backend = yield* WayfulBackend;
+        const mapStore = yield* MapStore;
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const map = yield* resolveMap(parent.map, project);
         yield* assertWritableMapIntegrity(map);
         const resolvedGoalName = yield* liftSync(() => identifier(goal, "goal name"));
-        const goals = yield* strict(yield* backend.listGoals(map));
+        const goals = yield* strict(yield* mapStore.listGoals(map));
         const target = goals.find((g) => g.name === resolvedGoalName);
         if (!target) return yield* fail(`goal '${resolvedGoalName}' does not exist.`);
         const normalizedRef = yield* liftSync(() => normalizeRef(rawRef));
@@ -157,7 +157,7 @@ const goalOutputCommand = Command.make(
           const resolvedKind = yield* liftSync(() => nonEmpty(kind.value, "attachment kind"));
           attachment = { ref: normalizedRef, kind: resolvedKind };
         }
-        yield* backend.saveGoal(map, { ...target, outputs: [...target.outputs, attachment] });
+        yield* mapStore.saveGoal(map, { ...target, outputs: [...target.outputs, attachment] });
         yield* Console.log(`Attached '${normalizedRef}'.`);
       }),
     ),
@@ -173,18 +173,18 @@ const goalSatisfyCommand = Command.make(
       false,
       Effect.gen(function* () {
         const parent = yield* goalParent;
-        const backend = yield* WayfulBackend;
+        const mapStore = yield* MapStore;
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const map = yield* resolveMap(parent.map, project);
         yield* assertWritableMapIntegrity(map);
         const resolvedGoalName = yield* liftSync(() => identifier(goal, "goal name"));
-        const goals = yield* strict(yield* backend.listGoals(map));
+        const goals = yield* strict(yield* mapStore.listGoals(map));
         const target = goals.find((g) => g.name === resolvedGoalName);
         if (!target) return yield* fail(`goal '${resolvedGoalName}' does not exist.`);
         if (!attachmentOK(target.required_outputs, target.outputs))
           return yield* fail("required output slots are not fulfilled.");
-        yield* backend.saveGoal(map, target);
+        yield* mapStore.saveGoal(map, target);
         yield* Console.log(`Satisfied goal '${resolvedGoalName}'.`);
       }),
     ),

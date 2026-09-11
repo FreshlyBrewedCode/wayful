@@ -1,7 +1,7 @@
 import { Console, Effect } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 
-import { WayfulBackend } from "../../../backend/Backend";
+import { MapStore } from "../../../backend/MapStore";
 import { liftSync } from "../../../backend/filesystem/documents";
 import { attachmentOK } from "../../../domain/graph";
 import { nonEmpty } from "../../../domain/identifier";
@@ -24,17 +24,17 @@ export const stepBlockCommand = Command.make(
       false,
       Effect.gen(function* () {
         const parent = yield* stepParent;
-        const backend = yield* WayfulBackend;
+        const mapStore = yield* MapStore;
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
         yield* assertWritableMapIntegrity(map);
-        const steps = yield* strict(yield* backend.listSteps(map));
+        const steps = yield* strict(yield* mapStore.listSteps(map));
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         if (target.status !== "pending") yield* fail("only pending steps can be blocked.");
         const blockReason = yield* liftSync(() => nonEmpty(reason, "block reason"));
-        yield* backend.saveStep(map, { ...target, status: "blocked", block_reason: blockReason });
+        yield* mapStore.saveStep(map, { ...target, status: "blocked", block_reason: blockReason });
         yield* Console.log(`Updated step '${target.name}'.`);
       }),
     ),
@@ -48,17 +48,17 @@ export const stepUnblockCommand = Command.make(
       false,
       Effect.gen(function* () {
         const parent = yield* stepParent;
-        const backend = yield* WayfulBackend;
+        const mapStore = yield* MapStore;
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
         yield* assertWritableMapIntegrity(map);
-        const steps = yield* strict(yield* backend.listSteps(map));
+        const steps = yield* strict(yield* mapStore.listSteps(map));
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         if (target.status !== "blocked") yield* fail("only blocked steps can be unblocked.");
         const { block_reason: _blockReason, ...rest } = target;
-        yield* backend.saveStep(map, { ...rest, status: "pending" });
+        yield* mapStore.saveStep(map, { ...rest, status: "pending" });
         yield* Console.log(`Updated step '${target.name}'.`);
       }),
     ),
@@ -78,18 +78,18 @@ export const stepCompleteCommand = Command.make(
       false,
       Effect.gen(function* () {
         const parent = yield* stepParent;
-        const backend = yield* WayfulBackend;
+        const mapStore = yield* MapStore;
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
         yield* assertWritableMapIntegrity(map);
-        const steps = yield* strict(yield* backend.listSteps(map));
+        const steps = yield* strict(yield* mapStore.listSteps(map));
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         const completionSummary = yield* liftSync(() => nonEmpty(summary, "completion summary"));
         if (!attachmentOK(target.required_outputs, target.outputs))
           yield* fail("required output slots are not fulfilled.");
-        yield* backend.saveStep(map, {
+        yield* mapStore.saveStep(map, {
           ...target,
           status: "complete",
           completion_summary: completionSummary,
@@ -113,16 +113,16 @@ export const stepCancelCommand = Command.make(
       false,
       Effect.gen(function* () {
         const parent = yield* stepParent;
-        const backend = yield* WayfulBackend;
+        const mapStore = yield* MapStore;
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
         yield* assertWritableMapIntegrity(map);
-        const steps = yield* strict(yield* backend.listSteps(map));
+        const steps = yield* strict(yield* mapStore.listSteps(map));
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         const cancellationReason = yield* liftSync(() => nonEmpty(reason, "cancellation reason"));
-        yield* backend.saveStep(map, {
+        yield* mapStore.saveStep(map, {
           ...target,
           status: "cancelled",
           cancellation_reason: cancellationReason,

@@ -1,7 +1,7 @@
 import { Console, Effect, Result } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 
-import { WayfulBackend } from "../../backend/Backend";
+import { MapStore } from "../../backend/MapStore";
 import { MapMetadataError } from "../../domain/errors";
 import { deriveArtifacts, nextSteps } from "../../domain/graph";
 import type { DecodeError } from "../../domain/model";
@@ -40,9 +40,9 @@ const mapCreateCommand = Command.make(
       false,
       Effect.gen(function* () {
         const root = yield* wayfulRoot;
-        const backend = yield* WayfulBackend;
+        const mapStore = yield* MapStore;
         const p = yield* resolveProject(root.project);
-        yield* backend.createMap(p, { name: map, start, goal, goalBody });
+        yield* mapStore.createMap(p, { name: map, start, goal, goalBody });
         yield* Console.log(`Created map '${map}'.`);
       }),
     ),
@@ -53,9 +53,9 @@ const mapListCommand = Command.make("list", { json: jsonFlag }, ({ json }) =>
     json,
     Effect.gen(function* () {
       const root = yield* wayfulRoot;
-      const backend = yield* WayfulBackend;
+      const mapStore = yield* MapStore;
       const p = yield* resolveProject(root.project);
-      const maps = (yield* backend.listMaps(p)).records;
+      const maps = (yield* mapStore.listMaps(p)).records;
       yield* printOutput(json, maps, maps.map((m) => `${m.name}: ${m.start}`).join("\n"));
     }),
   ),
@@ -108,11 +108,11 @@ const mapShowCommand = Command.make("show", { map: mapFlag, json: jsonFlag }, ({
     json,
     Effect.gen(function* () {
       const root = yield* wayfulRoot;
-      const backend = yield* WayfulBackend;
+      const mapStore = yield* MapStore;
       const p = yield* resolveProject(root.project);
       const m = yield* resolveMap(map, p);
-      const stepsRead = yield* backend.listSteps(m);
-      const goalsRead = yield* backend.listGoals(m);
+      const stepsRead = yield* mapStore.listSteps(m);
+      const goalsRead = yield* mapStore.listGoals(m);
       const steps = stepsRead.records;
       const goals = goalsRead.records;
       const artifacts = deriveArtifacts(steps, goals);
@@ -148,10 +148,10 @@ const mapNextCommand = Command.make("next", { map: mapFlag, json: jsonFlag }, ({
     json,
     Effect.gen(function* () {
       const root = yield* wayfulRoot;
-      const backend = yield* WayfulBackend;
+      const mapStore = yield* MapStore;
       const p = yield* resolveProject(root.project);
       const m = yield* resolveMap(map, p);
-      const stepsRead = yield* backend.listSteps(m);
+      const stepsRead = yield* mapStore.listSteps(m);
       const errors = [...stepsRead.errors];
       const actionable = nextSteps(stepsRead.records);
       yield* printOutput(
@@ -171,14 +171,10 @@ const mapStatusCommand = Command.make("status", { map: mapFlag, json: jsonFlag }
     json,
     Effect.gen(function* () {
       const root = yield* wayfulRoot;
-      const backend = yield* WayfulBackend;
       const p = yield* resolveProject(root.project);
       const m = yield* resolveMap(map, p);
-      const stepsRead = yield* backend.listSteps(m);
-      const goalsRead = yield* backend.listGoals(m);
-      const steps = stepsRead.records;
-      const errors = [...stepsRead.errors, ...goalsRead.errors];
-      const status = mapStatus(m.metadata, steps, goalsRead.records);
+      const { snapshot, errors } = yield* buildSnapshot(m);
+      const status = mapStatus(snapshot.map, snapshot.steps, snapshot.goals);
       const human = [
         `Map ${status.map}`,
         `Goals: ${status.goals.satisfied}/${status.goals.total} satisfied`,
@@ -190,7 +186,7 @@ const mapStatusCommand = Command.make("status", { map: mapFlag, json: jsonFlag }
         "Actionable steps:",
         ...(status.next.length
           ? status.next.map((s) => {
-              const step = steps.find((candidate) => candidate.id === s.id)!;
+              const step = snapshot.steps.find((candidate) => candidate.id === s.id)!;
               return `- ${step.id} ${step.name}: ${step.description}`;
             })
           : ["- none"]),
