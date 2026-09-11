@@ -252,6 +252,55 @@ describe("GithubMapStore: createStep", () => {
     });
   });
 
+  test("links a non-empty dependency set as native blocked_by edges on creation", async () => {
+    const { record, find } = recorder();
+    const existingStep = stepIssue(9, { name: "gamma", description: "third" });
+    await runGithubMapStore(
+      (request) => {
+        record(request);
+        const path = new URL(request.url).pathname;
+        if (request.method === "GET" && path.endsWith("/sub_issues"))
+          return jsonResponse(200, [existingStep]);
+        if (request.method === "POST" && path === "/repos/acme/widgets/labels")
+          return jsonResponse(201, {});
+        if (request.method === "POST" && path === "/repos/acme/widgets/issues")
+          return jsonResponse(201, issueJson(42, { id: 1042 }));
+        if (request.method === "POST" && path.endsWith("/sub_issues")) return jsonResponse(201, {});
+        if (
+          request.method === "POST" &&
+          path === "/repos/acme/widgets/issues/42/dependencies/blocked_by"
+        )
+          return jsonResponse(201, {});
+        throw new Error(`unexpected ${request.method} ${request.url}`);
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        yield* store.createStep(mapHandle(), newStep({ dependencies: [9] }));
+      }),
+    );
+    expect(find("POST", "/repos/acme/widgets/issues/42/dependencies/blocked_by")?.body).toEqual({
+      issue_id: 1009,
+    });
+  });
+
+  test("rejects a creation whose dependency is not a step of the same map before creating it", async () => {
+    const { record, requests } = recorder();
+    const error = await runGithubMapStore(
+      (request) => {
+        record(request);
+        const path = new URL(request.url).pathname;
+        if (request.method === "GET" && path.endsWith("/sub_issues")) return jsonResponse(200, []);
+        throw new Error(`unexpected ${request.method} ${request.url}`);
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        return yield* Effect.flip(store.createStep(mapHandle(), newStep({ dependencies: [9] })));
+      }),
+    );
+    expect(error.message).toContain("same map");
+    expect(requests.some((r) => r.method === "POST")).toBe(false);
+  });
+
   test("the 101st sub-issue is a named error explaining the shared cap, not a raw API failure", async () => {
     const { record, find } = recorder();
     const error = await runGithubMapStore(
@@ -280,11 +329,16 @@ describe("GithubMapStore: createStep", () => {
 describe("GithubMapStore: listSteps", () => {
   test("resolves steps from the map's sub-issues, sorted by issue number", async () => {
     const steps = await runGithubMapStore(
-      () =>
-        jsonResponse(200, [
-          stepIssue(5, { name: "beta", description: "second" }),
-          stepIssue(3, { name: "alpha", description: "first" }),
-        ]),
+      (request) => {
+        const path = new URL(request.url).pathname;
+        if (path.endsWith("/sub_issues"))
+          return jsonResponse(200, [
+            stepIssue(5, { name: "beta", description: "second" }),
+            stepIssue(3, { name: "alpha", description: "first" }),
+          ]);
+        if (path.endsWith("/dependencies/blocked_by")) return jsonResponse(200, []);
+        throw new Error(`unexpected ${request.method} ${request.url}`);
+      },
       Effect.gen(function* () {
         const store = yield* MapStore;
         return (yield* store.listSteps(mapHandle())).records;
@@ -297,25 +351,30 @@ describe("GithubMapStore: listSteps", () => {
 
   test("round-trips all four statuses through native state and the blocked label", async () => {
     const steps = await runGithubMapStore(
-      () =>
-        jsonResponse(200, [
-          stepIssue(3, { name: "pending", description: "p" }),
-          stepIssue(
-            4,
-            { name: "blocked", description: "b", block_reason: "waiting" },
-            { labels: blockedLabels() },
-          ),
-          stepIssue(
-            5,
-            { name: "complete", description: "c", completion_summary: "done" },
-            { state: "closed", state_reason: "completed", closed_at: ISSUE_TIME },
-          ),
-          stepIssue(
-            6,
-            { name: "cancelled", description: "x", cancellation_reason: "dropped" },
-            { state: "closed", state_reason: "not_planned", closed_at: ISSUE_TIME },
-          ),
-        ]),
+      (request) => {
+        const path = new URL(request.url).pathname;
+        if (path.endsWith("/sub_issues"))
+          return jsonResponse(200, [
+            stepIssue(3, { name: "pending", description: "p" }),
+            stepIssue(
+              4,
+              { name: "blocked", description: "b", block_reason: "waiting" },
+              { labels: blockedLabels() },
+            ),
+            stepIssue(
+              5,
+              { name: "complete", description: "c", completion_summary: "done" },
+              { state: "closed", state_reason: "completed", closed_at: ISSUE_TIME },
+            ),
+            stepIssue(
+              6,
+              { name: "cancelled", description: "x", cancellation_reason: "dropped" },
+              { state: "closed", state_reason: "not_planned", closed_at: ISSUE_TIME },
+            ),
+          ]);
+        if (path.endsWith("/dependencies/blocked_by")) return jsonResponse(200, []);
+        throw new Error(`unexpected ${request.method} ${request.url}`);
+      },
       Effect.gen(function* () {
         const store = yield* MapStore;
         return (yield* store.listSteps(mapHandle())).records.map((step) => step.status);
@@ -326,12 +385,17 @@ describe("GithubMapStore: listSteps", () => {
 
   test("ignores sub-issues that are not steps and reports malformed steps beside healthy ones", async () => {
     const result = await runGithubMapStore(
-      () =>
-        jsonResponse(200, [
-          issueJson(2, { labels: [{ name: "wayful:goal" }] }),
-          stepIssue(3, { name: "alpha", description: "healthy" }),
-          issueJson(4, { labels: [{ name: "wayful:step" }], body: "no details here" }),
-        ]),
+      (request) => {
+        const path = new URL(request.url).pathname;
+        if (path.endsWith("/sub_issues"))
+          return jsonResponse(200, [
+            issueJson(2, { labels: [{ name: "wayful:goal" }] }),
+            stepIssue(3, { name: "alpha", description: "healthy" }),
+            issueJson(4, { labels: [{ name: "wayful:step" }], body: "no details here" }),
+          ]);
+        if (path.endsWith("/dependencies/blocked_by")) return jsonResponse(200, []);
+        throw new Error(`unexpected ${request.method} ${request.url}`);
+      },
       Effect.gen(function* () {
         const store = yield* MapStore;
         return yield* store.listSteps(mapHandle());
@@ -339,6 +403,47 @@ describe("GithubMapStore: listSteps", () => {
     );
     expect(result.records.map((step) => step.id)).toEqual([3]);
     expect(result.errors).toEqual([{ file: "#4", message: expect.stringContaining("details") }]);
+  });
+
+  test("reads each step's dependencies from GitHub's native blocked_by edges, never the body", async () => {
+    const steps = await runGithubMapStore(
+      (request) => {
+        const path = new URL(request.url).pathname;
+        if (path.endsWith("/issues/7/sub_issues"))
+          return jsonResponse(200, [
+            stepIssue(3, { name: "alpha", description: "first" }),
+            stepIssue(5, { name: "beta", description: "second" }),
+          ]);
+        if (path.endsWith("/issues/3/dependencies/blocked_by"))
+          return jsonResponse(200, [issueJson(5, { id: 1005 })]);
+        if (path.endsWith("/issues/5/dependencies/blocked_by")) return jsonResponse(200, []);
+        throw new Error(`unexpected ${request.method} ${request.url}`);
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        return (yield* store.listSteps(mapHandle())).records;
+      }),
+    );
+    expect(steps.map((step) => step.dependencies)).toEqual([[5], []]);
+  });
+
+  test("rejects a dependency that is not a wayful:step sub-issue of the same map", async () => {
+    const result = await runGithubMapStore(
+      (request) => {
+        const path = new URL(request.url).pathname;
+        if (path.endsWith("/issues/7/sub_issues"))
+          return jsonResponse(200, [stepIssue(3, { name: "alpha", description: "first" })]);
+        if (path.endsWith("/issues/3/dependencies/blocked_by"))
+          return jsonResponse(200, [issueJson(99, { id: 1099 })]);
+        throw new Error(`unexpected ${request.method} ${request.url}`);
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        return yield* store.listSteps(mapHandle());
+      }),
+    );
+    expect(result.records).toEqual([]);
+    expect(result.errors).toEqual([{ file: "#3", message: expect.stringContaining("same map") }]);
   });
 });
 
@@ -352,6 +457,11 @@ describe("GithubMapStore: saveStep status transitions", () => {
         const path = new URL(request.url).pathname;
         if (request.method === "GET" && path.endsWith("/issues/7/sub_issues"))
           return jsonResponse(200, [current]);
+        if (
+          request.method === "GET" &&
+          path === "/repos/acme/widgets/issues/5/dependencies/blocked_by"
+        )
+          return jsonResponse(200, []);
         if (request.method === "GET" && path === "/repos/acme/widgets/issues/5")
           return jsonResponse(200, current);
         if (request.method === "POST" && path === "/repos/acme/widgets/issues/5/labels")
@@ -393,6 +503,11 @@ describe("GithubMapStore: saveStep status transitions", () => {
         const path = new URL(request.url).pathname;
         if (request.method === "GET" && path.endsWith("/issues/7/sub_issues"))
           return jsonResponse(200, [current]);
+        if (
+          request.method === "GET" &&
+          path === "/repos/acme/widgets/issues/5/dependencies/blocked_by"
+        )
+          return jsonResponse(200, []);
         if (request.method === "GET" && path === "/repos/acme/widgets/issues/5")
           return jsonResponse(200, current);
         if (request.method === "DELETE" && path.startsWith("/repos/acme/widgets/issues/5/labels/"))
@@ -426,6 +541,11 @@ describe("GithubMapStore: saveStep status transitions", () => {
         const path = new URL(request.url).pathname;
         if (request.method === "GET" && path.endsWith("/issues/7/sub_issues"))
           return jsonResponse(200, [current]);
+        if (
+          request.method === "GET" &&
+          path === "/repos/acme/widgets/issues/5/dependencies/blocked_by"
+        )
+          return jsonResponse(200, []);
         if (request.method === "GET" && path === "/repos/acme/widgets/issues/5")
           return jsonResponse(200, current);
         if (request.method === "PATCH" && path === "/repos/acme/widgets/issues/5")
@@ -461,6 +581,11 @@ describe("GithubMapStore: saveStep status transitions", () => {
         const path = new URL(request.url).pathname;
         if (request.method === "GET" && path.endsWith("/issues/7/sub_issues"))
           return jsonResponse(200, [current]);
+        if (
+          request.method === "GET" &&
+          path === "/repos/acme/widgets/issues/5/dependencies/blocked_by"
+        )
+          return jsonResponse(200, []);
         if (request.method === "GET" && path === "/repos/acme/widgets/issues/5")
           return jsonResponse(200, current);
         if (request.method === "PATCH" && path === "/repos/acme/widgets/issues/5")
@@ -486,9 +611,84 @@ describe("GithubMapStore: saveStep status transitions", () => {
     });
   });
 
-  test("rejects a dependency edit, which the next slice (#38) adds", async () => {
+  test("adding a dependency posts a native blocked_by edge and never rewrites the body", async () => {
     const current = stepIssue(5, { name: "alpha", description: "first" });
-    const { record } = recorder();
+    const prerequisite = stepIssue(9, { name: "gamma", description: "third" });
+    const { record, requests } = recorder();
+    await runGithubMapStore(
+      (request) => {
+        record(request);
+        const path = new URL(request.url).pathname;
+        if (request.method === "GET" && path.endsWith("/issues/7/sub_issues"))
+          return jsonResponse(200, [current, prerequisite]);
+        if (request.method === "GET" && path === "/repos/acme/widgets/issues/5")
+          return jsonResponse(200, current);
+        if (request.method === "GET" && path.endsWith("/dependencies/blocked_by"))
+          return jsonResponse(200, []);
+        if (
+          request.method === "POST" &&
+          path === "/repos/acme/widgets/issues/5/dependencies/blocked_by"
+        )
+          return jsonResponse(201, {});
+        throw new Error(`unexpected ${request.method} ${request.url}`);
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        const step = yield* loadStep();
+        yield* store.saveStep(mapHandle(), { ...step, dependencies: [9] });
+      }),
+    );
+    const add = requests.find(
+      (r) =>
+        r.method === "POST" && r.path === "/repos/acme/widgets/issues/5/dependencies/blocked_by",
+    );
+    expect(add?.body).toEqual({ issue_id: 1009 });
+    // A dependency change is a native edge, never a body edit.
+    expect(requests.some((r) => r.method === "PATCH")).toBe(false);
+  });
+
+  test("removing a dependency deletes the native edge and never rewrites the body", async () => {
+    const current = stepIssue(5, { name: "alpha", description: "first" });
+    const prerequisite = stepIssue(9, { name: "gamma", description: "third" });
+    const { record, requests } = recorder();
+    await runGithubMapStore(
+      (request) => {
+        record(request);
+        const path = new URL(request.url).pathname;
+        if (request.method === "GET" && path.endsWith("/issues/7/sub_issues"))
+          return jsonResponse(200, [current, prerequisite]);
+        if (request.method === "GET" && path === "/repos/acme/widgets/issues/5")
+          return jsonResponse(200, current);
+        if (request.method === "GET" && path.endsWith("/dependencies/blocked_by"))
+          return path.includes("/issues/5/")
+            ? jsonResponse(200, [issueJson(9, { id: 1009 })])
+            : jsonResponse(200, []);
+        if (
+          request.method === "DELETE" &&
+          path === "/repos/acme/widgets/issues/5/dependencies/blocked_by/1009"
+        )
+          return jsonResponse(200, {});
+        throw new Error(`unexpected ${request.method} ${request.url}`);
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        const step = yield* loadStep();
+        yield* store.saveStep(mapHandle(), { ...step, dependencies: [] });
+      }),
+    );
+    expect(
+      requests.some(
+        (r) =>
+          r.method === "DELETE" &&
+          r.path === "/repos/acme/widgets/issues/5/dependencies/blocked_by/1009",
+      ),
+    ).toBe(true);
+    expect(requests.some((r) => r.method === "PATCH")).toBe(false);
+  });
+
+  test("rejects a dependency that is not a wayful:step sub-issue of the same map", async () => {
+    const current = stepIssue(5, { name: "alpha", description: "first" });
+    const { record, requests } = recorder();
     const error = await runGithubMapStore(
       (request) => {
         record(request);
@@ -497,6 +697,11 @@ describe("GithubMapStore: saveStep status transitions", () => {
           return jsonResponse(200, [current]);
         if (request.method === "GET" && path === "/repos/acme/widgets/issues/5")
           return jsonResponse(200, current);
+        if (
+          request.method === "GET" &&
+          path === "/repos/acme/widgets/issues/5/dependencies/blocked_by"
+        )
+          return jsonResponse(200, []);
         throw new Error(`unexpected ${request.method} ${request.url}`);
       },
       Effect.gen(function* () {
@@ -505,7 +710,13 @@ describe("GithubMapStore: saveStep status transitions", () => {
         return yield* Effect.flip(store.saveStep(mapHandle(), { ...step, dependencies: [9] }));
       }),
     );
-    expect(error.message).toContain("dependencies");
+    expect(error.message).toContain("same map");
+    expect(
+      requests.some(
+        (r) =>
+          r.method === "POST" && r.path === "/repos/acme/widgets/issues/5/dependencies/blocked_by",
+      ),
+    ).toBe(false);
   });
 
   test("a description and body update rewrites the title and body without a state edit", async () => {
@@ -517,6 +728,11 @@ describe("GithubMapStore: saveStep status transitions", () => {
         const path = new URL(request.url).pathname;
         if (request.method === "GET" && path.endsWith("/issues/7/sub_issues"))
           return jsonResponse(200, [current]);
+        if (
+          request.method === "GET" &&
+          path === "/repos/acme/widgets/issues/5/dependencies/blocked_by"
+        )
+          return jsonResponse(200, []);
         if (request.method === "GET" && path === "/repos/acme/widgets/issues/5")
           return jsonResponse(200, current);
         if (request.method === "PATCH" && path === "/repos/acme/widgets/issues/5")
