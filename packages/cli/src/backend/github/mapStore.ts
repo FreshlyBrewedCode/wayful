@@ -233,6 +233,13 @@ export function makeGithubMapStore() {
             labels: [WAYFUL_STEP_LABEL, wayfulTypeLabel(step.type)],
           });
           yield* addSubIssue(ref, token, parent, created.id);
+          // A record may be created non-pending (the shared interface allows
+          // it, as the filesystem backend does); apply the status natively
+          // rather than returning a status the issue does not carry.
+          if (step.status === "blocked")
+            yield* addLabels(ref, token, created.number, [WAYFUL_BLOCKED_LABEL]);
+          else if (closesStep(step.status))
+            yield* updateIssue(ref, token, created.number, nativeState(step.status));
           return {
             ...step,
             id: created.number,
@@ -320,8 +327,10 @@ export function makeGithubMapStore() {
       listGoals: () => unsupported("goals"),
       createGoal: () => unsupported("goals"),
       saveGoal: () => unsupported("goals"),
-      // A later slice (#39) replaces this with one GraphQL query; until goals
-      // exist under this backend there is nothing to assemble.
+      // The one-query snapshot — map, steps, goals, types, labels — is the
+      // GraphQL slice (#39). Until then this backend reports the map alone
+      // rather than composing a partial snapshot from several round trips;
+      // commands that need steps read them through `listSteps`.
       snapshot: (map) =>
         Effect.succeed({
           snapshot: { map: map.metadata, steps: [], artifacts: [], goals: [], types: [] },

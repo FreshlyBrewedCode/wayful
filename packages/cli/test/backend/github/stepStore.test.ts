@@ -193,6 +193,65 @@ describe("GithubMapStore: createStep", () => {
     });
   });
 
+  test("applies a blocked status natively when the record is created blocked", async () => {
+    const { record, find } = recorder();
+    await runGithubMapStore(
+      (request) => {
+        record(request);
+        const path = new URL(request.url).pathname;
+        if (request.method === "GET" && path.endsWith("/sub_issues")) return jsonResponse(200, []);
+        if (request.method === "POST" && path === "/repos/acme/widgets/labels")
+          return jsonResponse(201, {});
+        if (request.method === "POST" && path === "/repos/acme/widgets/issues")
+          return jsonResponse(201, issueJson(42, { id: 1042 }));
+        if (request.method === "POST" && path.endsWith("/sub_issues")) return jsonResponse(201, {});
+        if (request.method === "POST" && path === "/repos/acme/widgets/issues/42/labels")
+          return jsonResponse(200, []);
+        throw new Error(`unexpected ${request.method} ${request.url}`);
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        yield* store.createStep(
+          mapHandle(),
+          newStep({ status: "blocked", block_reason: "waiting" }),
+        );
+      }),
+    );
+    expect(find("POST", "/repos/acme/widgets/issues/42/labels")?.body).toEqual({
+      labels: ["wayful:blocked"],
+    });
+  });
+
+  test("applies a terminal status natively when the record is created terminal", async () => {
+    const { record, find } = recorder();
+    await runGithubMapStore(
+      (request) => {
+        record(request);
+        const path = new URL(request.url).pathname;
+        if (request.method === "GET" && path.endsWith("/sub_issues")) return jsonResponse(200, []);
+        if (request.method === "POST" && path === "/repos/acme/widgets/labels")
+          return jsonResponse(201, {});
+        if (request.method === "POST" && path === "/repos/acme/widgets/issues")
+          return jsonResponse(201, issueJson(42, { id: 1042 }));
+        if (request.method === "POST" && path.endsWith("/sub_issues")) return jsonResponse(201, {});
+        if (request.method === "PATCH" && path === "/repos/acme/widgets/issues/42")
+          return jsonResponse(200, {});
+        throw new Error(`unexpected ${request.method} ${request.url}`);
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        yield* store.createStep(
+          mapHandle(),
+          newStep({ status: "complete", completion_summary: "done" }),
+        );
+      }),
+    );
+    expect(find("PATCH", "/repos/acme/widgets/issues/42")?.body).toEqual({
+      state: "closed",
+      state_reason: "completed",
+    });
+  });
+
   test("the 101st sub-issue is a named error explaining the shared cap, not a raw API failure", async () => {
     const { record, find } = recorder();
     const error = await runGithubMapStore(
