@@ -98,20 +98,24 @@ if [[ -z "$ready_items" ]]; then
   exit 0
 fi
 
-schedule_next_run() {
-  local interval="${RUN_INTERVAL_MINUTES:-15}"
-  echo "Ready column not yet empty — scheduling next run in ${interval} minute(s) via at"
+schedule_run() {
+  local interval="$1"
+  local reason="$2"
+  echo "$reason — scheduling next run in ${interval} minute(s) via at"
+  local env_prefix
+  env_prefix=$(printf 'T3_PROJECT_ID=%q T3_PROVIDER=%q T3_MODEL=%q DRY_RUN=%q RUN_UNTIL_EMPTY=%q RUN_INTERVAL_MINUTES=%q DISPATCH_RETRY_STATE=%q' \
+    "$T3_PROJECT_ID" "$T3_PROVIDER" "$T3_MODEL" "$DRY_RUN" "${RUN_UNTIL_EMPTY:-0}" "$interval" "$RETRY_STATE_FILE")
   at now + "$interval" minutes <<EOF
-RUN_UNTIL_EMPTY="$RUN_UNTIL_EMPTY" RUN_INTERVAL_MINUTES="$interval" "$SCRIPT_PATH"
+$env_prefix "$SCRIPT_PATH"
 EOF
 }
 
+schedule_next_run() {
+  schedule_run "${RUN_INTERVAL_MINUTES:-15}" "Ready column not yet empty"
+}
+
 schedule_retry_check() {
-  local interval="$1"
-  echo "Failed automatic thread(s) remain — scheduling retry check in ${interval} minute(s) via at"
-  at now + "$interval" minutes <<EOF
-RUN_UNTIL_EMPTY="$RUN_UNTIL_EMPTY" RUN_INTERVAL_MINUTES="${RUN_INTERVAL_MINUTES:-15}" "$SCRIPT_PATH"
-EOF
+  schedule_run "$1" "Failed automatic thread(s) remain"
 }
 
 clean_retry_state() {
