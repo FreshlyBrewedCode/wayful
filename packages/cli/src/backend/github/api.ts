@@ -118,6 +118,19 @@ export function ensureLabels(
 }
 
 /**
+ * GitHub's REST timestamps are second-precision (`2026-01-01T00:00:00Z`)
+ * while the domain's canonical shape — and the GraphQL path, via
+ * `isoMillis` — is millisecond-precision. Normalizing here keeps one
+ * timestamp shape regardless of transport, so a REST-read record decodes the
+ * same way a GraphQL-read one does.
+ */
+function isoMillis(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+/**
  * Normalizes one REST issue. Returns `undefined` for pull requests, which the
  * issues endpoint returns interleaved but which are never wayful records, and
  * for a record without an issue number, which cannot be addressed. Every other
@@ -143,9 +156,12 @@ function normalizeIssue(raw: unknown): GithubIssue | undefined {
     state: typeof record.state === "string" ? record.state : "",
     state_reason: typeof record.state_reason === "string" ? record.state_reason : null,
     labels,
-    created_at: typeof record.created_at === "string" ? record.created_at : "",
-    updated_at: typeof record.updated_at === "string" ? record.updated_at : "",
-    closed_at: typeof record.closed_at === "string" ? record.closed_at : null,
+    created_at: isoMillis(record.created_at),
+    updated_at: isoMillis(record.updated_at),
+    closed_at:
+      record.closed_at === null || record.closed_at === undefined
+        ? null
+        : isoMillis(record.closed_at),
   };
 }
 

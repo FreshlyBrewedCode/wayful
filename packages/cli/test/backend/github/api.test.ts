@@ -185,6 +185,26 @@ describe("listIssues", () => {
     ]);
   });
 
+  test("normalizes GitHub's second-precision timestamps to the canonical millisecond shape", async () => {
+    const layer = stubGithubHttp(() =>
+      jsonResponse(200, [
+        issueJson(7, {
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-02T12:30:45Z",
+          closed_at: "2026-01-03T23:59:59Z",
+        }),
+      ]),
+    );
+    const issues = await Effect.runPromise(
+      listIssues(repo, secretToken).pipe(Effect.provide(layer)),
+    );
+    expect(issues[0]).toMatchObject({
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-02T12:30:45.000Z",
+      closed_at: "2026-01-03T23:59:59.000Z",
+    });
+  });
+
   test("drops pull requests, which the issues endpoint also lists", async () => {
     const layer = stubGithubHttp(() =>
       jsonResponse(200, [issueJson(7), issueJson(9, { pull_request: { url: "..." } })]),

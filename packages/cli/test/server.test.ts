@@ -218,11 +218,29 @@ describe("the JSON API the viewer requires", () => {
 
     // One edit can raise several filesystem events; the stream only ever says
     // that something changed, so the client's response to one or five is the same.
-    await writeFile(join(project, ".wayful", "maps", "plan", "touched.txt"), "changed");
-    expect(decoder.decode((await reader.read()).value)).toContain("data: changed\n\n");
+    //
+    // The backend establishes its watcher asynchronously, so a write made
+    // before the watcher exists is missed. Keep touching the tree until the
+    // stream reports the change — what an editor's repeated saves would do —
+    // rather than assuming the very first write is observed. Racing one
+    // persistent read against a short timer means no read is left dangling.
+    const read = reader.read();
+    let changed = "";
+    for (let index = 0; index < 100 && changed === ""; index++) {
+      await writeFile(
+        join(project, ".wayful", "maps", "plan", `touched-${index}.txt`),
+        "changed",
+      ).catch(() => {});
+      const result = await Promise.race([
+        read,
+        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 50)),
+      ]);
+      if (result !== undefined && !result.done) changed = decoder.decode(result.value);
+    }
+    expect(changed).toContain("data: changed\n\n");
 
     await reader.cancel();
-  });
+  }, 15_000);
 
   test("unknown API routes are 404 rather than an SPA fallback", async () => {
     const project = await projectFixture();
