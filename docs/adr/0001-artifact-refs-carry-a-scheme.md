@@ -38,6 +38,6 @@ which needs it for identity; this ADR governs only the grammar.
   An existing bare ref inside a step or goal attachment is no longer decodable.
 - No migration tool ships. The skip-and-collect contract already reports an undecodable record
   per-file while its healthy siblings still read, so an old project degrades legibly in both the
-  CLI and the viewer, and manual persistence editing is an intentional part of the design.
+  CLI and the UI, and manual persistence editing is an intentional part of the design.
 - Ref *existence* is still never validated. ADR-0002 covers where dereferencing is allowed and
   where it stops.

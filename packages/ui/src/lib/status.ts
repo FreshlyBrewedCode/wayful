@@ -23,7 +23,7 @@ export function statusLabel(status: DisplayStatus): string {
 
 /**
  * A step's visual status. `ready` means the CLI's `map next` named this pending
- * step — the viewer derives nothing else, so it can never disagree with
+ * step — the UI derives nothing else, so it can never disagree with
  * `wayful` about where the work stands.
  */
 export function displayStatus(step: Step, next: readonly number[]): DisplayStatus {

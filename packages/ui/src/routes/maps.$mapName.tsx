@@ -71,7 +71,7 @@ function MapRoute() {
   );
 
   if (query.isError) {
-    return <EmptyState title="Cannot reach the viewer server">{query.error.message}</EmptyState>;
+    return <EmptyState title="Cannot reach the UI server">{query.error.message}</EmptyState>;
   }
   if (query.data && isError(query.data)) {
     // A malformed or unreadable map reports the CLI's own error.

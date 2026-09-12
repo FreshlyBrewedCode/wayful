@@ -1,7 +1,7 @@
 import type { Step } from "@/lib/wayful";
 
 /**
- * Geometry of the dependency graph. Layout is the *only* thing the viewer
+ * Geometry of the dependency graph. Layout is the *only* thing the UI
  * computes about a map — every status and count comes from the CLI.
  */
 export const GRAPH = {

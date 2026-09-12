@@ -4,7 +4,7 @@
 
 Nothing in this repo is published. There is no git remote, no `.github/`, no `LICENSE`, and both
 workspace packages are `"private": true`. The goal is a public repo, a CI/CD pipeline driven by
-semantic-release, and a CLI installable as `npx wayful` and `bunx wayful` with the viewer client
+semantic-release, and a CLI installable as `npx wayful` and `bunx wayful` with the UI client
 bundled into every release.
 
 The single fact that shapes everything else: **`packages/cli` cannot run on Node.** It is bound to
@@ -70,7 +70,7 @@ workspace package becomes structurally impossible rather than a thing to remembe
 
 ```
 packages/cli/dist/
-  ui/                      # built viewer — codegen source, and the dev fallback
+  ui/                      # built UI — codegen source, and the dev fallback
   npm/
     wayful/                # launcher: package.json, bin/wayful.js, skills/, README.md, LICENSE
     cli-linux-x64/         # package.json, bin/wayful, README.md, LICENSE
@@ -122,7 +122,7 @@ A good error beats a bad binary.
 4. Propagate the child's exit code, and its terminating signal — `wayful serve` and `wayful ui` are
    long-lived, so a swallowed `SIGINT` would be a daily annoyance.
 
-## The viewer client is embedded in each binary
+## The UI client is embedded in each binary
 
 At 536 KB the size argument for shipping the client as loose files evaporates, so the binary becomes
 self-contained: it works when downloaded raw from a GitHub Release, needs no environment plumbing,

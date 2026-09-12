@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-const KEY = "wayful-viewer-theme";
+const KEY = "wayful-ui-theme";
 
 export type Theme = "light" | "dark";
 
@@ -43,7 +43,7 @@ export function useTheme() {
     try {
       localStorage.setItem(KEY, next);
     } catch {
-      // A viewer that cannot remember the choice is still a working viewer.
+      // A UI that cannot remember the choice is still a working UI.
     }
   }, []);
 

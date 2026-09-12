@@ -218,7 +218,7 @@ nix develop --command bun run --filter './packages/cli' test   # ported suite + 
 nix develop --command bun run check                            # lint + typecheck + all packages
 ```
 
-Then an end-to-end pass in a scratch directory, covering the paths the viewer depends on:
+Then an end-to-end pass in a scratch directory, covering the paths the UI depends on:
 
 ```sh
 cd "$(mktemp -d)"
@@ -238,5 +238,5 @@ Plus the new-capability checks: `wayful --project DIR map --map plan show`,
 `WAYFUL_MAP=plan wayful map show`, `wayful step create --help`, and a `--json` failure
 (`wayful map show --map missing --json` → `{"error": …}`, exit 2).
 
-Finally, run the viewer against a populated project (`bun run --filter './packages/ui' dev`) to
+Finally, run the UI against a populated project (`bun run --filter './packages/ui' dev`) to
 confirm the overview, map, and step endpoints still render.

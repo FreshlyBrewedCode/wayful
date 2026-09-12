@@ -91,7 +91,7 @@ const get = (server: RunningServer, path: string) => fetch(new URL(path, server.
 const json = (server: RunningServer, path: string): Promise<any> =>
   get(server, path).then((response) => response.json());
 
-describe("the JSON API the viewer requires", () => {
+describe("the JSON API the UI requires", () => {
   test("overview reports the project, every map with its status, and the project types", async () => {
     const project = await projectFixture();
     const server = await serve({ project });
@@ -152,7 +152,7 @@ describe("the JSON API the viewer requires", () => {
     expect(detail.status.steps).toEqual({ pending: 1, blocked: 1, complete: 0, cancelled: 0 });
     expect(detail.next).toEqual([1]);
     // `map validate`'s own findings, progress included — unfinished work is a
-    // finding there, and the viewer's findings panel must say what the CLI says.
+    // finding there, and the UI's findings panel must say what the CLI says.
     expect(detail.validation).toEqual({
       valid: false,
       errors: [
@@ -286,7 +286,7 @@ describe("project resolution", () => {
   });
 });
 
-describe("serving the viewer client", () => {
+describe("serving the UI client", () => {
   test("without a client, only the API is served", async () => {
     const project = await projectFixture();
     const server = await serve({ project });

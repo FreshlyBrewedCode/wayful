@@ -543,7 +543,7 @@ describe("artifacts, goals, and validation", () => {
     await expect(readFile(join(mapDirectory, "steps", "3-new-work.md"), "utf8")).rejects.toThrow();
   });
 
-  test("serves the viewer API and the bundled client from the project given by --project", async () => {
+  test("serves the UI API and the bundled client from the project given by --project", async () => {
     const project = await projectFixture();
     await writeStep(project, "work", 1);
     const elsewhere = await temporaryDirectory();

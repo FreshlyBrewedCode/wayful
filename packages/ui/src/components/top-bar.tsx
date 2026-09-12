@@ -65,8 +65,8 @@ export function TopBar({
           </span>
         </TooltipTrigger>
         <TooltipContent>
-          Watching <code className="font-mono">.wayful</code> for changes. Read-only — the viewer
-          never writes.
+          Watching <code className="font-mono">.wayful</code> for changes. Read-only — the UI never
+          writes.
         </TooltipContent>
       </Tooltip>
 

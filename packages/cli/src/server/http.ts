@@ -1,5 +1,5 @@
-// The HTTP surface: the viewer's JSON API, a change-notification stream, and —
-// when a built client is supplied — the viewer SPA itself. Nothing here writes
+// The HTTP surface: the UI's JSON API, a change-notification stream, and —
+// when a built client is supplied — the UI SPA itself. Nothing here writes
 // to `.wayful`; the server only ever reads through the backend.
 
 import { Effect, Option, Path, Result } from "effect";
@@ -17,7 +17,7 @@ export interface ServerConfig {
   /** `0` binds an ephemeral port, which `RunningServer.port` then reports. */
   readonly port: number;
   /**
-   * A built viewer client to serve, as a route → file-path map, or `undefined`
+   * A built UI client to serve, as a route → file-path map, or `undefined`
    * to expose only the API. Built once by `resolveClientAssets` before the
    * server starts, so a request path is only ever compared against map keys —
    * never turned into a filesystem path itself.
@@ -99,7 +99,7 @@ export function startServer(
     // server never says what changed, only that something did. How a backend
     // learns of a change is its own concern — a filesystem watcher on `.wayful`
     // or conditional-request polling against GitHub — so the server only
-    // subscribes and stops it. Watching is a convenience; the viewer still
+    // subscribes and stops it. Watching is a convenience; the UI still
     // works without it, so a subscription that cannot start is a no-op.
     const listeners = new Set<(event: string) => void>();
     const emitChanged = () => {

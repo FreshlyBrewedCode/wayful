@@ -45,7 +45,7 @@ export function makeFileSystemMapStore(fs: FileSystem.FileSystem, path: Path.Pat
     ...goalOps,
     ...snapshotOp,
     readArtifact: makeReadArtifact({ fs, path, snapshot: snapshotOp.snapshot }),
-    // Watching is a convenience; the viewer still works without it. The
+    // Watching is a convenience; the UI still works without it. The
     // watch stream is run to completion on a detached fiber rather than
     // awaited here, so a directory that cannot be watched (or a watcher that
     // fails mid-stream) is swallowed by `Effect.ignore` instead of failing
