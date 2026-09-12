@@ -1,4 +1,4 @@
-import type { Step } from "./wayful";
+import type { Step } from "@/lib/wayful";
 
 /**
  * Geometry of the dependency graph. Layout is the *only* thing the viewer

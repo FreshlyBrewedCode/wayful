@@ -1,4 +1,4 @@
-import type { DisplayStatus, Step } from "./wayful";
+import type { DisplayStatus, Step } from "@/lib/wayful";
 
 /** Board column order, and the order every status legend uses. */
 export const DISPLAY_STATUSES = [

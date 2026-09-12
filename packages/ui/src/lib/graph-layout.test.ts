@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { GRAPH, assignColumns, layoutGraph } from "@/lib/graph-layout";
-import { step } from "./fixtures";
+import { step } from "@test/fixtures";
 
 const ids = (columns: ReturnType<typeof assignColumns>) =>
   columns.map((column) => column.map((s) => s.id));

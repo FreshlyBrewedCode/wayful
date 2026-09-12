@@ -1,6 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 
-import type { MapResponse, Overview, StepResponse } from "./wayful";
+import type { MapResponse, Overview, StepResponse } from "@/lib/wayful";
 
 /**
  * The viewer's whole data surface. Each endpoint forwards the CLI's own

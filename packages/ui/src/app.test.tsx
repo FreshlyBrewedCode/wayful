@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 import type { Overview, StepDetail } from "@/lib/wayful";
-import { detail, step } from "./fixtures";
-import { type Backend, renderApp } from "./harness";
+import { detail, step } from "@test/fixtures";
+import { type Backend, renderApp } from "@test/harness";
 
 const STEPS = [
   step(1, { name: "survey", status: "complete", completion_summary: "done" }),
