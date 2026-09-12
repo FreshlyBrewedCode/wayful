@@ -7,13 +7,16 @@ import { WayfulError } from "../../domain/errors";
  * stored anywhere else.
  */
 export interface GithubIssue {
+  readonly id: number;
   readonly number: number;
   readonly title: string;
   readonly body: string | null;
   readonly state: string;
+  readonly state_reason: string | null;
   readonly labels: readonly string[];
   readonly created_at: string;
   readonly updated_at: string;
+  readonly closed_at: string | null;
 }
 
 const DETAILS_OPEN = "<details>";

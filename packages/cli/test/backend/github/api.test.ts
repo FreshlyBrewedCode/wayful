@@ -156,22 +156,28 @@ describe("listIssues", () => {
     expect(url.searchParams.get("per_page")).toBe("100");
     expect(issues).toEqual([
       {
+        id: 1007,
         number: 7,
         title: "issue 7",
         body: "body",
         state: "open",
+        state_reason: null,
         labels: ["wayful:map"],
         created_at: ISSUE_TIME,
         updated_at: ISSUE_TIME,
+        closed_at: null,
       },
       {
+        id: 1008,
         number: 8,
         title: "issue 8",
         body: "body",
         state: "open",
+        state_reason: null,
         labels: ["wayful:step"],
         created_at: ISSUE_TIME,
         updated_at: ISSUE_TIME,
+        closed_at: null,
       },
     ]);
   });

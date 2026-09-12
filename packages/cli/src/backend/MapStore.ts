@@ -23,6 +23,13 @@ export interface MapHandle {
   readonly project: ProjectHandle;
   readonly name: string;
   readonly metadata: MapMetadata;
+  /**
+   * The GitHub issue number a github-backed map resolves to — the native
+   * address step and goal sub-issues are attached to and looked up under.
+   * Absent under the filesystem backend, which recomputes a directory from
+   * `project.root` + `name` instead.
+   */
+  readonly number?: number;
 }
 
 export class MapStore extends Context.Service<

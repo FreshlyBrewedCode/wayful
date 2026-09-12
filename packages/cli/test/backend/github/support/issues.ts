@@ -16,13 +16,16 @@ export function issueJson(
   overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
   return {
+    id: number + 1000,
     number,
     title: `issue ${number}`,
     body: "body",
     state: "open",
+    state_reason: null,
     labels: [{ name: "wayful:map" }],
     created_at: ISSUE_TIME,
     updated_at: ISSUE_TIME,
+    closed_at: null,
     ...overrides,
   };
 }

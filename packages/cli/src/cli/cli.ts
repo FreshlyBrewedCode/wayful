@@ -4,6 +4,7 @@ import { artifactCommand } from "./commands/artifact";
 import { contextCommand } from "./commands/context";
 import { goalCommand } from "./commands/goal";
 import { initCommand } from "./commands/init";
+import { labelCommand } from "./commands/label";
 import { mapCommand } from "./commands/map";
 import { serveCommand, uiCommand } from "./commands/server";
 import { stepCommand } from "./commands/step";
@@ -19,6 +20,7 @@ export const cli = wayfulRoot.pipe(
     artifactCommand,
     goalCommand,
     typeCommand,
+    labelCommand,
     uiCommand,
     serveCommand,
   ]),
