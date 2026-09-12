@@ -4,7 +4,7 @@ import { Console, Effect, Layer } from "effect";
 import { CliError, CliOutput, Command } from "effect/unstable/cli";
 import { FetchHttpClient } from "effect/unstable/http";
 
-import { FileSystemBackend } from "./backend/filesystem/layer";
+import { Backend } from "./backend/backend";
 import { GithubCredentialsLayer } from "./backend/github/credentials";
 import { cli } from "./cli/cli";
 import { helpCapturingFormatter, takeHelpText } from "./cli/help-output";
@@ -16,11 +16,14 @@ import { report } from "./cli/report";
 declare const WAYFUL_BUILD_VERSION: string | undefined;
 const VERSION = typeof WAYFUL_BUILD_VERSION === "string" ? WAYFUL_BUILD_VERSION : "0.0.0-dev";
 
-const AppLayer = Layer.mergeAll(
-  FileSystemBackend.pipe(Layer.provide(BunServices.layer)),
+const InfraLayer = Layer.mergeAll(
   BunServices.layer,
   FetchHttpClient.layer,
   GithubCredentialsLayer.pipe(Layer.provide(BunServices.layer)),
+);
+
+const AppLayer = Layer.mergeAll(
+  Backend.pipe(Layer.provideMerge(InfraLayer)),
   CliOutput.layer(helpCapturingFormatter),
 );
 

@@ -1,20 +1,22 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Redacted } from "effect";
+import type { HttpClientRequest } from "effect/unstable/http";
 
-import { apiBase, ensureLabel, ensureLabels, verifyAccess } from "../../../src/backend/github/api";
+import {
+  apiBase,
+  createIssue,
+  ensureLabel,
+  ensureLabels,
+  listIssues,
+  verifyAccess,
+} from "../../../src/backend/github/api";
 import type { GitRemoteRef } from "../../../src/backend/github/remote";
 import { stubHttpClient } from "./support/httpClient";
+import { ISSUE_TIME, bodyText, issueJson, jsonResponse } from "./support/issues";
 
 const repo: GitRemoteRef = { host: "github.com", owner: "acme", repo: "widgets" };
 const enterpriseRepo: GitRemoteRef = { host: "github.example.com", owner: "acme", repo: "widgets" };
 const secretToken = Redacted.make("super-secret-token-value");
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
 
 describe("apiBase", () => {
   test("resolves github.com to the public API hosts", () => {
@@ -134,5 +136,119 @@ describe("ensureLabels", () => {
       ]).pipe(Effect.provide(layer)),
     );
     expect(created).toHaveLength(2);
+  });
+});
+
+describe("listIssues", () => {
+  test("requests label-filtered open issues and normalizes labels", async () => {
+    let seen = "";
+    const layer = stubHttpClient((request) => {
+      seen = request.url;
+      return jsonResponse(200, [issueJson(7), issueJson(8, { labels: ["wayful:step"] })]);
+    });
+    const issues = await Effect.runPromise(
+      listIssues(repo, secretToken, { labels: ["wayful:map"] }).pipe(Effect.provide(layer)),
+    );
+    const url = new URL(seen);
+    expect(url.pathname).toBe("/repos/acme/widgets/issues");
+    expect(url.searchParams.get("labels")).toBe("wayful:map");
+    expect(url.searchParams.get("state")).toBe("open");
+    expect(url.searchParams.get("per_page")).toBe("100");
+    expect(issues).toEqual([
+      {
+        number: 7,
+        title: "issue 7",
+        body: "body",
+        state: "open",
+        labels: ["wayful:map"],
+        created_at: ISSUE_TIME,
+        updated_at: ISSUE_TIME,
+      },
+      {
+        number: 8,
+        title: "issue 8",
+        body: "body",
+        state: "open",
+        labels: ["wayful:step"],
+        created_at: ISSUE_TIME,
+        updated_at: ISSUE_TIME,
+      },
+    ]);
+  });
+
+  test("drops pull requests, which the issues endpoint also lists", async () => {
+    const layer = stubHttpClient(() =>
+      jsonResponse(200, [issueJson(7), issueJson(9, { pull_request: { url: "..." } })]),
+    );
+    const issues = await Effect.runPromise(
+      listIssues(repo, secretToken).pipe(Effect.provide(layer)),
+    );
+    expect(issues.map((issue) => issue.number)).toEqual([7]);
+  });
+
+  test("follows rel=next pagination", async () => {
+    const requested: string[] = [];
+    const layer = stubHttpClient((request) => {
+      requested.push(request.url);
+      if (request.url.includes("page=2")) return jsonResponse(200, [issueJson(2)]);
+      return new Response(JSON.stringify([issueJson(1)]), {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+          link: '<https://api.github.com/repos/acme/widgets/issues?page=2>; rel="next", <https://api.github.com/repos/acme/widgets/issues?page=2>; rel="last"',
+        },
+      });
+    });
+    const issues = await Effect.runPromise(
+      listIssues(repo, secretToken).pipe(Effect.provide(layer)),
+    );
+    expect(issues.map((issue) => issue.number)).toEqual([1, 2]);
+    expect(requested).toHaveLength(2);
+  });
+
+  test("fails without leaking the token on an unexpected status", async () => {
+    const layer = stubHttpClient(() => jsonResponse(500, { message: "server error" }));
+    const error = await Effect.runPromise(
+      listIssues(repo, secretToken).pipe(Effect.flip, Effect.provide(layer)),
+    );
+    expect(error["_tag"]).toBe("WayfulError");
+    expect(error.message).not.toContain(Redacted.value(secretToken));
+  });
+});
+
+describe("createIssue", () => {
+  test("posts the title, body and labels and returns the created issue", async () => {
+    let seen: HttpClientRequest.HttpClientRequest | undefined;
+    const layer = stubHttpClient((request) => {
+      seen = request;
+      return jsonResponse(201, issueJson(11, { title: "here" }));
+    });
+    const created = await Effect.runPromise(
+      createIssue(repo, secretToken, {
+        title: "here",
+        body: "the body",
+        labels: ["wayful:map"],
+      }).pipe(Effect.provide(layer)),
+    );
+    expect(created.number).toBe(11);
+    expect(seen?.method).toBe("POST");
+    expect(seen?.url).toBe("https://api.github.com/repos/acme/widgets/issues");
+    expect(JSON.parse(bodyText(seen!))).toEqual({
+      title: "here",
+      body: "the body",
+      labels: ["wayful:map"],
+    });
+  });
+
+  test("fails without leaking the token when the issue cannot be created", async () => {
+    const layer = stubHttpClient(() => jsonResponse(422, { message: "validation failed" }));
+    const error = await Effect.runPromise(
+      createIssue(repo, secretToken, { title: "here", body: "", labels: [] }).pipe(
+        Effect.flip,
+        Effect.provide(layer),
+      ),
+    );
+    expect(error["_tag"]).toBe("WayfulError");
+    expect(error.message).not.toContain(Redacted.value(secretToken));
   });
 });
