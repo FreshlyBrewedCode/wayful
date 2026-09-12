@@ -1,17 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { Effect, Layer, Redacted } from "effect";
+import { Effect } from "effect";
 import type { HttpClientRequest } from "effect/unstable/http";
 
-import { GithubCredentials } from "../../../src/backend/github/credentials";
 import { encodeIssueBody } from "../../../src/backend/github/issue";
 import { mapIssueData } from "../../../src/backend/github/map";
-import { GithubMapStore } from "../../../src/backend/github/mapStore";
 import { MapStore } from "../../../src/backend/MapStore";
 import type { ProjectHandle } from "../../../src/backend/ProjectStore";
 import type { MapMetadata } from "../../../src/domain/model";
-import { stubHttpClient } from "./support/httpClient";
+import { runGithubMapStore } from "./support/store";
 import { ISSUE_TIME, bodyText, issueJson, jsonResponse } from "./support/issues";
-import { fakeSpawnFailure, stubChildProcessSpawner } from "./support/spawner";
 
 const project: ProjectHandle = {
   root: "/repo",
@@ -40,30 +37,7 @@ function run<A, E>(
   effect: Effect.Effect<A, E, MapStore>,
   options: { readonly remote?: string | null } = {},
 ): Promise<A> {
-  const remote = options.remote === undefined ? "git@github.com:acme/widgets.git" : options.remote;
-  const spawner = stubChildProcessSpawner((invocation) => {
-    if (invocation[0] === "git")
-      return remote === null ? Effect.fail(fakeSpawnFailure("no remote")) : Effect.succeed(remote);
-    return Effect.succeed("");
-  });
-  const credentials = Layer.succeed(
-    GithubCredentials,
-    GithubCredentials.of({ token: () => Effect.succeed(Redacted.make("test-token")) }),
-  );
-  const layer = GithubMapStore.pipe(
-    Layer.provide(
-      Layer.mergeAll(
-        stubHttpClient((request) => {
-          if (request.url.includes("/search/"))
-            throw new Error("the Search API must never be called");
-          return http(request);
-        }),
-        spawner,
-        credentials,
-      ),
-    ),
-  );
-  return Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<A, E, never>);
+  return runGithubMapStore(http, effect, options);
 }
 
 function metadata(name: string, start: string): MapMetadata {
@@ -82,7 +56,11 @@ describe("GithubMapStore: createMap", () => {
     let created: HttpClientRequest.HttpClientRequest | undefined;
     await run(
       (request) => {
+        const pathname = new URL(request.url).pathname;
         if (request.method === "GET") return jsonResponse(200, []);
+        if (pathname.endsWith("/sub_issues")) return jsonResponse(201, issueJson(13));
+        const body = JSON.parse(bodyText(request)) as { labels: string[] };
+        if (!body.labels.includes("wayful:map")) return jsonResponse(201, issueJson(13));
         created = request;
         return jsonResponse(201, issueJson(12, { title: "here" }));
       },
@@ -185,13 +163,16 @@ describe("GithubMapStore: listMaps", () => {
     const issues: Record<string, unknown>[] = [];
     const names = await run(
       (request) => {
+        const pathname = new URL(request.url).pathname;
+        if (request.method === "POST" && pathname.endsWith("/sub_issues"))
+          return jsonResponse(201, issueJson(43));
         if (request.method === "POST") {
           const body = JSON.parse(bodyText(request)) as {
             title: string;
             body: string;
             labels: string[];
           };
-          const created = issueJson(42, {
+          const created = issueJson(body.labels.includes("wayful:map") ? 42 : 43, {
             title: body.title,
             body: body.body,
             labels: body.labels.map((name) => ({ name })),
@@ -203,7 +184,12 @@ describe("GithubMapStore: listMaps", () => {
       },
       Effect.gen(function* () {
         const store = yield* MapStore;
-        yield* store.createMap(project, { name: "alpha", start: "here", goal: "", goalBody: "" });
+        yield* store.createMap(project, {
+          name: "alpha",
+          start: "here",
+          goal: "done",
+          goalBody: "",
+        });
         return (yield* store.listMaps(project)).records.map((map) => map.name);
       }),
     );

@@ -1,21 +1,25 @@
 import { Effect, Layer, Ref } from "effect";
-import { HttpClient } from "effect/unstable/http";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { WayfulError } from "../../domain/errors";
+import { attachmentOK, deriveArtifacts } from "../../domain/graph";
 import { identifier, nonEmpty } from "../../domain/identifier";
 import {
   closesStep,
   type CollectionRead,
   type DecodeError,
+  type GoalRecord,
   type MapMetadata,
+  type MapSnapshot,
+  type NewGoalRecord,
   type NewStepRecord,
   type StepRecord,
   type StepStatus,
+  type TypeDefinition,
 } from "../../domain/model";
 import { liftSync } from "../effect";
 import { MapStore, type MapHandle } from "../MapStore";
-import type { ProjectHandle } from "../ProjectStore";
+import { ProjectStore, type ProjectHandle } from "../ProjectStore";
 import {
   addBlockedBy,
   addLabels,
@@ -32,9 +36,18 @@ import {
   type IssuePatch,
 } from "./api";
 import { GithubCredentials } from "./credentials";
+import {
+  decodeGoalIssue,
+  encodeGoalBody,
+  INITIAL_GOAL_NAME,
+  INITIAL_GOAL_REQUIRED_OUTPUTS,
+} from "./goal";
+import { readMapSnapshot, type SnapshotChild } from "./graphql";
+import { GithubHttp } from "./http";
 import { encodeIssueBody, type GithubIssue } from "./issue";
 import {
   WAYFUL_BLOCKED_LABEL,
+  WAYFUL_GOAL_LABEL,
   WAYFUL_MAP_LABEL,
   WAYFUL_STEP_LABEL,
   wayfulTypeLabel,
@@ -47,10 +60,67 @@ import { SUB_ISSUE_CAP, subIssueCapError } from "./subIssues";
 
 const fail = (message: string) => Effect.fail(new WayfulError({ message }));
 
-const unsupported = (what: string) => fail(`the github backend does not support ${what} yet.`);
-
 function describeError(error: unknown): string {
   return error instanceof WayfulError ? error.message : String(error);
+}
+
+/** The memoization key for a map's snapshot: one project, one map. */
+const snapshotKey = (map: MapHandle) => `${map.project.root}#${map.number ?? map.name}`;
+
+/** The snapshot a read returns, plus every record it could not decode. */
+interface SnapshotRead {
+  readonly snapshot: MapSnapshot;
+  readonly errors: readonly DecodeError[];
+}
+
+/**
+ * Folds one GraphQL snapshot into the domain shape: the map's own metadata,
+ * every decodable step (with its native dependencies) and goal, the artifacts
+ * those attachments derive, and the project's type library. A record that
+ * fails to decode is collected as a `DecodeError` rather than sinking its
+ * siblings — the same skip-and-collect contract every other read follows.
+ */
+function assembleSnapshot(
+  map: MapHandle,
+  children: readonly SnapshotChild[],
+  typeRead: CollectionRead<TypeDefinition>,
+): SnapshotRead {
+  const steps: StepRecord[] = [];
+  const goals: GoalRecord[] = [];
+  const errors: DecodeError[] = [];
+  const stepIds = stepIdsFrom(children.map((child) => child.issue));
+  for (const child of children) {
+    const issue = child.issue;
+    if (issue.labels.includes(WAYFUL_STEP_LABEL)) {
+      try {
+        // Issue numbers are repo-global, so a `blocked_by` edge can point
+        // anywhere in the repo. Only a `wayful:step` sub-issue of this map is
+        // a valid dependency.
+        assertDependenciesInMap(child.dependencies, stepIds);
+        steps.push(decodeStepIssue(issue, child.dependencies));
+      } catch (error) {
+        errors.push({ file: `#${issue.number}`, message: describeError(error) });
+      }
+    } else if (issue.labels.includes(WAYFUL_GOAL_LABEL)) {
+      try {
+        goals.push(decodeGoalIssue(issue));
+      } catch (error) {
+        errors.push({ file: `#${issue.number}`, message: describeError(error) });
+      }
+    }
+  }
+  steps.sort((a, b) => a.id - b.id);
+  goals.sort((a, b) => a.name.localeCompare(b.name));
+  return {
+    snapshot: {
+      map: map.metadata,
+      steps,
+      artifacts: deriveArtifacts(steps, goals),
+      goals,
+      types: typeRead.records,
+    },
+    errors: [...errors, ...typeRead.errors],
+  };
 }
 
 /**
@@ -72,6 +142,23 @@ function assertDependenciesInMap(
 ): void {
   for (const dependency of dependencies)
     if (!stepIds.has(dependency)) throw dependencyOutsideMapError(dependency);
+}
+
+/**
+ * The first sub-issue that decodes as a goal named `name`, if any. Goals are
+ * addressed by name, so a save has to find the issue the name resolves to; an
+ * undecodable sibling is skipped rather than blocking the search.
+ */
+function findGoalIssue(issues: readonly GithubIssue[], name: string): GithubIssue | undefined {
+  for (const issue of issues) {
+    if (!issue.labels.includes(WAYFUL_GOAL_LABEL)) continue;
+    try {
+      if (decodeGoalIssue(issue).name === name) return issue;
+    } catch {
+      // fall through to the next candidate
+    }
+  }
+  return undefined;
 }
 
 /** The status as GitHub's native state and reason; blocked is a label, not a state. */
@@ -96,7 +183,8 @@ function nativeState(status: StepStatus): {
  * fields. Reads list label-filtered issues — never the Search API, which is
  * eventually consistent — and closed map issues are simply absent, the same
  * effect as deleting a map folder. Steps are `wayful:step` sub-issues whose
- * issue number *is* their id; goals are the next slice (#37).
+ * issue number *is* their id; goals are `wayful:goal` sub-issues addressed by
+ * name, closing as `completed` once every required output slot is filled.
  *
  * The infrastructure services are resolved once at construction and closed
  * over, so the returned methods carry no environment of their own: a layer
@@ -107,16 +195,28 @@ export function makeGithubMapStore() {
   return Effect.gen(function* () {
     const credentials = yield* GithubCredentials;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const http = yield* HttpClient.HttpClient;
+    const http = yield* GithubHttp;
+    const projectStore = yield* ProjectStore;
     const cache = yield* Ref.make(new Map<string, ResolvedRepo>());
+    // One command reads a map's snapshot at most once: a `map status` that
+    // reaches for the same map twice must not pay for the GraphQL query twice.
+    const snapshots = yield* Ref.make(new Map<string, SnapshotRead>());
 
     const withInfra = <A, E>(
-      effect: Effect.Effect<A, E, HttpClient.HttpClient | ChildProcessSpawner.ChildProcessSpawner>,
+      effect: Effect.Effect<A, E, GithubHttp | ChildProcessSpawner.ChildProcessSpawner>,
     ) =>
       effect.pipe(
-        Effect.provideService(HttpClient.HttpClient, http),
+        Effect.provideService(GithubHttp, http),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       );
+
+    /** A write invalidates the memoized snapshot so a later read in the same process sees it. */
+    const invalidateSnapshot = (map: MapHandle) =>
+      Ref.update(snapshots, (memo) => {
+        const next = new Map(memo);
+        next.delete(snapshotKey(map));
+        return next;
+      });
 
     // One project means one repo + token for the life of the process; the
     // per-project cache keeps a command from resolving them per call.
@@ -175,15 +275,13 @@ export function makeGithubMapStore() {
         })),
       );
 
-    // `goal`/`goalBody` are accepted by the shared interface but not created
-    // here yet: the initial goal is a sub-issue, which #37 adds along with the
-    // rest of the goal machinery. Until then a GitHub map simply has no goal,
-    // rather than a loose issue masquerading as one.
     const createMap = (
       project: ProjectHandle,
       {
         name,
         start,
+        goal,
+        goalBody,
       }: {
         readonly name: string;
         readonly start: string;
@@ -195,15 +293,30 @@ export function makeGithubMapStore() {
         Effect.gen(function* () {
           yield* liftSync(() => identifier(name, "map name", true));
           const trimmedStart = yield* liftSync(() => nonEmpty(start, "map start"));
+          const trimmedGoal = yield* liftSync(() => nonEmpty(goal, "map goal"));
           const { records } = yield* readMaps(project);
           if (records.some((map) => map.name === name))
             return yield* fail(`map '${name}' already exists.`);
           const { ref, token } = yield* context(project);
-          yield* createIssue(ref, token, {
+          const map = yield* createIssue(ref, token, {
             title: trimmedStart,
             body: encodeIssueBody("", mapIssueData(name)),
             labels: [WAYFUL_MAP_LABEL],
           });
+          // A map is born with one goal, itself a sub-issue, so the map is
+          // immediately workable. The default goal carries the same
+          // `evidence`/`artifact` slot the filesystem backend writes.
+          const initialGoal = yield* createIssue(ref, token, {
+            title: trimmedGoal,
+            body: encodeGoalBody({
+              name: INITIAL_GOAL_NAME,
+              outputs: [],
+              required_outputs: INITIAL_GOAL_REQUIRED_OUTPUTS,
+              body: goalBody,
+            }),
+            labels: [WAYFUL_GOAL_LABEL],
+          });
+          yield* addSubIssue(ref, token, map.number, initialGoal.id);
         }),
       );
 
@@ -282,6 +395,7 @@ export function makeGithubMapStore() {
             yield* addLabels(ref, token, created.number, [WAYFUL_BLOCKED_LABEL]);
           else if (closesStep(step.status))
             yield* updateIssue(ref, token, created.number, nativeState(step.status));
+          yield* invalidateSnapshot(map);
           return {
             ...step,
             id: created.number,
@@ -385,6 +499,113 @@ export function makeGithubMapStore() {
             const blockingId = blockingIds.get(dependency);
             if (blockingId !== undefined) yield* removeBlockedBy(ref, token, step.id, blockingId);
           }
+          yield* invalidateSnapshot(map);
+        }),
+      );
+
+    const listGoals = (map: MapHandle): Effect.Effect<CollectionRead<GoalRecord>, WayfulError> =>
+      withInfra(
+        Effect.gen(function* () {
+          const { ref, token } = yield* context(map.project);
+          const parent = yield* mapNumber(map);
+          const issues = yield* listSubIssues(ref, token, parent);
+          const records: GoalRecord[] = [];
+          const errors: DecodeError[] = [];
+          for (const issue of issues) {
+            // Sub-issues are steps and goals together; a step (or a foreign
+            // sub-issue) is not a goal and is skipped, not an error. A goal's
+            // kind lives on its label, so a de-labelled goal is data loss.
+            if (!issue.labels.includes(WAYFUL_GOAL_LABEL)) continue;
+            try {
+              records.push(decodeGoalIssue(issue));
+            } catch (error) {
+              errors.push({ file: `#${issue.number}`, message: describeError(error) });
+            }
+          }
+          return { records: records.toSorted((a, b) => a.name.localeCompare(b.name)), errors };
+        }),
+      );
+
+    const createGoal = (map: MapHandle, goal: NewGoalRecord) =>
+      withInfra(
+        Effect.gen(function* () {
+          const { ref, token } = yield* context(map.project);
+          const parent = yield* mapNumber(map);
+          // One listing answers both questions: the goal already exists, and
+          // whether the shared step/goal sub-issue budget is full.
+          const existing = yield* listSubIssues(ref, token, parent);
+          if (findGoalIssue(existing, goal.name) !== undefined)
+            return yield* fail(`goal '${goal.name}' already exists.`);
+          if (existing.length >= SUB_ISSUE_CAP) return yield* Effect.fail(subIssueCapError());
+          const created = yield* createIssue(ref, token, {
+            title: goal.description,
+            body: encodeGoalBody(goal),
+            labels: [WAYFUL_GOAL_LABEL],
+          });
+          yield* addSubIssue(ref, token, parent, created.id);
+          yield* invalidateSnapshot(map);
+        }),
+      );
+
+    // NOT ATOMIC, like `saveStep`: a body/title edit and a state change sent as
+    // separate field-scoped mutations with no transaction. Satisfaction is read
+    // from slot state — every required output filled closes the issue as
+    // `completed` — never a body flag or a label, so a state change never
+    // rewrites the body.
+    const saveGoal = (map: MapHandle, goal: GoalRecord) =>
+      withInfra(
+        Effect.gen(function* () {
+          const { ref, token } = yield* context(map.project);
+          const parent = yield* mapNumber(map);
+          const issues = yield* listSubIssues(ref, token, parent);
+          const target = findGoalIssue(issues, goal.name);
+          if (target === undefined) return yield* fail(`goal '${goal.name}' does not exist.`);
+          const current = yield* liftSync(() => decodeGoalIssue(target));
+
+          // Compare the full encoded body, not just the prose: attachments live
+          // in the residue, so filling an output slot must reach the body.
+          const patch: IssuePatch = {};
+          if (goal.description !== current.description) patch.title = goal.description;
+          const desiredBody = encodeGoalBody(goal);
+          const currentBody = encodeGoalBody(current);
+          if (desiredBody !== currentBody) patch.body = desiredBody;
+          yield* updateIssue(ref, token, target.number, patch);
+
+          const satisfied = attachmentOK(goal.required_outputs, goal.outputs);
+          const desiredState = satisfied ? "closed" : "open";
+          if (target.state !== desiredState) {
+            yield* updateIssue(
+              ref,
+              token,
+              target.number,
+              satisfied ? { state: "closed", state_reason: "completed" } : { state: "open" },
+            );
+          }
+          yield* invalidateSnapshot(map);
+        }),
+      );
+
+    // One GraphQL query assembles the map, its step and goal sub-issues, their
+    // labels, native state and dependencies together — where composing
+    // `listSteps` (a read per step for its `blocked_by` edges) and `listGoals`
+    // would be several round trips. The result is memoized for the life of the
+    // process, so a command that reaches for the same map twice fetches once;
+    // a write to the map invalidates it.
+    const snapshot = (map: MapHandle): Effect.Effect<SnapshotRead, WayfulError> =>
+      withInfra(
+        Effect.gen(function* () {
+          const key = snapshotKey(map);
+          const cached = (yield* Ref.get(snapshots)).get(key);
+          if (cached !== undefined) return cached;
+          const parent = yield* mapNumber(map);
+          const { ref, token } = yield* context(map.project);
+          const read = yield* readMapSnapshot(ref, token, parent);
+          // Types stay on disk under every backend; reading them is a local,
+          // unmetered concern, never part of the query.
+          const types = yield* projectStore.listTypes(map.project);
+          const assembled = assembleSnapshot(map, read.children, types);
+          yield* Ref.update(snapshots, (memo) => new Map(memo).set(key, assembled));
+          return assembled;
         }),
       );
 
@@ -395,18 +616,10 @@ export function makeGithubMapStore() {
       listSteps,
       createStep,
       saveStep,
-      listGoals: () => unsupported("goals"),
-      createGoal: () => unsupported("goals"),
-      saveGoal: () => unsupported("goals"),
-      // The one-query snapshot — map, steps, goals, types, labels — is the
-      // GraphQL slice (#39). Until then this backend reports the map alone
-      // rather than composing a partial snapshot from several round trips;
-      // commands that need steps read them through `listSteps`.
-      snapshot: (map) =>
-        Effect.succeed({
-          snapshot: { map: map.metadata, steps: [], artifacts: [], goals: [], types: [] },
-          errors: [],
-        }),
+      listGoals,
+      createGoal,
+      saveGoal,
+      snapshot,
     });
   });
 }

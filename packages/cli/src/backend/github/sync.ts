@@ -1,11 +1,11 @@
 import { Effect } from "effect";
-import { HttpClient } from "effect/unstable/http";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { WayfulError } from "../../domain/errors";
 import type { ProjectHandle } from "../ProjectStore";
 import { ensureLabels, type Label } from "./api";
 import { GithubCredentials } from "./credentials";
+import { GithubHttp } from "./http";
 import { wayfulLabels } from "./labels";
 import { resolveRepo } from "./repo";
 
@@ -22,7 +22,7 @@ export function syncLabels(
 ): Effect.Effect<
   readonly string[],
   WayfulError,
-  GithubCredentials | ChildProcessSpawner.ChildProcessSpawner | HttpClient.HttpClient
+  GithubCredentials | ChildProcessSpawner.ChildProcessSpawner | GithubHttp
 > {
   return Effect.gen(function* () {
     const credentials = yield* GithubCredentials;
