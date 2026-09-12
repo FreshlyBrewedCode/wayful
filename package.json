@@ -14,8 +14,7 @@
     "test": "bun run --filter './packages/*' test",
     "test:live": "bun run --filter '@wayful/cli' test:live",
     "typecheck": "bun run --filter './packages/*' typecheck",
-    "lint": "oxfmt --check packages && oxlint packages",
-    "lint:effect": "oxlint packages/cli/src --config packages/cli/.oxlintrc.effect.json",
+    "lint": "bun run --filter './packages/*' lint",
     "format": "oxfmt packages",
     "check": "bun run lint && bun run typecheck && bun run test"
   },
