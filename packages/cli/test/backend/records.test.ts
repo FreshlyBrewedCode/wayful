@@ -4,6 +4,7 @@ import { TestClock } from "effect/testing";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import type { MapHandle } from "../../src/backend/MapStore";
 import { WayfulError } from "../../src/domain/errors";
 import { CURRENT_FORMAT_VERSION } from "../../src/domain/model";
 import {
@@ -17,6 +18,8 @@ import {
 } from "./support/harness";
 
 const temporaryDirectory = makeTemporaryDirectory();
+
+const mapDirectory = (map: MapHandle) => join(map.project.root, ".wayful", "maps", map.name);
 
 describe("FileSystemBackend: steps, artifacts, and goals", () => {
   async function initializedMap() {
@@ -60,7 +63,7 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
         return yield* b.createStep(map, created);
       }),
     );
-    await writeFile(join(map.dir, "steps", "2-broken.md"), "---\nname: broken\n");
+    await writeFile(join(mapDirectory(map), "steps", "2-broken.md"), "---\nname: broken\n");
     const steps = await run(
       Effect.gen(function* () {
         const b = yield* backend();
@@ -75,7 +78,7 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
     const map = await initializedMap();
     // Pre-create the file the next allocated id would write to, so
     // `createStep` collides without needing a prior successful create.
-    await writeFile(join(map.dir, "steps", "1-work.md"), "---\nname: work\n");
+    await writeFile(join(mapDirectory(map), "steps", "1-work.md"), "---\nname: work\n");
     const error = await runFailure(
       Effect.gen(function* () {
         const b = yield* backend();
@@ -155,7 +158,7 @@ describe("FileSystemBackend: steps, artifacts, and goals", () => {
   test("listSteps reports a step whose filename does not match its frontmatter identity", async () => {
     const map = await initializedMap();
     await writeFile(
-      join(map.dir, "steps", "1-wrong.md"),
+      join(mapDirectory(map), "steps", "1-wrong.md"),
       `---\nformat_version: ${CURRENT_FORMAT_VERSION}\nid: 1\nname: right\ntype: task\ndescription: Do it\nstatus: pending\ndependencies: []\ninputs: []\noutputs: []\nrequired_inputs: []\nrequired_outputs: []\ncreated_at: ${T0}\nupdated_at: ${T0}\n---\n`,
     );
     const steps = await run(

@@ -1,7 +1,7 @@
 import { Console, Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 
-import { WayfulBackend } from "../../../backend/Backend";
+import { MapStore } from "../../../backend/MapStore";
 import { liftSync } from "../../../backend/filesystem/documents";
 import { normalizeRef } from "../../../domain/artifact-ref";
 import { reaches } from "../../../domain/graph";
@@ -29,12 +29,12 @@ export const stepDependsCommand = Command.make(
       false,
       Effect.gen(function* () {
         const parent = yield* stepParent;
-        const backend = yield* WayfulBackend;
+        const mapStore = yield* MapStore;
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
         yield* assertWritableMapIntegrity(map);
-        const steps = yield* strict(yield* backend.listSteps(map));
+        const steps = yield* strict(yield* mapStore.listSteps(map));
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         const onRef = yield* liftSync(() => expectStep(on));
@@ -45,7 +45,7 @@ export const stepDependsCommand = Command.make(
         if (prerequisite.status === "cancelled") yield* fail("cannot depend on a cancelled step.");
         if (reaches(steps, prerequisite.id, target.id))
           yield* fail("dependency would create a cycle.");
-        yield* backend.saveStep(map, {
+        yield* mapStore.saveStep(map, {
           ...target,
           dependencies: [...target.dependencies, prerequisite.id],
         });
@@ -79,12 +79,12 @@ function makeAttachCommand(name: "input" | "output", direction: "inputs" | "outp
         false,
         Effect.gen(function* () {
           const parent = yield* stepParent;
-          const backend = yield* WayfulBackend;
+          const mapStore = yield* MapStore;
           const root = yield* wayfulRoot;
           const project = yield* resolveProject(root.project);
           const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
           yield* assertWritableMapIntegrity(map);
-          const steps = yield* strict(yield* backend.listSteps(map));
+          const steps = yield* strict(yield* mapStore.listSteps(map));
           const target = yield* findStep(steps, token);
           yield* assertNotTerminal(target);
           const normalizedRef = yield* liftSync(() => normalizeRef(rawRef));
@@ -116,7 +116,7 @@ function makeAttachCommand(name: "input" | "output", direction: "inputs" | "outp
             const resolvedKind = yield* liftSync(() => nonEmpty(kind.value, "attachment kind"));
             attachment = { ref: normalizedRef, kind: resolvedKind };
           }
-          yield* backend.saveStep(map, {
+          yield* mapStore.saveStep(map, {
             ...target,
             [direction]: [...target[direction], attachment],
           });

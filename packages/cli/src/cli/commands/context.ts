@@ -1,7 +1,8 @@
 import { Effect, Option, Result } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 
-import { WayfulBackend } from "../../backend/Backend";
+import { MapStore } from "../../backend/MapStore";
+import { ProjectStore } from "../../backend/ProjectStore";
 import { liftSync } from "../../backend/filesystem/documents";
 import {
   buildArtifactContext,
@@ -57,7 +58,8 @@ const contextCommand = Command.make(
       json,
       Effect.gen(function* () {
         const root = yield* wayfulRoot;
-        const backend = yield* WayfulBackend;
+        const mapStore = yield* MapStore;
+        const projectStore = yield* ProjectStore;
         const project = yield* resolveProject(root.project);
 
         let sinceCutoff: Date | undefined;
@@ -65,12 +67,12 @@ const contextCommand = Command.make(
           sinceCutoff = yield* liftSync(() => parseSince(since.value, new Date()));
 
         if (Option.isNone(ref)) {
-          const mapsRead = yield* backend.listMaps(project);
-          const typesRead = yield* backend.listTypes(project);
+          const mapsRead = yield* mapStore.listMaps(project);
+          const typesRead = yield* projectStore.listTypes(project);
           const problems: DecodeError[] = [...mapsRead.errors, ...typesRead.errors];
           const summaries = [];
           for (const mapMeta of mapsRead.records) {
-            const mapResult = yield* Effect.result(backend.openMap(project, mapMeta.name));
+            const mapResult = yield* Effect.result(mapStore.openMap(project, mapMeta.name));
             if (Result.isFailure(mapResult)) {
               problems.push({
                 file: `${mapMeta.name}/map.toml`,
@@ -155,7 +157,7 @@ const contextCommand = Command.make(
         const { snapshot, errors } = yield* buildSnapshot(map);
         const target = resolveToken(reference.token, snapshot.steps);
         if (!target) return yield* fail(`step '${describeToken(reference.token)}' does not exist.`);
-        const type = yield* backend.getType(project, target.type).pipe(
+        const type = yield* projectStore.getType(project, target.type).pipe(
           Effect.map((t) => ({ name: t.name, description: t.description })),
           Effect.catch(() =>
             Effect.succeed({

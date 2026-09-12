@@ -1,48 +1,33 @@
-import { Context, type Effect, type Option } from "effect";
+import { Context, type Effect } from "effect";
 
 import type { MapMetadataError, WayfulError } from "../domain/errors";
 import type {
   CollectionRead,
+  DecodeError,
   GoalRecord,
   MapMetadata,
+  MapSnapshot,
   NewGoalRecord,
   NewStepRecord,
   StepRecord,
-  TypeDefinition,
 } from "../domain/model";
+import type { ProjectHandle } from "./ProjectStore";
 
-export interface ProjectHandle {
-  readonly root: string;
-  /** The project's own description, as `wayful init --description` recorded it. */
-  readonly description: string;
-}
-
+/**
+ * Pluggable: everything about a map's steps, goals, and their read shape.
+ * `dir` is deliberately absent — a filesystem path is the interface's only
+ * leak, and only `backend/filesystem/` needs it, recomputed from
+ * `project.root` + `name`.
+ */
 export interface MapHandle {
   readonly project: ProjectHandle;
   readonly name: string;
-  readonly dir: string;
   readonly metadata: MapMetadata;
 }
 
-export class WayfulBackend extends Context.Service<
-  WayfulBackend,
+export class MapStore extends Context.Service<
+  MapStore,
   {
-    readonly initProject: (options: {
-      readonly directory: string;
-      readonly description: string;
-    }) => Effect.Effect<void, WayfulError>;
-    readonly openProject: (
-      hint: Option.Option<string>,
-    ) => Effect.Effect<ProjectHandle, WayfulError>;
-
-    readonly listTypes: (
-      project: ProjectHandle,
-    ) => Effect.Effect<CollectionRead<TypeDefinition>, WayfulError>;
-    readonly getType: (
-      project: ProjectHandle,
-      name: string,
-    ) => Effect.Effect<TypeDefinition, WayfulError>;
-
     readonly listMaps: (
       project: ProjectHandle,
     ) => Effect.Effect<CollectionRead<MapMetadata>, WayfulError>;
@@ -70,5 +55,17 @@ export class WayfulBackend extends Context.Service<
     readonly listGoals: (map: MapHandle) => Effect.Effect<CollectionRead<GoalRecord>, WayfulError>;
     readonly createGoal: (map: MapHandle, goal: NewGoalRecord) => Effect.Effect<void, WayfulError>;
     readonly saveGoal: (map: MapHandle, goal: GoalRecord) => Effect.Effect<void, WayfulError>;
+
+    /**
+     * Everything a map-scoped read is assembled from, in one query: over a
+     * network this is one round trip where composing `listSteps`/`listGoals`/
+     * `listTypes` separately would be three.
+     */
+    readonly snapshot: (
+      map: MapHandle,
+    ) => Effect.Effect<
+      { readonly snapshot: MapSnapshot; readonly errors: readonly DecodeError[] },
+      WayfulError
+    >;
   }
->()("wayful/Backend") {}
+>()("wayful/MapStore") {}

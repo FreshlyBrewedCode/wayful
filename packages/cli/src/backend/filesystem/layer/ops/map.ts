@@ -3,7 +3,8 @@ import { Effect, FileSystem, Path } from "effect";
 import { MapMetadataError, WayfulError } from "../../../../domain/errors";
 import { identifier, nonEmpty } from "../../../../domain/identifier";
 import { CURRENT_FORMAT_VERSION } from "../../../../domain/model";
-import type { MapHandle, ProjectHandle } from "../../../Backend";
+import type { MapHandle } from "../../../MapStore";
+import type { ProjectHandle } from "../../../ProjectStore";
 import { decodeMapMetadata } from "../../decode";
 import {
   buildMarkdown,
@@ -35,7 +36,7 @@ export function makeMapOps(fs: FileSystem.FileSystem, path: Path.Path) {
       }).pipe(
         Effect.catch((error) => Effect.fail(new MapMetadataError({ message: error.message }))),
       );
-      return { project, name, dir, metadata };
+      return { project, name, metadata };
     });
 
   return {

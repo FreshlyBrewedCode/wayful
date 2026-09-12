@@ -6,7 +6,8 @@ import { Effect, Option, Result } from "effect";
 import { watch, type FSWatcher } from "node:fs";
 import { join, resolve } from "node:path";
 
-import type { WayfulBackend } from "../backend/Backend";
+import type { MapStore } from "../backend/MapStore";
+import type { ProjectStore } from "../backend/ProjectStore";
 import { resolveProject } from "../scope";
 import { WayfulError } from "../domain/errors";
 import { mapDetail, overview, stepDetail } from "./api";
@@ -82,10 +83,10 @@ async function asset(assets: Record<string, string>, pathname: string): Promise<
  */
 export function startServer(
   config: ServerConfig,
-): Effect.Effect<RunningServer, WayfulError, WayfulBackend> {
+): Effect.Effect<RunningServer, WayfulError, MapStore | ProjectStore> {
   return Effect.gen(function* () {
-    const services = yield* Effect.context<WayfulBackend>();
-    const run = <A>(effect: Effect.Effect<A, never, WayfulBackend>) =>
+    const services = yield* Effect.context<MapStore | ProjectStore>();
+    const run = <A>(effect: Effect.Effect<A, never, MapStore | ProjectStore>) =>
       Effect.runPromiseWith(services)(effect);
 
     const hint = resolve(config.project);

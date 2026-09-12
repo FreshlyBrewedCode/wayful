@@ -2,7 +2,7 @@ import { Effect, FileSystem, Path } from "effect";
 
 import { WayfulError } from "../../../../domain/errors";
 import type { GoalRecord, NewGoalRecord } from "../../../../domain/model";
-import type { MapHandle } from "../../../Backend";
+import type { MapHandle } from "../../../MapStore";
 import { decodeGoal } from "../../decode";
 import {
   buildMarkdown,
@@ -12,14 +12,14 @@ import {
   readTextFile,
   writeAtomic,
 } from "../../documents";
-import { goalFile, goalsDir } from "../../paths";
+import { goalFile, goalsDir, mapDir } from "../../paths";
 import { accessError, collect, fail, goalToDocument } from "../records";
 
 export function makeGoalOps(fs: FileSystem.FileSystem, path: Path.Path) {
   return {
     listGoals: (map: MapHandle) =>
       Effect.gen(function* () {
-        const dir = goalsDir(path, map.dir);
+        const dir = goalsDir(path, mapDir(path, map.project.root, map.name));
         const files = yield* fs
           .readDirectory(dir)
           .pipe(Effect.mapError(() => new WayfulError({ message: "cannot read goals." })));
@@ -43,7 +43,7 @@ export function makeGoalOps(fs: FileSystem.FileSystem, path: Path.Path) {
 
     createGoal: (map: MapHandle, goal: NewGoalRecord) =>
       Effect.gen(function* () {
-        const file = goalFile(path, map.dir, goal.name);
+        const file = goalFile(path, mapDir(path, map.project.root, map.name), goal.name);
         const exists = yield* fs.exists(file).pipe(Effect.mapError(accessError));
         if (exists) yield* fail(`goal '${goal.name}' already exists.`);
         const now = yield* nowISO();
@@ -57,7 +57,7 @@ export function makeGoalOps(fs: FileSystem.FileSystem, path: Path.Path) {
         const record: GoalRecord = { ...goal, updated_at: now };
         yield* writeAtomic(
           fs,
-          goalFile(path, map.dir, record.name),
+          goalFile(path, mapDir(path, map.project.root, map.name), record.name),
           buildMarkdown(goalToDocument(record), record.body),
         );
       }),
