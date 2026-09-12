@@ -3,10 +3,9 @@
 // to `.wayful`; the server only ever reads through the backend.
 
 import { Effect, Option, Result } from "effect";
-import { watch, type FSWatcher } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 
-import type { MapStore } from "../backend/MapStore";
+import { MapStore } from "../backend/MapStore";
 import type { ProjectStore } from "../backend/ProjectStore";
 import { resolveProject } from "../scope";
 import { WayfulError } from "../domain/errors";
@@ -93,17 +92,22 @@ export function startServer(
     const opened = yield* Effect.result(resolveProject(Option.some(hint)));
     const root = Result.isSuccess(opened) ? opened.success.root : hint;
 
-    // Clients hold one stream each and are told to refetch on any `.wayful`
-    // change; the server never says what changed, only that something did.
+    // Clients hold one stream each and are told to refetch on any change; the
+    // server never says what changed, only that something did. How a backend
+    // learns of a change is its own concern — a filesystem watcher on `.wayful`
+    // or conditional-request polling against GitHub — so the server only
+    // subscribes and stops it. Watching is a convenience; the viewer still
+    // works without it, so a subscription that cannot start is a no-op.
     const listeners = new Set<(event: string) => void>();
-    let watcher: FSWatcher | undefined;
-    try {
-      watcher = watch(join(root, ".wayful"), { recursive: true }, () => {
-        for (const send of listeners) send("changed");
-      });
-    } catch {
-      // Watching is a convenience; the viewer still works without it.
-    }
+    const emitChanged = () => {
+      for (const send of listeners) send("changed");
+    };
+    const mapStore = yield* MapStore;
+    const stopWatching = Result.isSuccess(opened)
+      ? yield* mapStore
+          .watch(opened.success, emitChanged)
+          .pipe(Effect.orElseSucceed(() => () => {}))
+      : () => {};
 
     function events(): Response {
       let send: (event: string) => void;
@@ -157,7 +161,7 @@ export function startServer(
         new WayfulError({
           message: `cannot listen on ${config.host}:${config.port} (${String(cause)}).`,
         }),
-    }).pipe(Effect.tapError(() => Effect.sync(() => watcher?.close())));
+    }).pipe(Effect.tapError(() => Effect.sync(() => stopWatching())));
 
     return {
       url: `http://${config.host}:${server.port ?? config.port}/`,
@@ -165,7 +169,7 @@ export function startServer(
       root,
       found: Result.isSuccess(opened),
       stop: () => {
-        watcher?.close();
+        stopWatching();
         listeners.clear();
         server.stop(true);
       },

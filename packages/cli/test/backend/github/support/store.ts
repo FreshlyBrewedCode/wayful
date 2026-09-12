@@ -1,3 +1,4 @@
+import { BunFileSystem, BunPath } from "@effect/platform-bun";
 import { Effect, Layer, Redacted } from "effect";
 import type { HttpClientRequest } from "effect/unstable/http";
 import type { ChildProcessSpawner } from "effect/unstable/process";
@@ -61,6 +62,14 @@ export function githubInfra(
     stubProjectStore(options.types ?? []),
     spawner,
     credentials,
+    // `GithubMapStore.readArtifact` still resolves `file:` refs against the
+    // local checkout, so its construction needs the same `FileSystem`/`Path`
+    // services the filesystem backend closes over. Only those two — not the
+    // full `BunServices.layer` — or its real `ChildProcessSpawner` would
+    // shadow the stub above and the `git remote get-url` calls above would
+    // hit the real process instead of `respond`.
+    BunFileSystem.layer,
+    BunPath.layer,
   );
 }
 

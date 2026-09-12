@@ -1,5 +1,6 @@
-import { Effect, FileSystem, Layer, Path } from "effect";
+import { Effect, Fiber, FileSystem, Layer, Path, Stream } from "effect";
 
+import { makeReadArtifact } from "../../artifacts";
 import { MapStore } from "../../MapStore";
 import { ProjectStore } from "../../ProjectStore";
 import { makeGoalOps } from "./ops/goal";
@@ -32,16 +33,34 @@ export function makeFileSystemMapStore(fs: FileSystem.FileSystem, path: Path.Pat
   const stepOps = makeStepOps(fs, path);
   const goalOps = makeGoalOps(fs, path);
   const typeOps = makeTypeOps(fs, path);
+  const snapshotOp = makeSnapshotOp({
+    listSteps: stepOps.listSteps,
+    listGoals: goalOps.listGoals,
+    listTypes: typeOps.listTypes,
+  });
 
   return MapStore.of({
     ...mapOps,
     ...stepOps,
     ...goalOps,
-    ...makeSnapshotOp({
-      listSteps: stepOps.listSteps,
-      listGoals: goalOps.listGoals,
-      listTypes: typeOps.listTypes,
-    }),
+    ...snapshotOp,
+    readArtifact: makeReadArtifact({ fs, path, snapshot: snapshotOp.snapshot }),
+    // Watching is a convenience; the viewer still works without it. The
+    // watch stream is run to completion on a detached fiber rather than
+    // awaited here, so a directory that cannot be watched (or a watcher that
+    // fails mid-stream) is swallowed by `Effect.ignore` instead of failing
+    // the backend; the stop function returned below tears the fiber down via
+    // `Fiber.interrupt`, which the stream's `acquireRelease` turns into the
+    // underlying watcher's close.
+    watch: (project, onChange) =>
+      fs.watch(path.join(project.root, ".wayful"), { recursive: true }).pipe(
+        Stream.runForEach(() => Effect.sync(onChange)),
+        Effect.ignore,
+        Effect.forkDetach,
+        Effect.map((fiber) => () => {
+          Effect.runFork(Fiber.interrupt(fiber));
+        }),
+      ),
   });
 }
 

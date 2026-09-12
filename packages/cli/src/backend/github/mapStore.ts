@@ -1,4 +1,4 @@
-import { Effect, Layer, Ref } from "effect";
+import { Effect, Fiber, FileSystem, Layer, Path, Ref, Schedule } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { WayfulError } from "../../domain/errors";
@@ -17,6 +17,7 @@ import {
   type StepStatus,
   type TypeDefinition,
 } from "../../domain/model";
+import { makeReadArtifact } from "../artifacts";
 import { liftSync } from "../effect";
 import { MapStore, type MapHandle } from "../MapStore";
 import { ProjectStore, type ProjectHandle } from "../ProjectStore";
@@ -55,6 +56,7 @@ import {
 } from "./labels";
 import { decodeMapIssue, mapIssueData } from "./map";
 import { resolveRepo, type ResolvedRepo } from "./repo";
+import { readRevision, REVISION_POLL_MS } from "./revision";
 import { decodeStepIssue, dependencyOutsideMapError, stepIssueData } from "./step";
 import { SUB_ISSUE_CAP, subIssueCapError } from "./subIssues";
 
@@ -197,6 +199,11 @@ export function makeGithubMapStore() {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const http = yield* GithubHttp;
     const projectStore = yield* ProjectStore;
+    // Records come from the network, but refs still resolve against the local
+    // checkout (see `readArtifact` below), which needs the same `FileSystem`/
+    // `Path` services the filesystem backend closes over.
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
     const cache = yield* Ref.make(new Map<string, ResolvedRepo>());
     // One command reads a map's snapshot at most once: a `map status` that
     // reaches for the same map twice must not pay for the GraphQL query twice.
@@ -215,6 +222,19 @@ export function makeGithubMapStore() {
       Ref.update(snapshots, (memo) => {
         const next = new Map(memo);
         next.delete(snapshotKey(map));
+        return next;
+      });
+
+    /**
+     * A poll that saw a change drops every memoized snapshot for the project,
+     * so the next request re-reads instead of serving the pre-change snapshot
+     * for the life of the process.
+     */
+    const invalidateProjectSnapshots = (project: ProjectHandle) =>
+      Ref.update(snapshots, (memo) => {
+        const next = new Map(memo);
+        const prefix = `${project.root}#`;
+        for (const key of next.keys()) if (key.startsWith(prefix)) next.delete(key);
         return next;
       });
 
@@ -620,6 +640,41 @@ export function makeGithubMapStore() {
       createGoal,
       saveGoal,
       snapshot,
+      // Records come from the network, but refs still resolve against the
+      // local checkout: the project config and type files already require one,
+      // and a missing checkout is a clear error rather than a crash.
+      readArtifact: makeReadArtifact({ fs, path, snapshot }),
+      // ETag polling stands in for the filesystem watcher: each tick revalidates
+      // with conditional GETs, so an idle project spends no rate limit, and a
+      // changed fingerprint invalidates the memoized snapshots before notifying.
+      watch: (project, onChange) =>
+        withInfra(
+          Effect.gen(function* () {
+            const { ref, token } = yield* context(project);
+            const revision = withInfra(readRevision(ref, token));
+            const previous = yield* Ref.make<string | undefined>(undefined);
+            const tick = Effect.gen(function* () {
+              const next = yield* revision;
+              const last = yield* Ref.get(previous);
+              if (last !== undefined && next !== last) {
+                yield* invalidateProjectSnapshots(project);
+                onChange();
+              }
+              yield* Ref.set(previous, next);
+              // A failed poll is not fatal; the next tick retries.
+            }).pipe(Effect.ignore);
+            // `Effect.repeat` runs `tick` once immediately, then again on
+            // every `Schedule.spaced` step; because each step only starts
+            // after the previous one settles, ticks can never overlap, which
+            // is what the old `inFlight` flag guarded against by hand.
+            const fiber = yield* Effect.repeat(tick, Schedule.spaced(REVISION_POLL_MS)).pipe(
+              Effect.forkDetach,
+            );
+            return () => {
+              Effect.runFork(Fiber.interrupt(fiber));
+            };
+          }),
+        ),
     });
   });
 }

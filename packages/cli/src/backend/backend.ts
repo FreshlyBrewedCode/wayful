@@ -32,6 +32,8 @@ export const RoutedMapStore = Layer.effect(
       createGoal: (map, goal) => storeFor(map.project.backend).createGoal(map, goal),
       saveGoal: (map, goal) => storeFor(map.project.backend).saveGoal(map, goal),
       snapshot: (map) => storeFor(map.project.backend).snapshot(map),
+      readArtifact: (map, ref) => storeFor(map.project.backend).readArtifact(map, ref),
+      watch: (project, onChange) => storeFor(project.backend).watch(project, onChange),
     });
   }),
 );
