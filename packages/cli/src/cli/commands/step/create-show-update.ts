@@ -61,11 +61,11 @@ export const stepCreateCommand = Command.make(
         const steps = yield* strict(yield* mapStore.listSteps(map));
         const stepName = yield* liftSync(() => identifier(name, "step name", true));
         if (steps.some((s) => s.name === stepName))
-          yield* fail(`step '${stepName}' already exists.`);
+          return yield* fail(`step '${stepName}' already exists.`);
         const typeName = yield* liftSync(() => identifier(type, "step type"));
         const typeDefinition = yield* projectStore.getType(project, typeName);
         if (map.metadata.allowed_step_types && !map.metadata.allowed_step_types.includes(typeName))
-          yield* fail(`type '${typeName}' is not allowed by this map.`);
+          return yield* fail(`type '${typeName}' is not allowed by this map.`);
         const requiredInputSlots = yield* resolveSlotOverride(
           requiredInputs,
           "required-inputs",
@@ -115,9 +115,7 @@ export const stepShowCommand = Command.make(
         const target = yield* findStep(steps, token);
         const instructions = yield* projectStore.getType(project, target.type).pipe(
           Effect.map((type) => type.instructions),
-          Effect.catch(() =>
-            Effect.succeed("unavailable: referenced type is missing or malformed."),
-          ),
+          Effect.orElseSucceed(() => "unavailable: referenced type is missing or malformed."),
         );
         const human = [
           `${target.id} ${target.name}`,
@@ -160,9 +158,9 @@ export const stepUpdateCommand = Command.make(
         const steps = yield* strict(yield* mapStore.listSteps(map));
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
-        if (target.status !== "pending") yield* fail("only pending steps can be updated.");
+        if (target.status !== "pending") return yield* fail("only pending steps can be updated.");
         if (Option.isNone(description) && Option.isNone(body))
-          yield* fail("step update requires --description or --body.");
+          return yield* fail("step update requires --description or --body.");
         const nextDescription = Option.isSome(description)
           ? yield* liftSync(() => nonEmpty(description.value, "step description"))
           : target.description;

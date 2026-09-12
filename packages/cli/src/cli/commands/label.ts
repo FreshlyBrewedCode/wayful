@@ -14,7 +14,8 @@ const labelSyncCommand = Command.make("sync", {}, () =>
       const root = yield* wayfulRoot;
       const projectStore = yield* ProjectStore;
       const project = yield* resolveProject(root.project);
-      if (project.backend !== "github") yield* fail("label sync requires the github backend.");
+      if (project.backend !== "github")
+        return yield* fail("label sync requires the github backend.");
       const types = yield* strict(yield* projectStore.listTypes(project));
       const names = yield* syncLabels(
         project,

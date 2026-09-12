@@ -81,7 +81,7 @@ export function readLocalArtifact(
       contained.startsWith(`..${path.sep}`) ||
       path.isAbsolute(contained)
     )
-      yield* fail(
+      return yield* fail(
         `artifact '${canonicalRef}' is not readable: it resolves outside the project root.`,
       );
     const notAFile = () =>
@@ -89,7 +89,7 @@ export function readLocalArtifact(
         message: `artifact '${canonicalRef}' is not readable: it is not a regular file.`,
       });
     const info = yield* fs.stat(target).pipe(Effect.mapError(notAFile));
-    if (info.type !== "File") yield* Effect.fail(notAFile());
+    if (info.type !== "File") return yield* notAFile();
     // Read at most one byte past the cap so an oversized file is bounded in
     // memory rather than buffered whole and then sliced.
     const bytes = yield* Effect.scoped(

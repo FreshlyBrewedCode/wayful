@@ -37,7 +37,7 @@ export function makeStepOps(fs: FileSystem.FileSystem, path: Path.Path) {
       const raw = (yield* liftSync(() => parseToml(text, file))) as Record<string, unknown>;
       const counter = raw.step_id_counter;
       if (!Number.isInteger(counter) || (counter as number) < 1)
-        yield* fail("malformed map metadata.");
+        return yield* fail("malformed map metadata.");
       yield* writeAtomic(
         fs,
         file,
@@ -78,8 +78,8 @@ export function makeStepOps(fs: FileSystem.FileSystem, path: Path.Path) {
           const id = yield* allocateStepId(dir);
           const file = stepFile(path, dir, id, step.name);
           const exists = yield* fs.exists(file).pipe(Effect.mapError(accessError));
-          if (exists) yield* fail(`step '${step.name}' already exists.`);
-          const now = yield* nowISO();
+          if (exists) return yield* fail(`step '${step.name}' already exists.`);
+          const now = yield* nowISO;
           const record: StepRecord = {
             ...step,
             id,
@@ -95,7 +95,7 @@ export function makeStepOps(fs: FileSystem.FileSystem, path: Path.Path) {
 
     saveStep: (map: MapHandle, step: StepRecord) =>
       Effect.gen(function* () {
-        const now = yield* nowISO();
+        const now = yield* nowISO;
         const record: StepRecord = {
           ...step,
           updated_at: now,

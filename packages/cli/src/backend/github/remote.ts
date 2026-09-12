@@ -32,17 +32,15 @@ export function parseGitRemoteUrl(url: string): Option.Option<GitRemoteRef> {
  * resolves to `None` rather than failing, so a caller can fall back to an
  * explicit `--repo` flag.
  */
-export function resolveOriginRemote(): Effect.Effect<
+export const resolveOriginRemote: Effect.Effect<
   Option.Option<GitRemoteRef>,
   never,
   ChildProcessSpawner.ChildProcessSpawner
-> {
-  return Effect.gen(function* () {
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const output = yield* spawner
-      .string(ChildProcess.make("git", ["remote", "get-url", "origin"]))
-      .pipe(Effect.orElseSucceed(() => ""));
-    const url = output.trim();
-    return url ? parseGitRemoteUrl(url) : Option.none();
-  });
-}
+> = Effect.gen(function* () {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const output = yield* spawner
+    .string(ChildProcess.make("git", ["remote", "get-url", "origin"]))
+    .pipe(Effect.orElseSucceed(() => ""));
+  const url = output.trim();
+  return url ? parseGitRemoteUrl(url) : Option.none();
+});

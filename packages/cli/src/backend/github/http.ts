@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Option, Ref } from "effect";
+import { Context, DateTime, Effect, Layer, Option, Ref } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
 import { WayfulError } from "@domain/errors";
@@ -39,7 +39,7 @@ export interface GithubHttpService {
     request: HttpClientRequest.HttpClientRequest,
   ) => Effect.Effect<JsonRead, WayfulError>;
   /** The last rate-limit budget observed, for budgeting and for tests. */
-  readonly rateLimit: () => Effect.Effect<Option.Option<RateLimit>>;
+  readonly rateLimit: Effect.Effect<Option.Option<RateLimit>>;
 }
 
 export class GithubHttp extends Context.Service<GithubHttp, GithubHttpService>()(
@@ -71,7 +71,9 @@ export function readRateLimit(headers: Readonly<Record<string, string>>): RateLi
 }
 
 function resetTime(budget: RateLimit): string {
-  return budget.reset > 0 ? new Date(budget.reset * 1000).toISOString() : "the next reset window";
+  return budget.reset > 0
+    ? DateTime.formatIso(DateTime.makeUnsafe(budget.reset * 1000))
+    : "the next reset window";
 }
 
 /** The clear error the budget produces before GitHub answers with a raw `403`. */
@@ -95,7 +97,10 @@ export function secondaryRateLimitError(retryAfter: string | undefined): WayfulE
 function primaryRateLimitError(headers: Readonly<Record<string, string>>): WayfulError {
   const reset = headerInt(headers, "x-ratelimit-reset");
   const resource = headers["x-ratelimit-resource"] ?? "core";
-  const when = reset !== undefined ? new Date(reset * 1000).toISOString() : "the next reset window";
+  const when =
+    reset !== undefined
+      ? DateTime.formatIso(DateTime.makeUnsafe(reset * 1000))
+      : "the next reset window";
   return new WayfulError({
     message: `github ${resource} rate limit exceeded; wait until ${when} before retrying.`,
   });
@@ -160,7 +165,7 @@ export function makeGithubHttp(client: HttpClient.HttpClient): Effect.Effect<Git
       Effect.gen(function* () {
         const budget = yield* Ref.get(observed);
         if (Option.isSome(budget) && budget.value.remaining <= RATE_LIMIT_FLOOR)
-          return yield* Effect.fail(rateLimitError(budget.value));
+          return yield* rateLimitError(budget.value);
 
         const response = yield* client
           .execute(request)
@@ -176,7 +181,7 @@ export function makeGithubHttp(client: HttpClient.HttpClient): Effect.Effect<Git
         if (response.status === 403 || response.status === 429) {
           const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
           const limit = classifyRateLimit(response.status, response.headers, messageOf(text));
-          if (limit !== undefined) return yield* Effect.fail(limit);
+          if (limit !== undefined) return yield* limit;
           // Not a rate limit: hand the response back intact for the caller.
           return rebuild(request, response, text);
         }
@@ -196,7 +201,7 @@ export function makeGithubHttp(client: HttpClient.HttpClient): Effect.Effect<Git
         if (response.status === 304 && cached !== undefined)
           return { value: cached.value, headers: cached.headers };
         if (response.status < 200 || response.status >= 300)
-          return yield* Effect.fail(requestFailed(`unexpected status ${response.status}.`));
+          return yield* requestFailed(`unexpected status ${response.status}.`);
 
         const value = yield* response.json.pipe(
           Effect.mapError((error) => requestFailed(error.message)),
@@ -210,7 +215,7 @@ export function makeGithubHttp(client: HttpClient.HttpClient): Effect.Effect<Git
         return read;
       });
 
-    return { execute, getJson, rateLimit: () => Ref.get(observed) };
+    return { execute, getJson, rateLimit: Ref.get(observed) };
   });
 }
 

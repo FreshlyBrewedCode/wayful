@@ -1,3 +1,4 @@
+import { DateTime } from "effect";
 import { attachmentOK, normalizedAttachments, nextSteps, unfulfilledSlots } from "@domain/graph";
 import type { Slot } from "@domain/identifier";
 import type {
@@ -114,6 +115,7 @@ export interface BuildMapContextOptions {
  */
 export function buildMapContext(options: BuildMapContextOptions): MapContextView {
   const { metadata, steps, artifacts, goals, problems, since } = options;
+  const sinceDateTime = since === undefined ? undefined : DateTime.fromDateUnsafe(since);
   const mapName = metadata.name;
   const qStep = (id: number) => qualifiedStepId(mapName, id);
   const goalViews: GoalView[] = goals
@@ -221,8 +223,10 @@ export function buildMapContext(options: BuildMapContextOptions): MapContextView
   ];
   // `--since` filters only recent activity and the completed tail below — it
   // must never hide actionable or blocked steps (issue #3, Volume control).
-  const filteredActivity = since
-    ? activityEntries.filter((entry) => new Date(entry.at) >= since)
+  const filteredActivity = sinceDateTime
+    ? activityEntries.filter((entry) =>
+        DateTime.isGreaterThanOrEqualTo(DateTime.makeUnsafe(entry.at), sinceDateTime),
+      )
     : activityEntries;
   // Sorting by last-modified descending is always on, independent of `--since`.
   const sortedActivity = filteredActivity.toSorted((a, b) =>
@@ -231,8 +235,13 @@ export function buildMapContext(options: BuildMapContextOptions): MapContextView
   const recentActivity = capSection(sortedActivity, CONTEXT_CAPS.recentActivity);
 
   const completedSteps = steps.filter((step) => step.status === "complete");
-  const completedFiltered = since
-    ? completedSteps.filter((step) => new Date(step.closed_at ?? step.updated_at) >= since)
+  const completedFiltered = sinceDateTime
+    ? completedSteps.filter((step) =>
+        DateTime.isGreaterThanOrEqualTo(
+          DateTime.makeUnsafe(step.closed_at ?? step.updated_at),
+          sinceDateTime,
+        ),
+      )
     : completedSteps;
   const completedSorted = completedFiltered.toSorted((a, b) => {
     const at = a.closed_at ?? a.updated_at;

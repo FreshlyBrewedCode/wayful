@@ -1,14 +1,14 @@
-import { Context, Effect, Layer, Option, Redacted, Ref } from "effect";
+import { Config, ConfigProvider, Context, Effect, Layer, Option, Redacted, Ref } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { WayfulError } from "@domain/errors";
 
 const MISSING_CREDENTIALS_MESSAGE = "run 'gh auth login', or set GH_TOKEN";
 
-function envToken(name: string): Option.Option<Redacted.Redacted<string>> {
-  const value = process.env[name];
-  return value ? Option.some(Redacted.make(value)) : Option.none();
-}
+const envToken = (name: string) =>
+  Config.option(Config.redacted(name))
+    .parse(ConfigProvider.fromEnv())
+    .pipe(Effect.orElseSucceed(Option.none));
 
 export class GithubCredentials extends Context.Service<
   GithubCredentials,
@@ -47,14 +47,14 @@ export const GithubCredentialsLayer = Layer.effect(
     const token = (host: string) =>
       Effect.gen(function* () {
         const fromEnv = Option.firstSomeOf([
-          envToken("WAYFUL_GITHUB_TOKEN"),
-          envToken("GH_TOKEN"),
-          envToken("GITHUB_TOKEN"),
+          yield* envToken("WAYFUL_GITHUB_TOKEN"),
+          yield* envToken("GH_TOKEN"),
+          yield* envToken("GITHUB_TOKEN"),
         ]);
         if (Option.isSome(fromEnv)) return fromEnv.value;
         const fromCli = yield* fromGhCli(host);
         if (Option.isSome(fromCli)) return fromCli.value;
-        return yield* Effect.fail(new WayfulError({ message: MISSING_CREDENTIALS_MESSAGE }));
+        return yield* new WayfulError({ message: MISSING_CREDENTIALS_MESSAGE });
       });
 
     return GithubCredentials.of({ token });

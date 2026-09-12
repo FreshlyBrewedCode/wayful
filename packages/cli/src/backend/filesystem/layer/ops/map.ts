@@ -28,14 +28,12 @@ export function makeMapOps(fs: FileSystem.FileSystem, path: Path.Path) {
       const dir = mapDir(path, project.root, name);
       const file = mapFile(path, dir);
       const exists = yield* fs.exists(file).pipe(Effect.mapError(accessError));
-      if (!exists) yield* fail(`map '${name}' does not exist.`);
+      if (!exists) return yield* fail(`map '${name}' does not exist.`);
       const metadata = yield* Effect.gen(function* () {
         const text = yield* readTextFile(fs, file, `cannot read ${file}.`);
         const data = yield* liftSync(() => parseToml(text, file));
         return yield* liftSync(() => decodeMapMetadata(data, name));
-      }).pipe(
-        Effect.catch((error) => Effect.fail(new MapMetadataError({ message: error.message }))),
-      );
+      }).pipe(Effect.mapError((error) => new MapMetadataError({ message: error.message })));
       return { project, name, metadata };
     });
 
@@ -52,7 +50,7 @@ export function makeMapOps(fs: FileSystem.FileSystem, path: Path.Path) {
         for (const name of entries.toSorted()) {
           const stat = yield* fs
             .stat(path.join(dir, name))
-            .pipe(Effect.catch(() => Effect.succeed(undefined)));
+            .pipe(Effect.orElseSucceed(() => undefined));
           if (stat && stat.type === "Directory") names.push(name);
         }
         const result = yield* collect(
@@ -90,7 +88,7 @@ export function makeMapOps(fs: FileSystem.FileSystem, path: Path.Path) {
         const trimmedGoal = yield* liftSync(() => nonEmpty(goal, "map goal"));
         const dir = mapDir(path, project.root, name);
         const exists = yield* fs.exists(dir).pipe(Effect.mapError(accessError));
-        if (exists) yield* fail(`map '${name}' already exists.`);
+        if (exists) return yield* fail(`map '${name}' already exists.`);
         const onCreateError = new WayfulError({ message: `cannot create map '${name}'.` });
         yield* fs
           .makeDirectory(stepsDir(path, dir), { recursive: true })
@@ -98,7 +96,7 @@ export function makeMapOps(fs: FileSystem.FileSystem, path: Path.Path) {
         yield* fs
           .makeDirectory(goalsDir(path, dir), { recursive: true })
           .pipe(Effect.mapError(() => onCreateError));
-        const now = yield* nowISO();
+        const now = yield* nowISO;
         yield* writeAtomic(
           fs,
           mapFile(path, dir),

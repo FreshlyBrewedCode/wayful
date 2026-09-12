@@ -1,4 +1,4 @@
-import { Effect, Redacted } from "effect";
+import { DateTime, Effect, Option, Redacted } from "effect";
 import { HttpClientRequest } from "effect/unstable/http";
 
 import { WayfulError } from "@domain/errors";
@@ -56,8 +56,8 @@ query WayfulMapSnapshot($owner: String!, $repo: String!, $number: Int!) {
 
 function isoMillis(value: unknown): string {
   if (typeof value !== "string") return "";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+  const date = DateTime.make(value);
+  return Option.isNone(date) ? "" : DateTime.formatIso(date.value);
 }
 
 function labelNames(raw: unknown): readonly string[] {
@@ -134,9 +134,7 @@ export function readMapSnapshot(
     );
     const response = yield* http.execute(request);
     if (response.status < 200 || response.status >= 300)
-      return yield* Effect.fail(
-        requestFailed(`graphql snapshot failed with status ${response.status}.`),
-      );
+      return yield* requestFailed(`graphql snapshot failed with status ${response.status}.`);
     const body = (yield* response.json.pipe(
       Effect.mapError((error) => requestFailed(error.message)),
     )) as {
@@ -144,13 +142,13 @@ export function readMapSnapshot(
       readonly errors?: unknown;
     };
     const graphqlError = graphqlMessage(body.errors);
-    if (graphqlError) return yield* Effect.fail(requestFailed(graphqlError));
+    if (graphqlError) return yield* requestFailed(graphqlError);
     const raw = body.data?.repository?.issue;
     if (!raw || typeof raw !== "object")
-      return yield* Effect.fail(requestFailed(`map #${number} was not found.`));
+      return yield* requestFailed(`map #${number} was not found.`);
     const node = raw as Record<string, unknown>;
     const map = normalizeIssue(node);
-    if (!map) return yield* Effect.fail(requestFailed(`map #${number} could not be read.`));
+    if (!map) return yield* requestFailed(`map #${number} could not be read.`);
 
     const subIssues = (node.subIssues as { nodes?: unknown } | undefined)?.nodes;
     const children: SnapshotChild[] = [];

@@ -113,7 +113,7 @@ describe("GithubHttp: conditional GETs", () => {
         const http = yield* GithubHttp;
         yield* http.getJson(HttpClientRequest.get(url));
         yield* http.getJson(HttpClientRequest.get(url));
-        return Option.getOrUndefined(yield* http.rateLimit());
+        return Option.getOrUndefined(yield* http.rateLimit);
       }),
     );
     expect(remaining).toEqual({ limit: 5000, remaining: 100, reset: 0, resource: "core" });

@@ -12,7 +12,7 @@ import { clientDirectory, resolveClientAssets } from "@server/client";
 import { EMBEDDED_ASSETS } from "@server/embedded-ui";
 import { startServer, type RunningServer, type ServerConfig } from "@server/http";
 
-const TestLayer = FileSystemBackend.pipe(Layer.provide(BunServices.layer));
+const TestLayer = FileSystemBackend.pipe(Layer.provideMerge(BunServices.layer));
 const temporaryDirectories: string[] = [];
 const running: RunningServer[] = [];
 
@@ -357,7 +357,9 @@ describe("resolving client assets to serve", () => {
       await writeFile(join(directory, "index.html"), "<!doctype html>");
       await writeFile(join(directory, "assets", "index-abc.js"), "export const ok = 1;\n");
 
-      const resolved = resolveClientAssets({ WAYFUL_UI_DIST: directory });
+      const resolved = await Effect.runPromise(
+        Effect.provide(resolveClientAssets({ WAYFUL_UI_DIST: directory }), TestLayer),
+      );
 
       expect(resolved?.description).toBe(directory);
       expect(Object.keys(resolved?.assets ?? {}).toSorted()).toEqual([
@@ -369,8 +371,10 @@ describe("resolving client assets to serve", () => {
     },
   );
 
-  test.skipIf(!embedded)("prefers the embedded client over any directory candidate", () => {
-    const resolved = resolveClientAssets({ WAYFUL_UI_DIST: "/nonexistent" });
+  test.skipIf(!embedded)("prefers the embedded client over any directory candidate", async () => {
+    const resolved = await Effect.runPromise(
+      Effect.provide(resolveClientAssets({ WAYFUL_UI_DIST: "/nonexistent" }), TestLayer),
+    );
 
     expect(resolved?.description).toBe("(embedded)");
     expect(resolved?.assets).toBe(EMBEDDED_ASSETS);
@@ -382,12 +386,20 @@ describe("locating the bundled client", () => {
     const client = await temporaryDirectory();
     await writeFile(join(client, "index.html"), "<!doctype html>");
 
-    expect(clientDirectory({ WAYFUL_UI_DIST: client })).toBe(client);
+    expect(
+      await Effect.runPromise(
+        Effect.provide(clientDirectory({ WAYFUL_UI_DIST: client }), TestLayer),
+      ),
+    ).toBe(client);
   });
 
   test("falls past a candidate that holds no built client", async () => {
     const empty = await temporaryDirectory();
 
-    expect(clientDirectory({ WAYFUL_UI_DIST: empty })).not.toBe(empty);
+    expect(
+      await Effect.runPromise(
+        Effect.provide(clientDirectory({ WAYFUL_UI_DIST: empty }), TestLayer),
+      ),
+    ).not.toBe(empty);
   });
 });

@@ -2,19 +2,12 @@
 // directory and without the `packages/ui` workspace present, so the client is
 // looked up by candidate rather than by a relative path from the caller.
 
-import { existsSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { Effect, FileSystem, Path } from "effect";
 
 import { EMBEDDED_ASSETS } from "@server/embedded-ui";
 
 /** `packages/cli`, from `packages/cli/src/server/client.ts`. */
-const PACKAGE_ROOT = resolve(import.meta.dir, "..", "..");
-
-/** Where `bun run --filter '@wayful/cli' build` puts the bundled client. */
-export const BUNDLED_CLIENT = join(PACKAGE_ROOT, "dist", "ui");
-
-/** Where `bun run --filter '@wayful/ui' build` puts it inside this workspace. */
-const WORKSPACE_CLIENT = join(PACKAGE_ROOT, "..", "ui", "dist");
+const packageRoot = (path: Path.Path) => path.resolve(import.meta.dir, "..", "..");
 
 /**
  * The first candidate that actually holds a built client, or `undefined` when
@@ -27,26 +20,51 @@ const WORKSPACE_CLIENT = join(PACKAGE_ROOT, "..", "ui", "dist");
  */
 export function clientDirectory(
   environment: Record<string, string | undefined> = process.env,
-): string | undefined {
-  const candidates = [environment.WAYFUL_UI_DIST, BUNDLED_CLIENT, WORKSPACE_CLIENT];
-  return candidates.find(
-    (candidate): candidate is string => !!candidate && existsSync(join(candidate, "index.html")),
-  );
+): Effect.Effect<string | undefined, never, FileSystem.FileSystem | Path.Path> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const root = packageRoot(path);
+    const candidates = [
+      environment.WAYFUL_UI_DIST,
+      path.join(root, "dist", "ui"),
+      path.join(root, "..", "ui", "dist"),
+    ];
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      const present = yield* fs
+        .exists(path.join(candidate, "index.html"))
+        .pipe(Effect.orElseSucceed(() => false));
+      if (present) return candidate;
+    }
+    return undefined;
+  });
 }
 
 /** Recursively maps every file under `directory` to a route, `/` included. */
-function walkAssets(directory: string): Record<string, string> {
-  const assets: Record<string, string> = {};
-  const walk = (current: string, prefix: string) => {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const path = join(current, entry.name);
-      if (entry.isDirectory()) walk(path, `${prefix}/${entry.name}`);
-      else assets[`${prefix}/${entry.name}`] = path;
-    }
-  };
-  walk(directory, "");
-  if (assets["/index.html"]) assets["/"] = assets["/index.html"];
-  return assets;
+function walkAssets(
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
+  directory: string,
+): Effect.Effect<Record<string, string>, never> {
+  return Effect.gen(function* () {
+    const assets: Record<string, string> = {};
+    const walk = (current: string, prefix: string): Effect.Effect<void, never> =>
+      Effect.gen(function* () {
+        const entries = yield* fs
+          .readDirectory(current)
+          .pipe(Effect.orElseSucceed(() => [] as Array<string>));
+        for (const entry of entries) {
+          const entryPath = path.join(current, entry);
+          const info = yield* fs.stat(entryPath).pipe(Effect.orElseSucceed(() => undefined));
+          if (info?.type === "Directory") yield* walk(entryPath, `${prefix}/${entry}`);
+          else assets[`${prefix}/${entry}`] = entryPath;
+        }
+      });
+    yield* walk(directory, "");
+    if (assets["/index.html"]) assets["/"] = assets["/index.html"];
+    return assets;
+  });
 }
 
 /**
@@ -59,10 +77,19 @@ function walkAssets(directory: string): Record<string, string> {
  */
 export function resolveClientAssets(
   environment: Record<string, string | undefined> = process.env,
-): { assets: Record<string, string>; description: string } | undefined {
-  if (Object.keys(EMBEDDED_ASSETS).length > 0) {
-    return { assets: EMBEDDED_ASSETS, description: "(embedded)" };
-  }
-  const directory = clientDirectory(environment);
-  return directory ? { assets: walkAssets(directory), description: directory } : undefined;
+): Effect.Effect<
+  { assets: Record<string, string>; description: string } | undefined,
+  never,
+  FileSystem.FileSystem | Path.Path
+> {
+  return Effect.gen(function* () {
+    if (Object.keys(EMBEDDED_ASSETS).length > 0) {
+      return { assets: EMBEDDED_ASSETS, description: "(embedded)" };
+    }
+    const directory = yield* clientDirectory(environment);
+    if (!directory) return undefined;
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    return { assets: yield* walkAssets(fs, path, directory), description: directory };
+  });
 }

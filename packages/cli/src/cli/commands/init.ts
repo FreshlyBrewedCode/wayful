@@ -45,18 +45,18 @@ export const initCommand = Command.make(
 
         if (backend !== "github") {
           if (Option.isSome(repo))
-            yield* Effect.fail(new WayfulError({ message: "--repo requires --backend github." }));
+            return yield* new WayfulError({ message: "--repo requires --backend github." });
           yield* projectStore.initProject({ directory, description: resolvedDescription, backend });
           yield* Console.log("Initialized Wayful project.");
           return;
         }
 
         if (Option.isSome(repo) && !REPO_PATTERN.test(repo.value))
-          yield* Effect.fail(
-            new WayfulError({ message: `--repo must be in the form "owner/name".` }),
-          );
+          return yield* new WayfulError({
+            message: `--repo must be in the form "owner/name".`,
+          });
 
-        const remote = yield* resolveOriginRemote();
+        const remote = yield* resolveOriginRemote;
         const host = Option.match(remote, { onNone: () => "github.com", onSome: (r) => r.host });
         const ownerName = yield* Option.match(repo, {
           onSome: (value) => Effect.succeed(value),

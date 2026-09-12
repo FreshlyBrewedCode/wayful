@@ -1,4 +1,4 @@
-import { Clock, Effect } from "effect";
+import { DateTime, Effect } from "effect";
 
 import { WayfulError } from "@domain/errors";
 
@@ -7,9 +7,7 @@ import { WayfulError } from "@domain/errors";
  * runtime clock so backend and domain tests can inject a fixed clock (e.g.
  * via `TestClock`) rather than reading the wall clock directly.
  */
-export function nowISO(): Effect.Effect<string> {
-  return Effect.map(Clock.currentTimeMillis, (ms) => new Date(ms).toISOString());
-}
+export const nowISO: Effect.Effect<string> = Effect.map(DateTime.now, DateTime.formatIso);
 
 /** Lifts a domain helper that throws `WayfulError` synchronously into an Effect. */
 export function liftSync<A>(thunk: () => A): Effect.Effect<A, WayfulError> {

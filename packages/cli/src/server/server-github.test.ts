@@ -103,7 +103,7 @@ function stubMapStore() {
 
 function serve(project: string, mapStore: Layer.Layer<MapStore>) {
   const layer = Layer.mergeAll(FileSystemProjectStore, mapStore).pipe(
-    Layer.provide(BunServices.layer),
+    Layer.provideMerge(BunServices.layer),
   );
   return Effect.runPromise(
     startServer({ project, host: "127.0.0.1", port: 0, client: undefined }).pipe(

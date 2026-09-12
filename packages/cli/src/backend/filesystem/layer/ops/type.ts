@@ -18,7 +18,7 @@ export function makeTypeOps(fs: FileSystem.FileSystem, path: Path.Path) {
       yield* liftSync(() => identifier(name, "type name"));
       const file = typeFile(path, project.root, name);
       const exists = yield* fs.exists(file).pipe(Effect.mapError(accessError));
-      if (!exists) yield* fail(`type '${name}' does not exist.`);
+      if (!exists) return yield* fail(`type '${name}' does not exist.`);
       const text = yield* readTextFile(fs, file, `cannot read ${file}.`);
       const { data, body } = yield* liftSync(() => parseFrontmatter(text, file));
       return yield* liftSync(() => decodeType(name, data, body));

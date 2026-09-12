@@ -45,15 +45,15 @@ export function makeGoalOps(fs: FileSystem.FileSystem, path: Path.Path) {
       Effect.gen(function* () {
         const file = goalFile(path, mapDir(path, map.project.root, map.name), goal.name);
         const exists = yield* fs.exists(file).pipe(Effect.mapError(accessError));
-        if (exists) yield* fail(`goal '${goal.name}' already exists.`);
-        const now = yield* nowISO();
+        if (exists) return yield* fail(`goal '${goal.name}' already exists.`);
+        const now = yield* nowISO;
         const record: GoalRecord = { ...goal, created_at: now, updated_at: now };
         yield* writeAtomic(fs, file, buildMarkdown(goalToDocument(record), record.body));
       }),
 
     saveGoal: (map: MapHandle, goal: GoalRecord) =>
       Effect.gen(function* () {
-        const now = yield* nowISO();
+        const now = yield* nowISO;
         const record: GoalRecord = { ...goal, updated_at: now };
         yield* writeAtomic(
           fs,

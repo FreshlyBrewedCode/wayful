@@ -1,0 +1,25 @@
+{
+  "$schema": "../../node_modules/@effect/tsgo/oxlint-schema.json",
+  "extends": ["../../node_modules/@effect/tsgo/oxlint-presets/recommended.json"],
+  "plugins": ["effecttsgo"],
+  "options": {
+    "typeAware": true
+  },
+  "ignorePatterns": ["**/routeTree.gen.ts"],
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/*.live.ts"],
+      "rules": {
+        "effecttsgo/async-function": "off",
+        "effecttsgo/node-builtin-import": "off",
+        "effecttsgo/process-env": "off",
+        "effecttsgo/global-fetch": "off",
+        "effecttsgo/global-timers": "off",
+        "effecttsgo/global-random": "off",
+        "effecttsgo/global-date": "off",
+        "effecttsgo/global-console": "off",
+        "effecttsgo/new-promise": "off"
+      }
+    }
+  ]
+}

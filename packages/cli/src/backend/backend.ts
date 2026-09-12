@@ -17,7 +17,7 @@ export const RoutedMapStore = Layer.effect(
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const local = makeFileSystemMapStore(fs, path);
-    const github = yield* makeGithubMapStore();
+    const github = yield* makeGithubMapStore;
 
     const storeFor = (backend: ProjectBackend) => (backend === "github" ? github : local);
 
