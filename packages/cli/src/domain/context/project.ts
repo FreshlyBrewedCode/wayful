@@ -1,6 +1,6 @@
-import { attachmentOK } from "../graph";
-import type { DecodeError, GoalRecord, MapMetadata, StepRecord } from "../model";
-import type { StepCounts } from "../status";
+import { attachmentOK } from "@domain/graph";
+import type { DecodeError, GoalRecord, MapMetadata, StepRecord } from "@domain/model";
+import type { StepCounts } from "@domain/status";
 
 export interface ProjectMapSummary {
   readonly map: string;

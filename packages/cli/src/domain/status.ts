@@ -1,5 +1,5 @@
-import { attachmentOK, nextSteps } from "./graph";
-import type { GoalRecord, MapMetadata, StepRecord } from "./model";
+import { attachmentOK, nextSteps } from "@domain/graph";
+import type { GoalRecord, MapMetadata, StepRecord } from "@domain/model";
 
 export interface StepCounts {
   readonly pending: number;

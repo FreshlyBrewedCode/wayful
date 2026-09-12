@@ -1,13 +1,13 @@
 import { Effect, FileSystem, Path } from "effect";
 
-import { WayfulError } from "../../../../domain/errors";
-import { identifier } from "../../../../domain/identifier";
-import type { TypeDefinition } from "../../../../domain/model";
-import type { ProjectHandle } from "../../../ProjectStore";
-import { decodeType } from "../../decode";
-import { liftSync, parseFrontmatter, readTextFile } from "../../documents";
-import { typeFile, typesDir } from "../../paths";
-import { accessError, collect, fail } from "../records";
+import { WayfulError } from "@domain/errors";
+import { identifier } from "@domain/identifier";
+import type { TypeDefinition } from "@domain/model";
+import type { ProjectHandle } from "@backend/ProjectStore";
+import { decodeType } from "@backend/filesystem/decode";
+import { liftSync, parseFrontmatter, readTextFile } from "@backend/filesystem/documents";
+import { typeFile, typesDir } from "@backend/filesystem/paths";
+import { accessError, collect, fail } from "@backend/filesystem/layer/records";
 
 export function makeTypeOps(fs: FileSystem.FileSystem, path: Path.Path) {
   const readType = (

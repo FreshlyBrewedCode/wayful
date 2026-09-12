@@ -9,10 +9,10 @@
 
 import { Effect, Option, Result } from "effect";
 
-import { MapStore, type MapHandle } from "../backend/MapStore";
-import { ProjectStore, type ProjectHandle } from "../backend/ProjectStore";
-import { fail, resolveMap, resolveProject } from "../scope";
-import type { MapMetadataError, WayfulError } from "../domain/errors";
+import { MapStore, type MapHandle } from "@backend/MapStore";
+import { ProjectStore, type ProjectHandle } from "@backend/ProjectStore";
+import { fail, resolveMap, resolveProject } from "@/scope";
+import type { MapMetadataError, WayfulError } from "@domain/errors";
 import type {
   DerivedArtifact,
   GoalRecord,
@@ -20,9 +20,9 @@ import type {
   MapSnapshot,
   StepRecord,
   TypeDefinition,
-} from "../domain/model";
-import { mapStatus, type MapStatus } from "../domain/status";
-import { validateMap } from "../domain/validate";
+} from "@domain/model";
+import { mapStatus, type MapStatus } from "@domain/status";
+import { validateMap } from "@domain/validate";
 
 export interface ErrorPayload {
   readonly error: string;

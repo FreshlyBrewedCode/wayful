@@ -1,4 +1,4 @@
-import { WayfulError } from "./errors";
+import { WayfulError } from "@domain/errors";
 
 export const SCHEME = /^[a-z][a-z0-9+.-]*:/;
 

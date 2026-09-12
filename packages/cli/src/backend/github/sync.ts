@@ -1,13 +1,13 @@
 import { Effect } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
-import { WayfulError } from "../../domain/errors";
-import type { ProjectHandle } from "../ProjectStore";
-import { ensureLabels, type Label } from "./api";
-import { GithubCredentials } from "./credentials";
-import { GithubHttp } from "./http";
-import { wayfulLabels } from "./labels";
-import { resolveRepo } from "./repo";
+import { WayfulError } from "@domain/errors";
+import type { ProjectHandle } from "@backend/ProjectStore";
+import { ensureLabels, type Label } from "@backend/github/api";
+import { GithubCredentials } from "@backend/github/credentials";
+import { GithubHttp } from "@backend/github/http";
+import { wayfulLabels } from "@backend/github/labels";
+import { resolveRepo } from "@backend/github/repo";
 
 /**
  * Reconciles the project's `wayful:*` label set with its type files: creates

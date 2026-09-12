@@ -1,14 +1,20 @@
 import { Console, Effect } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 
-import { MapStore } from "../../../backend/MapStore";
-import { liftSync } from "../../../backend/filesystem/documents";
-import { attachmentOK } from "../../../domain/graph";
-import { nonEmpty } from "../../../domain/identifier";
-import { assertWritableMapIntegrity, fail, resolveProject, strict } from "../../../scope";
-import { handle } from "../../render";
-import { wayfulRoot } from "../../root";
-import { assertNotTerminal, findStep, resolveStepTarget, stepArgument, stepParent } from "./shared";
+import { MapStore } from "@backend/MapStore";
+import { liftSync } from "@backend/filesystem/documents";
+import { attachmentOK } from "@domain/graph";
+import { nonEmpty } from "@domain/identifier";
+import { assertWritableMapIntegrity, fail, resolveProject, strict } from "@/scope";
+import { handle } from "@cli/render";
+import { wayfulRoot } from "@cli/root";
+import {
+  assertNotTerminal,
+  findStep,
+  resolveStepTarget,
+  stepArgument,
+  stepParent,
+} from "@cli/commands/step/shared";
 
 export const stepBlockCommand = Command.make(
   "block",

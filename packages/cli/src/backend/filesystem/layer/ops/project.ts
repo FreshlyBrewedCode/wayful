@@ -1,7 +1,7 @@
 import { Effect, FileSystem, Option, Path } from "effect";
 
-import { WayfulError } from "../../../../domain/errors";
-import { CURRENT_FORMAT_VERSION, type ProjectBackend } from "../../../../domain/model";
+import { WayfulError } from "@domain/errors";
+import { CURRENT_FORMAT_VERSION, type ProjectBackend } from "@domain/model";
 import {
   buildMarkdown,
   liftSync,
@@ -10,10 +10,10 @@ import {
   readTextFile,
   stringifyToml,
   writeAtomic,
-} from "../../documents";
-import { decodeProjectMetadata } from "../../decode";
-import { projectFile, typeFile, typesDir } from "../../paths";
-import { accessError, fail } from "../records";
+} from "@backend/filesystem/documents";
+import { decodeProjectMetadata } from "@backend/filesystem/decode";
+import { projectFile, typeFile, typesDir } from "@backend/filesystem/paths";
+import { accessError, fail } from "@backend/filesystem/layer/records";
 
 export function makeProjectOps(fs: FileSystem.FileSystem, path: Path.Path) {
   const discoverProjectRoot = (start: string): Effect.Effect<string, WayfulError> =>

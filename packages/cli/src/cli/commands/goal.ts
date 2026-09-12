@@ -1,18 +1,18 @@
 import { Console, Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 
-import { MapStore } from "../../backend/MapStore";
-import { liftSync } from "../../backend/filesystem/documents";
-import { normalizeRef } from "../../domain/artifact-ref";
-import { WayfulError } from "../../domain/errors";
-import { attachmentOK } from "../../domain/graph";
-import { identifier, nonEmpty, slots } from "../../domain/identifier";
-import type { Slot } from "../../domain/identifier";
-import { CURRENT_FORMAT_VERSION, type Attachment } from "../../domain/model";
-import { assertWritableMapIntegrity, fail, resolveMap, resolveProject, strict } from "../../scope";
-import { jsonFlag, mapFlag } from "../flags";
-import { bodyLines, handle, printOutput } from "../render";
-import { wayfulRoot } from "../root";
+import { MapStore } from "@backend/MapStore";
+import { liftSync } from "@backend/filesystem/documents";
+import { normalizeRef } from "@domain/artifact-ref";
+import { WayfulError } from "@domain/errors";
+import { attachmentOK } from "@domain/graph";
+import { identifier, nonEmpty, slots } from "@domain/identifier";
+import type { Slot } from "@domain/identifier";
+import { CURRENT_FORMAT_VERSION, type Attachment } from "@domain/model";
+import { assertWritableMapIntegrity, fail, resolveMap, resolveProject, strict } from "@/scope";
+import { jsonFlag, mapFlag } from "@cli/flags";
+import { bodyLines, handle, printOutput } from "@cli/render";
+import { wayfulRoot } from "@cli/root";
 
 const goalParent = Command.make("goal").pipe(
   Command.withSharedFlags({ map: mapFlag }),

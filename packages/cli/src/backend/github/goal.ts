@@ -1,9 +1,9 @@
-import { WayfulError } from "../../domain/errors";
-import { formatVersion, identifier, nonEmpty, slots, timestamp } from "../../domain/identifier";
-import type { Slot } from "../../domain/identifier";
-import { CURRENT_FORMAT_VERSION, type GoalRecord } from "../../domain/model";
-import { decodeIssueBody, encodeIssueBody, type GithubIssue } from "./issue";
-import { WAYFUL_GOAL_LABEL } from "./labels";
+import { WayfulError } from "@domain/errors";
+import { formatVersion, identifier, nonEmpty, slots, timestamp } from "@domain/identifier";
+import type { Slot } from "@domain/identifier";
+import { CURRENT_FORMAT_VERSION, type GoalRecord } from "@domain/model";
+import { decodeIssueBody, encodeIssueBody, type GithubIssue } from "@backend/github/issue";
+import { WAYFUL_GOAL_LABEL } from "@backend/github/labels";
 
 const fail = (message: string): never => {
   throw new WayfulError({ message });

@@ -5,11 +5,11 @@
 import { Effect, Option, Result } from "effect";
 import { resolve } from "node:path";
 
-import { MapStore } from "../backend/MapStore";
-import type { ProjectStore } from "../backend/ProjectStore";
-import { resolveProject } from "../scope";
-import { WayfulError } from "../domain/errors";
-import { mapDetail, overview, stepDetail } from "./api";
+import { MapStore } from "@backend/MapStore";
+import type { ProjectStore } from "@backend/ProjectStore";
+import { resolveProject } from "@/scope";
+import { WayfulError } from "@domain/errors";
+import { mapDetail, overview, stepDetail } from "@server/api";
 
 export interface ServerConfig {
   /** Project directory hint; the enclosing project is discovered upward from it. */

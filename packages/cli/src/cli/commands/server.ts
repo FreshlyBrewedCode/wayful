@@ -2,11 +2,11 @@ import { Console, Effect, Option } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { resolve } from "node:path";
 
-import { fail } from "../../scope";
-import { resolveClientAssets } from "../../server/client";
-import { startServer, type RunningServer } from "../../server/http";
-import { handle } from "../render";
-import { wayfulRoot } from "../root";
+import { fail } from "@/scope";
+import { resolveClientAssets } from "@server/client";
+import { startServer, type RunningServer } from "@server/http";
+import { handle } from "@cli/render";
+import { wayfulRoot } from "@cli/root";
 
 const portFlag = Flag.integer("port").pipe(
   Flag.withMetavar("PORT"),

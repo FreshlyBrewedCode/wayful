@@ -1,8 +1,8 @@
-import { WayfulError } from "../../domain/errors";
-import { formatVersion, identifier, nonEmpty, timestamp } from "../../domain/identifier";
-import { CURRENT_FORMAT_VERSION, type MapMetadata } from "../../domain/model";
-import { decodeIssueBody, type GithubIssue } from "./issue";
-import { WAYFUL_MAP_LABEL } from "./labels";
+import { WayfulError } from "@domain/errors";
+import { formatVersion, identifier, nonEmpty, timestamp } from "@domain/identifier";
+import { CURRENT_FORMAT_VERSION, type MapMetadata } from "@domain/model";
+import { decodeIssueBody, type GithubIssue } from "@backend/github/issue";
+import { WAYFUL_MAP_LABEL } from "@backend/github/labels";
 
 const fail = (message: string): never => {
   throw new WayfulError({ message });

@@ -1,14 +1,14 @@
 import { Effect, Fiber, FileSystem, Layer, Path, Stream } from "effect";
 
-import { makeReadArtifact } from "../../artifacts";
-import { MapStore } from "../../MapStore";
-import { ProjectStore } from "../../ProjectStore";
-import { makeGoalOps } from "./ops/goal";
-import { makeMapOps } from "./ops/map";
-import { makeProjectOps } from "./ops/project";
-import { makeSnapshotOp } from "./ops/snapshot";
-import { makeStepOps } from "./ops/step";
-import { makeTypeOps } from "./ops/type";
+import { makeReadArtifact } from "@backend/artifacts";
+import { MapStore } from "@backend/MapStore";
+import { ProjectStore } from "@backend/ProjectStore";
+import { makeGoalOps } from "@backend/filesystem/layer/ops/goal";
+import { makeMapOps } from "@backend/filesystem/layer/ops/map";
+import { makeProjectOps } from "@backend/filesystem/layer/ops/project";
+import { makeSnapshotOp } from "@backend/filesystem/layer/ops/snapshot";
+import { makeStepOps } from "@backend/filesystem/layer/ops/step";
+import { makeTypeOps } from "@backend/filesystem/layer/ops/type";
 
 export const FileSystemProjectStore = Layer.effect(
   ProjectStore,

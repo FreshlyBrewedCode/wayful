@@ -1,5 +1,5 @@
-import { WayfulError } from "./errors";
-import { CURRENT_FORMAT_VERSION } from "./model";
+import { WayfulError } from "@domain/errors";
+import { CURRENT_FORMAT_VERSION } from "@domain/model";
 
 export const IDENT = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 

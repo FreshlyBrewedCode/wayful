@@ -1,21 +1,15 @@
 import { Console, Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 
-import { MapStore } from "../../../backend/MapStore";
-import { ProjectStore } from "../../../backend/ProjectStore";
-import { liftSync } from "../../../backend/filesystem/documents";
-import { identifier, nonEmpty } from "../../../domain/identifier";
-import { CURRENT_FORMAT_VERSION, type NewStepRecord } from "../../../domain/model";
-import {
-  assertWritableMapIntegrity,
-  fail,
-  resolveMap,
-  resolveProject,
-  strict,
-} from "../../../scope";
-import { jsonFlag } from "../../flags";
-import { handle, printOutput } from "../../render";
-import { wayfulRoot } from "../../root";
+import { MapStore } from "@backend/MapStore";
+import { ProjectStore } from "@backend/ProjectStore";
+import { liftSync } from "@backend/filesystem/documents";
+import { identifier, nonEmpty } from "@domain/identifier";
+import { CURRENT_FORMAT_VERSION, type NewStepRecord } from "@domain/model";
+import { assertWritableMapIntegrity, fail, resolveMap, resolveProject, strict } from "@/scope";
+import { jsonFlag } from "@cli/flags";
+import { handle, printOutput } from "@cli/render";
+import { wayfulRoot } from "@cli/root";
 import {
   assertNotTerminal,
   findStep,
@@ -23,7 +17,7 @@ import {
   resolveStepTarget,
   stepArgument,
   stepParent,
-} from "./shared";
+} from "@cli/commands/step/shared";
 
 export const stepCreateCommand = Command.make(
   "create",

@@ -1,9 +1,9 @@
 import { Effect, FileSystem, Path, Semaphore } from "effect";
 
-import { WayfulError } from "../../../../domain/errors";
-import { closesStep, type NewStepRecord, type StepRecord } from "../../../../domain/model";
-import type { MapHandle } from "../../../MapStore";
-import { decodeStep } from "../../decode";
+import { WayfulError } from "@domain/errors";
+import { closesStep, type NewStepRecord, type StepRecord } from "@domain/model";
+import type { MapHandle } from "@backend/MapStore";
+import { decodeStep } from "@backend/filesystem/decode";
 import {
   buildMarkdown,
   liftSync,
@@ -13,9 +13,9 @@ import {
   readTextFile,
   stringifyToml,
   writeAtomic,
-} from "../../documents";
-import { mapDir, mapFile, stepFile, stepsDir } from "../../paths";
-import { accessError, collect, fail, stepToDocument } from "../records";
+} from "@backend/filesystem/documents";
+import { mapDir, mapFile, stepFile, stepsDir } from "@backend/filesystem/paths";
+import { accessError, collect, fail, stepToDocument } from "@backend/filesystem/layer/records";
 
 export function makeStepOps(fs: FileSystem.FileSystem, path: Path.Path) {
   // Guards each map's `step_id_counter` read-modify-write so that two

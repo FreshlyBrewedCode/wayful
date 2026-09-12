@@ -1,9 +1,15 @@
-import { attachmentOK, normalizedAttachments, nextSteps, unfulfilledSlots } from "../graph";
-import type { Slot } from "../identifier";
-import type { DecodeError, DerivedArtifact, GoalRecord, MapMetadata, StepRecord } from "../model";
-import type { StepCounts } from "../status";
-import { capSection, CONTEXT_CAPS, qualifiedStepId } from "./shared";
-import type { Capped } from "./shared";
+import { attachmentOK, normalizedAttachments, nextSteps, unfulfilledSlots } from "@domain/graph";
+import type { Slot } from "@domain/identifier";
+import type {
+  DecodeError,
+  DerivedArtifact,
+  GoalRecord,
+  MapMetadata,
+  StepRecord,
+} from "@domain/model";
+import type { StepCounts } from "@domain/status";
+import { capSection, CONTEXT_CAPS, qualifiedStepId } from "@domain/context/shared";
+import type { Capped } from "@domain/context/shared";
 
 export interface GoalAttachmentView {
   readonly slot: string | undefined;

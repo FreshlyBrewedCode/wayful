@@ -1,4 +1,4 @@
-import { WayfulError } from "../../domain/errors";
+import { WayfulError } from "@domain/errors";
 
 /**
  * The subset of a GitHub issue this backend reads. Every field is either

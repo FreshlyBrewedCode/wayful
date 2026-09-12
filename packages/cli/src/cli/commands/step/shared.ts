@@ -1,21 +1,16 @@
 import { Effect, Option } from "effect";
 import { Argument, Command } from "effect/unstable/cli";
 
-import type { MapHandle, MapStore } from "../../../backend/MapStore";
-import type { ProjectHandle, ProjectStore } from "../../../backend/ProjectStore";
-import { liftSync } from "../../../backend/filesystem/documents";
-import { MapMetadataError, WayfulError } from "../../../domain/errors";
-import { slots } from "../../../domain/identifier";
-import type { Slot } from "../../../domain/identifier";
-import { closesStep, type StepRecord } from "../../../domain/model";
-import {
-  describeToken,
-  expectStep,
-  resolveToken,
-  type ReferenceToken,
-} from "../../../domain/reference";
-import { fail, resolveReferencedMap } from "../../../scope";
-import { mapFlag } from "../../flags";
+import type { MapHandle, MapStore } from "@backend/MapStore";
+import type { ProjectHandle, ProjectStore } from "@backend/ProjectStore";
+import { liftSync } from "@backend/filesystem/documents";
+import { MapMetadataError, WayfulError } from "@domain/errors";
+import { slots } from "@domain/identifier";
+import type { Slot } from "@domain/identifier";
+import { closesStep, type StepRecord } from "@domain/model";
+import { describeToken, expectStep, resolveToken, type ReferenceToken } from "@domain/reference";
+import { fail, resolveReferencedMap } from "@/scope";
+import { mapFlag } from "@cli/flags";
 
 export const stepArgument = Argument.string("step").pipe(
   Argument.withMetavar("STEP"),

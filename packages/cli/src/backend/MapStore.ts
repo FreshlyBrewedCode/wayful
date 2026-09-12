@@ -1,6 +1,6 @@
 import { Context, type Effect } from "effect";
 
-import type { MapMetadataError, WayfulError } from "../domain/errors";
+import type { MapMetadataError, WayfulError } from "@domain/errors";
 import type {
   ArtifactContent,
   CollectionRead,
@@ -11,8 +11,8 @@ import type {
   NewGoalRecord,
   NewStepRecord,
   StepRecord,
-} from "../domain/model";
-import type { ProjectHandle } from "./ProjectStore";
+} from "@domain/model";
+import type { ProjectHandle } from "@backend/ProjectStore";
 
 /**
  * Pluggable: everything about a map's steps, goals, and their read shape.

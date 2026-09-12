@@ -5,7 +5,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { EMBEDDED_ASSETS } from "./embedded-ui";
+import { EMBEDDED_ASSETS } from "@server/embedded-ui";
 
 /** `packages/cli`, from `packages/cli/src/server/client.ts`. */
 const PACKAGE_ROOT = resolve(import.meta.dir, "..", "..");

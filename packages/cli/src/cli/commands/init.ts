@@ -1,17 +1,17 @@
 import { Console, Effect, Option } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 
-import { ProjectStore } from "../../backend/ProjectStore";
-import { liftSync } from "../../backend/filesystem/documents";
-import { REPO_PATTERN } from "../../backend/filesystem/decode";
-import { ensureLabels, verifyAccess } from "../../backend/github/api";
-import { GithubCredentials } from "../../backend/github/credentials";
-import { WAYFUL_LABELS } from "../../backend/github/labels";
-import { resolveOriginRemote } from "../../backend/github/remote";
-import { WayfulError } from "../../domain/errors";
-import { nonEmpty } from "../../domain/identifier";
-import { handle } from "../render";
-import { wayfulRoot } from "../root";
+import { ProjectStore } from "@backend/ProjectStore";
+import { liftSync } from "@backend/filesystem/documents";
+import { REPO_PATTERN } from "@backend/filesystem/decode";
+import { ensureLabels, verifyAccess } from "@backend/github/api";
+import { GithubCredentials } from "@backend/github/credentials";
+import { WAYFUL_LABELS } from "@backend/github/labels";
+import { resolveOriginRemote } from "@backend/github/remote";
+import { WayfulError } from "@domain/errors";
+import { nonEmpty } from "@domain/identifier";
+import { handle } from "@cli/render";
+import { wayfulRoot } from "@cli/root";
 
 export const initCommand = Command.make(
   "init",

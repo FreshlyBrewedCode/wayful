@@ -1,11 +1,11 @@
 import { Effect, type Redacted } from "effect";
 
-import type { WayfulError } from "../../domain/errors";
-import { listIssues, listSubIssues } from "./api";
-import type { GithubHttp } from "./http";
-import type { GithubIssue } from "./issue";
-import { WAYFUL_MAP_LABEL } from "./labels";
-import type { GitRemoteRef } from "./remote";
+import type { WayfulError } from "@domain/errors";
+import { listIssues, listSubIssues } from "@backend/github/api";
+import type { GithubHttp } from "@backend/github/http";
+import type { GithubIssue } from "@backend/github/issue";
+import { WAYFUL_MAP_LABEL } from "@backend/github/labels";
+import type { GitRemoteRef } from "@backend/github/remote";
 
 /**
  * The server's records change only when someone else writes them, and GitHub

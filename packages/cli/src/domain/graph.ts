@@ -1,5 +1,5 @@
-import type { Slot } from "./identifier";
-import type { DerivedArtifact, GoalRecord, StepRecord } from "./model";
+import type { Slot } from "@domain/identifier";
+import type { DerivedArtifact, GoalRecord, StepRecord } from "@domain/model";
 
 /** A single valid attachment, normalized out of a step's raw `inputs`/`outputs`. */
 export interface AttachmentView {

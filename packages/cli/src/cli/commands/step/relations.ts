@@ -1,17 +1,23 @@
 import { Console, Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 
-import { MapStore } from "../../../backend/MapStore";
-import { liftSync } from "../../../backend/filesystem/documents";
-import { normalizeRef } from "../../../domain/artifact-ref";
-import { reaches } from "../../../domain/graph";
-import { identifier, nonEmpty } from "../../../domain/identifier";
-import type { Attachment } from "../../../domain/model";
-import { assertSameMap, expectStep } from "../../../domain/reference";
-import { assertWritableMapIntegrity, fail, resolveProject, strict } from "../../../scope";
-import { handle } from "../../render";
-import { wayfulRoot } from "../../root";
-import { assertNotTerminal, findStep, resolveStepTarget, stepArgument, stepParent } from "./shared";
+import { MapStore } from "@backend/MapStore";
+import { liftSync } from "@backend/filesystem/documents";
+import { normalizeRef } from "@domain/artifact-ref";
+import { reaches } from "@domain/graph";
+import { identifier, nonEmpty } from "@domain/identifier";
+import type { Attachment } from "@domain/model";
+import { assertSameMap, expectStep } from "@domain/reference";
+import { assertWritableMapIntegrity, fail, resolveProject, strict } from "@/scope";
+import { handle } from "@cli/render";
+import { wayfulRoot } from "@cli/root";
+import {
+  assertNotTerminal,
+  findStep,
+  resolveStepTarget,
+  stepArgument,
+  stepParent,
+} from "@cli/commands/step/shared";
 
 export const stepDependsCommand = Command.make(
   "depends",

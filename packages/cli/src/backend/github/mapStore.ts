@@ -1,9 +1,9 @@
 import { Effect, Fiber, FileSystem, Layer, Path, Ref, Schedule } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
-import { WayfulError } from "../../domain/errors";
-import { attachmentOK, deriveArtifacts } from "../../domain/graph";
-import { identifier, nonEmpty } from "../../domain/identifier";
+import { WayfulError } from "@domain/errors";
+import { attachmentOK, deriveArtifacts } from "@domain/graph";
+import { identifier, nonEmpty } from "@domain/identifier";
 import {
   closesStep,
   type CollectionRead,
@@ -16,11 +16,11 @@ import {
   type StepRecord,
   type StepStatus,
   type TypeDefinition,
-} from "../../domain/model";
-import { makeReadArtifact } from "../artifacts";
-import { liftSync } from "../effect";
-import { MapStore, type MapHandle } from "../MapStore";
-import { ProjectStore, type ProjectHandle } from "../ProjectStore";
+} from "@domain/model";
+import { makeReadArtifact } from "@backend/artifacts";
+import { liftSync } from "@backend/effect";
+import { MapStore, type MapHandle } from "@backend/MapStore";
+import { ProjectStore, type ProjectHandle } from "@backend/ProjectStore";
 import {
   addBlockedBy,
   addLabels,
@@ -35,17 +35,17 @@ import {
   removeLabel,
   updateIssue,
   type IssuePatch,
-} from "./api";
-import { GithubCredentials } from "./credentials";
+} from "@backend/github/api";
+import { GithubCredentials } from "@backend/github/credentials";
 import {
   decodeGoalIssue,
   encodeGoalBody,
   INITIAL_GOAL_NAME,
   INITIAL_GOAL_REQUIRED_OUTPUTS,
-} from "./goal";
-import { readMapSnapshot, type SnapshotChild } from "./graphql";
-import { GithubHttp } from "./http";
-import { encodeIssueBody, type GithubIssue } from "./issue";
+} from "@backend/github/goal";
+import { readMapSnapshot, type SnapshotChild } from "@backend/github/graphql";
+import { GithubHttp } from "@backend/github/http";
+import { encodeIssueBody, type GithubIssue } from "@backend/github/issue";
 import {
   WAYFUL_BLOCKED_LABEL,
   WAYFUL_GOAL_LABEL,
@@ -53,12 +53,12 @@ import {
   WAYFUL_STEP_LABEL,
   wayfulTypeLabel,
   wayfulTypeLabelDefinition,
-} from "./labels";
-import { decodeMapIssue, mapIssueData } from "./map";
-import { resolveRepo, type ResolvedRepo } from "./repo";
-import { readRevision, REVISION_POLL_MS } from "./revision";
-import { decodeStepIssue, dependencyOutsideMapError, stepIssueData } from "./step";
-import { SUB_ISSUE_CAP, subIssueCapError } from "./subIssues";
+} from "@backend/github/labels";
+import { decodeMapIssue, mapIssueData } from "@backend/github/map";
+import { resolveRepo, type ResolvedRepo } from "@backend/github/repo";
+import { readRevision, REVISION_POLL_MS } from "@backend/github/revision";
+import { decodeStepIssue, dependencyOutsideMapError, stepIssueData } from "@backend/github/step";
+import { SUB_ISSUE_CAP, subIssueCapError } from "@backend/github/subIssues";
 
 const fail = (message: string) => Effect.fail(new WayfulError({ message }));
 

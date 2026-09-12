@@ -1,6 +1,6 @@
 import { Command } from "effect/unstable/cli";
 
-import { projectFlag } from "./flags";
+import { projectFlag } from "@cli/flags";
 
 /**
  * The root `wayful` command, exported separately from cli.ts so leaf command

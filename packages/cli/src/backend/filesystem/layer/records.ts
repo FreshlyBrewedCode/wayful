@@ -1,13 +1,13 @@
 import { Effect, Result } from "effect";
 
-import { WayfulError } from "../../../domain/errors";
+import { WayfulError } from "@domain/errors";
 import {
   CURRENT_FORMAT_VERSION,
   type CollectionRead,
   type DecodeError,
   type GoalRecord,
   type StepRecord,
-} from "../../../domain/model";
+} from "@domain/model";
 
 // Effect.gen treats a bare `throw` as a defect, not a typed failure, so
 // backend operations that need to short-circuit with a WayfulError must

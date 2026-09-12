@@ -1,5 +1,5 @@
-import { WayfulError } from "./errors";
-import { IDENT } from "./identifier";
+import { WayfulError } from "@domain/errors";
+import { IDENT } from "@domain/identifier";
 
 const fail = (message: string): never => {
   throw new WayfulError({ message });
