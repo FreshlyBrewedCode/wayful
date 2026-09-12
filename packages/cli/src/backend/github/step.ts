@@ -46,13 +46,27 @@ function arrayField(raw: unknown, label: string): readonly unknown[] {
 }
 
 /**
+ * The named error the store produces when a dependency is not a `wayful:step`
+ * sub-issue of the same map. Issue numbers are repo-global, so nothing
+ * structurally prevents a cross-map edge; this is the check that does. The
+ * dependent step is named by the `DecodeError` file on a read and by the caller
+ * on a write, so only the offending dependency is named here.
+ */
+export const dependencyOutsideMapError = (dependency: number): WayfulError =>
+  new WayfulError({
+    message: `#${dependency} is not a wayful:step sub-issue of the same map; a dependency cannot cross maps.`,
+  });
+
+/**
  * Decodes one `wayful:step` sub-issue. The title is the step's `description`,
  * the type and status are labels and native state, and `name`, slots,
  * attachments and the reason/summary fields live in the body's `<details>`
- * YAML. Throws a `WayfulError` on any missing or malformed field so a
- * collection read can collect it as a `DecodeError`.
+ * YAML. `dependencies` are the step's native `blocked_by` edges, passed in
+ * because they are not part of the issue object itself. Throws a
+ * `WayfulError` on any missing or malformed field so a collection read can
+ * collect it as a `DecodeError`.
  */
-export function decodeStepIssue(issue: GithubIssue): StepRecord {
+export function decodeStepIssue(issue: GithubIssue, dependencies: readonly number[]): StepRecord {
   if (!issue.labels.includes(WAYFUL_STEP_LABEL))
     fail(`#${issue.number} is missing the wayful:step label.`);
   const { body, data } = decodeIssueBody(issue.body ?? "");
@@ -79,9 +93,7 @@ export function decodeStepIssue(issue: GithubIssue): StepRecord {
     type,
     description,
     status,
-    // Dependencies are native issue dependencies (#38); until then a step reads
-    // with none rather than inventing a second representation for them.
-    dependencies: [],
+    dependencies,
     inputs,
     outputs,
     required_inputs: requiredInputs,
@@ -98,7 +110,7 @@ export function decodeStepIssue(issue: GithubIssue): StepRecord {
 
 /**
  * The structured residue a step issue's `<details>` block carries. Status, type
- * and (later) dependencies are deliberately absent: they are GitHub-native and
+ * and dependencies are deliberately absent: they are GitHub-native and
  * authoritative there, and no fact is stored in two places.
  */
 export function stepIssueData(step: StepRecord | NewStepRecord): Record<string, unknown> {

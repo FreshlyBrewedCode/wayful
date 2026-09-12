@@ -3,11 +3,14 @@ import { Effect, Redacted } from "effect";
 import type { HttpClientRequest } from "effect/unstable/http";
 
 import {
+  addBlockedBy,
   apiBase,
   createIssue,
   ensureLabel,
   ensureLabels,
+  listBlockedBy,
   listIssues,
+  removeBlockedBy,
   verifyAccess,
 } from "../../../src/backend/github/api";
 import type { GitRemoteRef } from "../../../src/backend/github/remote";
@@ -253,6 +256,59 @@ describe("createIssue", () => {
         Effect.flip,
         Effect.provide(layer),
       ),
+    );
+    expect(error["_tag"]).toBe("WayfulError");
+    expect(error.message).not.toContain(Redacted.value(secretToken));
+  });
+});
+
+describe("issue dependencies", () => {
+  test("listBlockedBy reads the issue's native blocked_by edges", async () => {
+    let seen = "";
+    const layer = stubHttpClient((request) => {
+      seen = request.url;
+      return jsonResponse(200, [issueJson(3, { id: 1003 }), issueJson(5, { id: 1005 })]);
+    });
+    const blockedBy = await Effect.runPromise(
+      listBlockedBy(repo, secretToken, 7).pipe(Effect.provide(layer)),
+    );
+    expect(new URL(seen).pathname).toBe("/repos/acme/widgets/issues/7/dependencies/blocked_by");
+    expect(blockedBy.map((issue) => issue.number)).toEqual([3, 5]);
+  });
+
+  test("addBlockedBy posts the blocking issue's database id", async () => {
+    let seen: HttpClientRequest.HttpClientRequest | undefined;
+    const layer = stubHttpClient((request) => {
+      seen = request;
+      return jsonResponse(201, {});
+    });
+    await Effect.runPromise(addBlockedBy(repo, secretToken, 7, 1003).pipe(Effect.provide(layer)));
+    expect(seen?.method).toBe("POST");
+    expect(seen?.url).toBe(
+      "https://api.github.com/repos/acme/widgets/issues/7/dependencies/blocked_by",
+    );
+    expect(JSON.parse(bodyText(seen!))).toEqual({ issue_id: 1003 });
+  });
+
+  test("removeBlockedBy deletes the edge by the blocking issue's database id", async () => {
+    let seen: HttpClientRequest.HttpClientRequest | undefined;
+    const layer = stubHttpClient((request) => {
+      seen = request;
+      return jsonResponse(200, {});
+    });
+    await Effect.runPromise(
+      removeBlockedBy(repo, secretToken, 7, 1003).pipe(Effect.provide(layer)),
+    );
+    expect(seen?.method).toBe("DELETE");
+    expect(seen?.url).toBe(
+      "https://api.github.com/repos/acme/widgets/issues/7/dependencies/blocked_by/1003",
+    );
+  });
+
+  test("a failed dependency mutation is a WayfulError that does not leak the token", async () => {
+    const layer = stubHttpClient(() => jsonResponse(403, { message: "Forbidden" }));
+    const error = await Effect.runPromise(
+      addBlockedBy(repo, secretToken, 7, 1003).pipe(Effect.flip, Effect.provide(layer)),
     );
     expect(error["_tag"]).toBe("WayfulError");
     expect(error.message).not.toContain(Redacted.value(secretToken));

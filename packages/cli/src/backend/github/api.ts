@@ -222,6 +222,21 @@ export function listSubIssues(
   return listPaginated(token, url);
 }
 
+/**
+ * Every issue `number` is blocked by, read from GitHub's native dependency
+ * edges — the canonical, UI-visible representation. Paginated like every other
+ * list.
+ */
+export function listBlockedBy(
+  repo: GitRemoteRef,
+  token: Redacted.Redacted<string>,
+  number: number,
+): Effect.Effect<readonly GithubIssue[], WayfulError, HttpClient.HttpClient> {
+  const base = apiBase(repo.host);
+  const url = `${base.rest}/repos/${repo.owner}/${repo.repo}/issues/${number}/dependencies/blocked_by?per_page=100`;
+  return listPaginated(token, url);
+}
+
 /** One issue by number, or a `WayfulError` when it cannot be read. */
 export function getIssue(
   repo: GitRemoteRef,
@@ -348,6 +363,62 @@ export function addSubIssue(
     if (response.status === 422) return yield* Effect.fail(subIssueCapError());
     return yield* Effect.fail(
       requestFailed(`could not add sub-issue to #${parent} (status ${response.status}).`),
+    );
+  });
+}
+
+/**
+ * Adds a native `blocked_by` edge: `number` is blocked by the issue with the
+ * given GitHub database id. The REST API addresses the blocking issue by its
+ * database id, not its number.
+ */
+export function addBlockedBy(
+  repo: GitRemoteRef,
+  token: Redacted.Redacted<string>,
+  number: number,
+  blockingIssueId: number,
+): Effect.Effect<void, WayfulError, HttpClient.HttpClient> {
+  return Effect.gen(function* () {
+    const base = apiBase(repo.host);
+    const request = authorized(
+      HttpClientRequest.post(
+        `${base.rest}/repos/${repo.owner}/${repo.repo}/issues/${number}/dependencies/blocked_by`,
+      ),
+      token,
+    ).pipe(HttpClientRequest.bodyJsonUnsafe({ issue_id: blockingIssueId }));
+    const response = yield* HttpClient.execute(request).pipe(
+      Effect.mapError((error) => requestFailed(error.message)),
+    );
+    if (response.status === 201) return;
+    return yield* Effect.fail(
+      requestFailed(`could not add a dependency to issue #${number} (status ${response.status}).`),
+    );
+  });
+}
+
+/** Removes a native `blocked_by` edge, addressed by the blocking issue's database id. */
+export function removeBlockedBy(
+  repo: GitRemoteRef,
+  token: Redacted.Redacted<string>,
+  number: number,
+  blockingIssueId: number,
+): Effect.Effect<void, WayfulError, HttpClient.HttpClient> {
+  return Effect.gen(function* () {
+    const base = apiBase(repo.host);
+    const request = authorized(
+      HttpClientRequest.delete(
+        `${base.rest}/repos/${repo.owner}/${repo.repo}/issues/${number}/dependencies/blocked_by/${blockingIssueId}`,
+      ),
+      token,
+    );
+    const response = yield* HttpClient.execute(request).pipe(
+      Effect.mapError((error) => requestFailed(error.message)),
+    );
+    if (response.status === 200) return;
+    return yield* Effect.fail(
+      requestFailed(
+        `could not remove a dependency from issue #${number} (status ${response.status}).`,
+      ),
     );
   });
 }
