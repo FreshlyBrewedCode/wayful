@@ -21,21 +21,49 @@ const fail = (message: string): never => {
   throw new WayfulError({ message });
 };
 
+// `owner/name`: GitHub logins allow alphanumerics and single hyphens (never
+// leading/trailing/doubled); repo names additionally allow `.` and `_`.
+export const REPO_PATTERN = /^[A-Za-z0-9](?:-?[A-Za-z0-9])*\/[A-Za-z0-9._-]+$/;
+
 export function decodeProjectMetadata(data: unknown): ProjectMetadata {
   if (!data || typeof data !== "object" || Array.isArray(data)) fail("malformed project metadata.");
   const record = data as Record<string, unknown>;
-  const allowed = new Set(["format_version", "description", "created_at", "updated_at"]);
+  const allowed = new Set([
+    "format_version",
+    "description",
+    "backend",
+    "repo",
+    "created_at",
+    "updated_at",
+  ]);
   if (
     Object.keys(record).some((key) => !allowed.has(key)) ||
     typeof record.description !== "string"
   )
     fail("malformed project metadata.");
   formatVersion(record, "project metadata", true);
+  let backend: ProjectMetadata["backend"] = "filesystem";
+  if (record.backend !== undefined) {
+    if (record.backend !== "filesystem" && record.backend !== "github")
+      fail(`project backend must be "filesystem" or "github".`);
+    backend = record.backend as ProjectMetadata["backend"];
+  }
+  let repo: string | undefined;
+  if (record.repo !== undefined) {
+    if (backend !== "github") fail(`project repo requires backend "github".`);
+    if (typeof record.repo !== "string" || !REPO_PATTERN.test(record.repo))
+      fail(`project repo must be in the form "owner/name".`);
+    repo = record.repo as string;
+  } else if (backend === "github") {
+    fail(`project backend "github" requires repo.`);
+  }
   const createdAt = timestamp(record.created_at, "project created_at");
   const updatedAt = timestamp(record.updated_at, "project updated_at");
   return {
     format_version: CURRENT_FORMAT_VERSION,
     description: record.description as string,
+    backend,
+    repo,
     created_at: createdAt,
     updated_at: updatedAt,
   };

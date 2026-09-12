@@ -1,7 +1,7 @@
 import { Context, type Effect, type Option } from "effect";
 
 import type { WayfulError } from "../domain/errors";
-import type { CollectionRead, TypeDefinition } from "../domain/model";
+import type { CollectionRead, ProjectBackend, TypeDefinition } from "../domain/model";
 
 /**
  * Always filesystem: project configuration and type definitions are meant to
@@ -11,6 +11,9 @@ export interface ProjectHandle {
   readonly root: string;
   /** The project's own description, as `wayful init --description` recorded it. */
   readonly description: string;
+  readonly backend: ProjectBackend;
+  /** Only present when `backend` is "github"; `owner/name`. */
+  readonly repo?: string;
 }
 
 export class ProjectStore extends Context.Service<
@@ -19,6 +22,8 @@ export class ProjectStore extends Context.Service<
     readonly initProject: (options: {
       readonly directory: string;
       readonly description: string;
+      readonly backend?: ProjectBackend;
+      readonly repo?: string;
     }) => Effect.Effect<void, WayfulError>;
     readonly openProject: (
       hint: Option.Option<string>,

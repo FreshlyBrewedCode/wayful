@@ -1,11 +1,17 @@
 import type { Slot } from "./identifier";
 
 /** The on-disk schema version every record in this codebase reads and writes. */
-export const CURRENT_FORMAT_VERSION = 3;
+export const CURRENT_FORMAT_VERSION = 4;
+
+export type ProjectBackend = "filesystem" | "github";
 
 export interface ProjectMetadata {
   readonly format_version: number;
   readonly description: string;
+  /** Defaults to "filesystem" when absent, so existing project.toml files keep decoding. */
+  readonly backend: ProjectBackend;
+  /** Only present (and required) when `backend` is "github"; `owner/name`. */
+  readonly repo?: string;
   readonly created_at: string;
   readonly updated_at: string;
 }
