@@ -1,7 +1,7 @@
 import { Context, Effect, Layer, Option, Redacted, Ref } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { WayfulError } from "../../domain/errors";
+import { WayfulError } from "@domain/errors";
 
 const MISSING_CREDENTIALS_MESSAGE = "run 'gh auth login', or set GH_TOKEN";
 

@@ -1,8 +1,8 @@
 import { Effect, type FileSystem } from "effect";
 
-import { WayfulError } from "../../domain/errors";
+import { WayfulError } from "@domain/errors";
 
-export { liftSync, nowISO } from "../effect";
+export { liftSync, nowISO } from "@backend/effect";
 
 export function stringifyYaml(value: unknown): string {
   const text = Bun.YAML.stringify(value, null, 2);

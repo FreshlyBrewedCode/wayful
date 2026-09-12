@@ -1,9 +1,9 @@
 import { Effect, FileSystem, Path } from "effect";
 
-import { WayfulError } from "../../../../domain/errors";
-import type { GoalRecord, NewGoalRecord } from "../../../../domain/model";
-import type { MapHandle } from "../../../MapStore";
-import { decodeGoal } from "../../decode";
+import { WayfulError } from "@domain/errors";
+import type { GoalRecord, NewGoalRecord } from "@domain/model";
+import type { MapHandle } from "@backend/MapStore";
+import { decodeGoal } from "@backend/filesystem/decode";
 import {
   buildMarkdown,
   liftSync,
@@ -11,9 +11,9 @@ import {
   parseFrontmatter,
   readTextFile,
   writeAtomic,
-} from "../../documents";
-import { goalFile, goalsDir, mapDir } from "../../paths";
-import { accessError, collect, fail, goalToDocument } from "../records";
+} from "@backend/filesystem/documents";
+import { goalFile, goalsDir, mapDir } from "@backend/filesystem/paths";
+import { accessError, collect, fail, goalToDocument } from "@backend/filesystem/layer/records";
 
 export function makeGoalOps(fs: FileSystem.FileSystem, path: Path.Path) {
   return {

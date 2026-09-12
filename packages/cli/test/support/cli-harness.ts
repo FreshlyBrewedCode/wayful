@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { CURRENT_FORMAT_VERSION } from "../../src/domain/model";
+import { CURRENT_FORMAT_VERSION } from "@domain/model";
 
 export const cliRoot = join(import.meta.dir, "..", "..");
 export const entrypoint = join(cliRoot, "src", "main.ts");

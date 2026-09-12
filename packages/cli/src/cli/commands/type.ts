@@ -1,11 +1,11 @@
 import { Effect } from "effect";
 import { Argument, Command } from "effect/unstable/cli";
 
-import { ProjectStore } from "../../backend/ProjectStore";
-import { resolveProject, strict } from "../../scope";
-import { jsonFlag } from "../flags";
-import { handle, printOutput } from "../render";
-import { wayfulRoot } from "../root";
+import { ProjectStore } from "@backend/ProjectStore";
+import { resolveProject, strict } from "@/scope";
+import { jsonFlag } from "@cli/flags";
+import { handle, printOutput } from "@cli/render";
+import { wayfulRoot } from "@cli/root";
 
 const typeListCommand = Command.make("list", { json: jsonFlag }, ({ json }) =>
   handle(

@@ -1,15 +1,15 @@
 import { Command } from "effect/unstable/cli";
 
-import { artifactCommand } from "./commands/artifact";
-import { contextCommand } from "./commands/context";
-import { goalCommand } from "./commands/goal";
-import { initCommand } from "./commands/init";
-import { labelCommand } from "./commands/label";
-import { mapCommand } from "./commands/map";
-import { serveCommand, uiCommand } from "./commands/server";
-import { stepCommand } from "./commands/step";
-import { typeCommand } from "./commands/type";
-import { wayfulRoot } from "./root";
+import { artifactCommand } from "@cli/commands/artifact";
+import { contextCommand } from "@cli/commands/context";
+import { goalCommand } from "@cli/commands/goal";
+import { initCommand } from "@cli/commands/init";
+import { labelCommand } from "@cli/commands/label";
+import { mapCommand } from "@cli/commands/map";
+import { serveCommand, uiCommand } from "@cli/commands/server";
+import { stepCommand } from "@cli/commands/step";
+import { typeCommand } from "@cli/commands/type";
+import { wayfulRoot } from "@cli/root";
 
 export const cli = wayfulRoot.pipe(
   Command.withSubcommands([

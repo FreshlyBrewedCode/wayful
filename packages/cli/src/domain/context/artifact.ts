@@ -1,6 +1,6 @@
-import { normalizedAttachments } from "../graph";
-import type { DecodeError, DerivedArtifact, GoalRecord, StepRecord } from "../model";
-import { qualifiedStepId } from "./shared";
+import { normalizedAttachments } from "@domain/graph";
+import type { DecodeError, DerivedArtifact, GoalRecord, StepRecord } from "@domain/model";
+import { qualifiedStepId } from "@domain/context/shared";
 
 /** A step referencing an artifact, as either a producer or a consumer. */
 export interface ArtifactRelationView {

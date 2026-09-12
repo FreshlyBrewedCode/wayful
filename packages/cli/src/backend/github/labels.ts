@@ -1,4 +1,4 @@
-import type { Label } from "./api";
+import type { Label } from "@backend/github/api";
 
 // The primitive-kind labels. The kind lives on a label, never in the body,
 // because the issue APIs can filter on labels and cannot filter on body

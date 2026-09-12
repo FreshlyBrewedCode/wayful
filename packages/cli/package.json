@@ -8,7 +8,7 @@
   "scripts": {
     "build": "bun scripts/bundle-ui.ts",
     "test": "bun test",
-    "test:live": "bun test ./test/live/github-backend.live.ts",
+    "test:live": "bun test ./src/backend/github/github-backend.live.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

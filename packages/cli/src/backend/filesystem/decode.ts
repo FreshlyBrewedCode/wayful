@@ -1,12 +1,5 @@
-import { WayfulError } from "../../domain/errors";
-import {
-  IDENT,
-  formatVersion,
-  identifier,
-  nonEmpty,
-  slots,
-  timestamp,
-} from "../../domain/identifier";
+import { WayfulError } from "@domain/errors";
+import { IDENT, formatVersion, identifier, nonEmpty, slots, timestamp } from "@domain/identifier";
 import {
   closesStep,
   CURRENT_FORMAT_VERSION,
@@ -15,7 +8,7 @@ import {
   type ProjectMetadata,
   type StepRecord,
   type TypeDefinition,
-} from "../../domain/model";
+} from "@domain/model";
 
 const fail = (message: string): never => {
   throw new WayfulError({ message });

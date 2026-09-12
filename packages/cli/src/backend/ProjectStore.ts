@@ -1,7 +1,7 @@
 import { Context, type Effect, type Option } from "effect";
 
-import type { WayfulError } from "../domain/errors";
-import type { CollectionRead, ProjectBackend, TypeDefinition } from "../domain/model";
+import type { WayfulError } from "@domain/errors";
+import type { CollectionRead, ProjectBackend, TypeDefinition } from "@domain/model";
 
 /**
  * Always filesystem: project configuration and type definitions are meant to

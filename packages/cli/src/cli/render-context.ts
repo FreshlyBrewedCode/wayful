@@ -5,8 +5,8 @@ import type {
   ProjectContextView,
   StepAttachmentView,
   StepContextView,
-} from "../domain/context";
-import type { DecodeError } from "../domain/model";
+} from "@domain/context";
+import type { DecodeError } from "@domain/model";
 
 /** Appends an omitted-count line — but only when something was actually omitted, so an uncapped section never claims otherwise. */
 function withOmitted(lines: string[], omitted: number): string[] {

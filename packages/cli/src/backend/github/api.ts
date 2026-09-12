@@ -1,11 +1,11 @@
 import { Effect, Option, Redacted } from "effect";
 import { HttpClientRequest } from "effect/unstable/http";
 
-import { WayfulError } from "../../domain/errors";
-import { GithubHttp, requestFailed } from "./http";
-import type { GithubIssue } from "./issue";
-import type { GitRemoteRef } from "./remote";
-import { subIssueCapError } from "./subIssues";
+import { WayfulError } from "@domain/errors";
+import { GithubHttp, requestFailed } from "@backend/github/http";
+import type { GithubIssue } from "@backend/github/issue";
+import type { GitRemoteRef } from "@backend/github/remote";
+import { subIssueCapError } from "@backend/github/subIssues";
 
 export interface ApiBase {
   readonly rest: string;

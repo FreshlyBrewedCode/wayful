@@ -1,11 +1,11 @@
 import { Console, Effect } from "effect";
 import { Command } from "effect/unstable/cli";
 
-import { ProjectStore } from "../../backend/ProjectStore";
-import { syncLabels } from "../../backend/github/sync";
-import { fail, resolveProject, strict } from "../../scope";
-import { handle } from "../render";
-import { wayfulRoot } from "../root";
+import { ProjectStore } from "@backend/ProjectStore";
+import { syncLabels } from "@backend/github/sync";
+import { fail, resolveProject, strict } from "@/scope";
+import { handle } from "@cli/render";
+import { wayfulRoot } from "@cli/root";
 
 const labelSyncCommand = Command.make("sync", {}, () =>
   handle(

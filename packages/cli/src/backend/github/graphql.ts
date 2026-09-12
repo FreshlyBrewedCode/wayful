@@ -1,11 +1,11 @@
 import { Effect, Redacted } from "effect";
 import { HttpClientRequest } from "effect/unstable/http";
 
-import { WayfulError } from "../../domain/errors";
-import { apiBase, authorized } from "./api";
-import { GithubHttp, requestFailed } from "./http";
-import type { GithubIssue } from "./issue";
-import type { GitRemoteRef } from "./remote";
+import { WayfulError } from "@domain/errors";
+import { apiBase, authorized } from "@backend/github/api";
+import { GithubHttp, requestFailed } from "@backend/github/http";
+import type { GithubIssue } from "@backend/github/issue";
+import type { GitRemoteRef } from "@backend/github/remote";
 
 /**
  * One sub-issue of a map: the normalized issue plus its native `blocked_by`

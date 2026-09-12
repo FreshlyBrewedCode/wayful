@@ -1,6 +1,6 @@
 import { Clock, Effect } from "effect";
 
-import { WayfulError } from "../domain/errors";
+import { WayfulError } from "@domain/errors";
 
 /**
  * The current instant as an ISO-8601 UTC timestamp, sourced from the Effect

@@ -1,9 +1,9 @@
 import { Effect, Option, Result } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 
-import { MapStore } from "../../backend/MapStore";
-import { ProjectStore } from "../../backend/ProjectStore";
-import { liftSync } from "../../backend/filesystem/documents";
+import { MapStore } from "@backend/MapStore";
+import { ProjectStore } from "@backend/ProjectStore";
+import { liftSync } from "@backend/filesystem/documents";
 import {
   buildArtifactContext,
   buildMapContext,
@@ -12,20 +12,20 @@ import {
   summarizeProjectMap,
   orderProjectMaps,
   type ProjectContextView,
-} from "../../domain/context";
-import { normalizeRef, SCHEME } from "../../domain/artifact-ref";
-import type { DecodeError } from "../../domain/model";
-import { describeToken, parseReference, resolveToken } from "../../domain/reference";
-import { buildSnapshot, fail, resolveMap, resolveProject, resolveReferencedMap } from "../../scope";
-import { jsonFlag } from "../flags";
-import { handle, printOutput } from "../render";
+} from "@domain/context";
+import { normalizeRef, SCHEME } from "@domain/artifact-ref";
+import type { DecodeError } from "@domain/model";
+import { describeToken, parseReference, resolveToken } from "@domain/reference";
+import { buildSnapshot, fail, resolveMap, resolveProject, resolveReferencedMap } from "@/scope";
+import { jsonFlag } from "@cli/flags";
+import { handle, printOutput } from "@cli/render";
 import {
   renderArtifactContext,
   renderMapContext,
   renderProjectContext,
   renderStepContext,
-} from "../render-context";
-import { wayfulRoot } from "../root";
+} from "@cli/render-context";
+import { wayfulRoot } from "@cli/root";
 
 const sinceFlag = Flag.string("since").pipe(
   Flag.withMetavar("WINDOW"),

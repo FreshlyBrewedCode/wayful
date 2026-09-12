@@ -1,7 +1,7 @@
 import { Console, Effect } from "effect";
 
-import { MapMetadataError, WayfulError } from "../domain/errors";
-import { report } from "./report";
+import { MapMetadataError, WayfulError } from "@domain/errors";
+import { report } from "@cli/report";
 
 export function printOutput(json: boolean, value: unknown, human: string): Effect.Effect<void> {
   return Console.log(json ? JSON.stringify(value, null, 2) : human);

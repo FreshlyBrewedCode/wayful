@@ -1,15 +1,10 @@
 import { Effect } from "effect";
 
-import type { WayfulError } from "../../../../domain/errors";
-import { deriveArtifacts } from "../../../../domain/graph";
-import type {
-  CollectionRead,
-  GoalRecord,
-  StepRecord,
-  TypeDefinition,
-} from "../../../../domain/model";
-import type { MapHandle } from "../../../MapStore";
-import type { ProjectHandle } from "../../../ProjectStore";
+import type { WayfulError } from "@domain/errors";
+import { deriveArtifacts } from "@domain/graph";
+import type { CollectionRead, GoalRecord, StepRecord, TypeDefinition } from "@domain/model";
+import type { MapHandle } from "@backend/MapStore";
+import type { ProjectHandle } from "@backend/ProjectStore";
 
 export function makeSnapshotOp(deps: {
   readonly listSteps: (map: MapHandle) => Effect.Effect<CollectionRead<StepRecord>, WayfulError>;

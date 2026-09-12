@@ -1,9 +1,9 @@
 import { Effect, FileSystem, Layer, Path } from "effect";
 
-import type { ProjectBackend } from "../domain/model";
-import { FileSystemProjectStore, makeFileSystemMapStore } from "./filesystem/layer";
-import { makeGithubMapStore } from "./github/mapStore";
-import { MapStore } from "./MapStore";
+import type { ProjectBackend } from "@domain/model";
+import { FileSystemProjectStore, makeFileSystemMapStore } from "@backend/filesystem/layer";
+import { makeGithubMapStore } from "@backend/github/mapStore";
+import { MapStore } from "@backend/MapStore";
 
 /**
  * A `MapStore` that dispatches on the project's configured backend. Both

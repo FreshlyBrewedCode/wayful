@@ -1,11 +1,11 @@
 import { Effect, FileSystem, Path } from "effect";
 
-import { MapMetadataError, WayfulError } from "../../../../domain/errors";
-import { identifier, nonEmpty } from "../../../../domain/identifier";
-import { CURRENT_FORMAT_VERSION } from "../../../../domain/model";
-import type { MapHandle } from "../../../MapStore";
-import type { ProjectHandle } from "../../../ProjectStore";
-import { decodeMapMetadata } from "../../decode";
+import { MapMetadataError, WayfulError } from "@domain/errors";
+import { identifier, nonEmpty } from "@domain/identifier";
+import { CURRENT_FORMAT_VERSION } from "@domain/model";
+import type { MapHandle } from "@backend/MapStore";
+import type { ProjectHandle } from "@backend/ProjectStore";
+import { decodeMapMetadata } from "@backend/filesystem/decode";
 import {
   buildMarkdown,
   liftSync,
@@ -14,9 +14,9 @@ import {
   readTextFile,
   stringifyToml,
   writeAtomic,
-} from "../../documents";
-import { goalFile, goalsDir, mapDir, mapFile, mapsDir, stepsDir } from "../../paths";
-import { accessError, collect, fail } from "../records";
+} from "@backend/filesystem/documents";
+import { goalFile, goalsDir, mapDir, mapFile, mapsDir, stepsDir } from "@backend/filesystem/paths";
+import { accessError, collect, fail } from "@backend/filesystem/layer/records";
 
 export function makeMapOps(fs: FileSystem.FileSystem, path: Path.Path) {
   const openMapHandle = (

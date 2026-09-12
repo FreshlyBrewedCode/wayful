@@ -1,10 +1,10 @@
 import { Effect, Option, type Redacted } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
-import { WayfulError } from "../../domain/errors";
-import type { ProjectHandle } from "../ProjectStore";
-import type { GithubCredentials } from "./credentials";
-import { resolveOriginRemote, type GitRemoteRef } from "./remote";
+import { WayfulError } from "@domain/errors";
+import type { ProjectHandle } from "@backend/ProjectStore";
+import type { GithubCredentials } from "@backend/github/credentials";
+import { resolveOriginRemote, type GitRemoteRef } from "@backend/github/remote";
 
 export interface ResolvedRepo {
   readonly ref: GitRemoteRef;

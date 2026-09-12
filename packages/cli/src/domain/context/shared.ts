@@ -1,4 +1,4 @@
-import { WayfulError } from "../errors";
+import { WayfulError } from "@domain/errors";
 
 /**
  * Fixed, in-code caps for every section `context` map scope can truncate.

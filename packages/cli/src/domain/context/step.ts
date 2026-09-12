@@ -1,7 +1,7 @@
-import { normalizedAttachments, unfulfilledSlots } from "../graph";
-import type { Slot } from "../identifier";
-import type { DecodeError, StepRecord } from "../model";
-import { qualifiedStepId } from "./shared";
+import { normalizedAttachments, unfulfilledSlots } from "@domain/graph";
+import type { Slot } from "@domain/identifier";
+import type { DecodeError, StepRecord } from "@domain/model";
+import { qualifiedStepId } from "@domain/context/shared";
 
 /** A step reference resolved for display: a dependency or a dependent, each carrying the current status that makes readiness visible without a second command. */
 export interface StepRelationView {

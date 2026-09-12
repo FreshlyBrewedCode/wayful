@@ -1,12 +1,12 @@
 import { Effect } from "effect";
 import { Argument, Command } from "effect/unstable/cli";
 
-import { liftSync } from "../../backend/filesystem/documents";
-import { normalizeRef } from "../../domain/artifact-ref";
-import { buildSnapshot, fail, resolveMap, resolveProject } from "../../scope";
-import { jsonFlag, mapFlag } from "../flags";
-import { handle, printOutput } from "../render";
-import { wayfulRoot } from "../root";
+import { liftSync } from "@backend/filesystem/documents";
+import { normalizeRef } from "@domain/artifact-ref";
+import { buildSnapshot, fail, resolveMap, resolveProject } from "@/scope";
+import { jsonFlag, mapFlag } from "@cli/flags";
+import { handle, printOutput } from "@cli/render";
+import { wayfulRoot } from "@cli/root";
 
 const artifactParent = Command.make("artifact").pipe(
   Command.withSharedFlags({ map: mapFlag }),

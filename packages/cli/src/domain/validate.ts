@@ -1,5 +1,5 @@
-import { attachmentErrors, attachmentOK, hasDependencyCycle } from "./graph";
-import type { MapSnapshot } from "./model";
+import { attachmentErrors, attachmentOK, hasDependencyCycle } from "@domain/graph";
+import type { MapSnapshot } from "@domain/model";
 
 export function validateMap(
   snapshot: MapSnapshot,

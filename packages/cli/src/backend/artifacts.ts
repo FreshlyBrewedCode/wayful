@@ -1,10 +1,10 @@
 import { Effect, FileSystem, Option, Path } from "effect";
 
-import { classifyRef, normalizeRef } from "../domain/artifact-ref";
-import { WayfulError } from "../domain/errors";
-import type { ArtifactContent, MapSnapshot } from "../domain/model";
-import { liftSync } from "./effect";
-import type { MapHandle } from "./MapStore";
+import { classifyRef, normalizeRef } from "@domain/artifact-ref";
+import { WayfulError } from "@domain/errors";
+import type { ArtifactContent, MapSnapshot } from "@domain/model";
+import { liftSync } from "@backend/effect";
+import type { MapHandle } from "@backend/MapStore";
 
 /** Reads are capped rather than streamed; the response reports the cut with `truncated`. */
 export const MAX_ARTIFACT_BYTES = 1024 * 1024;

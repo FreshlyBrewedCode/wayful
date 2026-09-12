@@ -4,12 +4,12 @@ import { Console, Effect, Layer } from "effect";
 import { CliError, CliOutput, Command } from "effect/unstable/cli";
 import { FetchHttpClient } from "effect/unstable/http";
 
-import { Backend } from "./backend/backend";
-import { GithubCredentialsLayer } from "./backend/github/credentials";
-import { GithubHttpLayer } from "./backend/github/http";
-import { cli } from "./cli/cli";
-import { helpCapturingFormatter, takeHelpText } from "./cli/help-output";
-import { report } from "./cli/report";
+import { Backend } from "@backend/backend";
+import { GithubCredentialsLayer } from "@backend/github/credentials";
+import { GithubHttpLayer } from "@backend/github/http";
+import { cli } from "@cli/cli";
+import { helpCapturingFormatter, takeHelpText } from "@cli/help-output";
+import { report } from "@cli/report";
 
 // Injected by `bun build --define 'WAYFUL_BUILD_VERSION:"x.y.z"'` in a release
 // build; `typeof` never throws on an identifier `--define` didn't replace, so

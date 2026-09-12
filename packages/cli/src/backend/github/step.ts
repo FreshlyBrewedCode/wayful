@@ -1,14 +1,18 @@
-import { WayfulError } from "../../domain/errors";
-import { formatVersion, identifier, nonEmpty, slots, timestamp } from "../../domain/identifier";
+import { WayfulError } from "@domain/errors";
+import { formatVersion, identifier, nonEmpty, slots, timestamp } from "@domain/identifier";
 import {
   closesStep,
   CURRENT_FORMAT_VERSION,
   type NewStepRecord,
   type StepRecord,
   type StepStatus,
-} from "../../domain/model";
-import { decodeIssueBody, type GithubIssue } from "./issue";
-import { WAYFUL_BLOCKED_LABEL, WAYFUL_STEP_LABEL, WAYFUL_TYPE_PREFIX } from "./labels";
+} from "@domain/model";
+import { decodeIssueBody, type GithubIssue } from "@backend/github/issue";
+import {
+  WAYFUL_BLOCKED_LABEL,
+  WAYFUL_STEP_LABEL,
+  WAYFUL_TYPE_PREFIX,
+} from "@backend/github/labels";
 
 const fail = (message: string): never => {
   throw new WayfulError({ message });

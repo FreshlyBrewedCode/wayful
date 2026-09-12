@@ -1,12 +1,12 @@
 import { Effect, Option } from "effect";
 
-import type { MapHandle } from "./backend/MapStore";
-import { MapStore } from "./backend/MapStore";
-import type { ProjectHandle } from "./backend/ProjectStore";
-import { ProjectStore } from "./backend/ProjectStore";
-import { MapMetadataError, WayfulError } from "./domain/errors";
-import type { CollectionRead, DecodeError, MapSnapshot } from "./domain/model";
-import { validateMap } from "./domain/validate";
+import type { MapHandle } from "@backend/MapStore";
+import { MapStore } from "@backend/MapStore";
+import type { ProjectHandle } from "@backend/ProjectStore";
+import { ProjectStore } from "@backend/ProjectStore";
+import { MapMetadataError, WayfulError } from "@domain/errors";
+import type { CollectionRead, DecodeError, MapSnapshot } from "@domain/model";
+import { validateMap } from "@domain/validate";
 
 export const fail = (message: string) => Effect.fail(new WayfulError({ message }));
 

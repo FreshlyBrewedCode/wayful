@@ -1,4 +1,14 @@
 {
   "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@cli/*": ["./src/cli/*"],
+      "@domain/*": ["./src/domain/*"],
+      "@backend/*": ["./src/backend/*"],
+      "@server/*": ["./src/server/*"],
+      "@/*": ["./src/*"],
+      "@test/*": ["./test/*"]
+    }
+  },
   "include": ["src", "test", "scripts"]
 }

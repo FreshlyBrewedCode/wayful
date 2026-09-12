@@ -1,16 +1,16 @@
 import { Console, Effect, Result } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 
-import { MapStore } from "../../backend/MapStore";
-import { MapMetadataError } from "../../domain/errors";
-import { deriveArtifacts, nextSteps } from "../../domain/graph";
-import type { DecodeError } from "../../domain/model";
-import { mapStatus } from "../../domain/status";
-import { validateMap } from "../../domain/validate";
-import { buildSnapshot, resolveMap, resolveProject } from "../../scope";
-import { jsonFlag, mapFlag } from "../flags";
-import { bodyLines, handle, printOutput } from "../render";
-import { wayfulRoot } from "../root";
+import { MapStore } from "@backend/MapStore";
+import { MapMetadataError } from "@domain/errors";
+import { deriveArtifacts, nextSteps } from "@domain/graph";
+import type { DecodeError } from "@domain/model";
+import { mapStatus } from "@domain/status";
+import { validateMap } from "@domain/validate";
+import { buildSnapshot, resolveMap, resolveProject } from "@/scope";
+import { jsonFlag, mapFlag } from "@cli/flags";
+import { bodyLines, handle, printOutput } from "@cli/render";
+import { wayfulRoot } from "@cli/root";
 
 /** Renders decode errors as an explicit section — omitted entirely when there are none, so degraded output is never confused with the ordinary case. */
 function errorLines(errors: readonly DecodeError[]): string[] {

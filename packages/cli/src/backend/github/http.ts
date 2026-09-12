@@ -1,7 +1,7 @@
 import { Context, Effect, Layer, Option, Ref } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
-import { WayfulError } from "../../domain/errors";
+import { WayfulError } from "@domain/errors";
 
 /**
  * The number of remaining requests below which wayful stops issuing them and

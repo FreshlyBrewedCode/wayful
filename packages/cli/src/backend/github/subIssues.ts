@@ -1,4 +1,4 @@
-import { WayfulError } from "../../domain/errors";
+import { WayfulError } from "@domain/errors";
 
 /**
  * GitHub's per-parent sub-issue limit. Steps and goals are both sub-issues of

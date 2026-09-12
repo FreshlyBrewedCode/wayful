@@ -1,4 +1,4 @@
-import type { Slot } from "./identifier";
+import type { Slot } from "@domain/identifier";
 
 /** The on-disk schema version every record in this codebase reads and writes. */
 export const CURRENT_FORMAT_VERSION = 4;
