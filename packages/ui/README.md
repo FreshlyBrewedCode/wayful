@@ -1,6 +1,6 @@
-# @wayful/ui — the Wayful viewer
+# @wayful/ui — the Wayful UI
 
-A local, read-only web viewer for a Wayful project. It renders one map at a time
+A local, read-only web UI for a Wayful project. It renders one map at a time
 as a dependency graph, a status board, or a list, with a detail panel for the
 selected step.
 
@@ -30,7 +30,7 @@ them at. `WAYFUL_UI_DIST` points `wayful ui` at a client built anywhere else.
 **The CLI is the sole authority for domain state.** Every status, count,
 readiness verdict and validity finding comes from `wayful … --json`; the client
 computes only geometry. A number that is not in `--json` is not on screen, so
-the viewer cannot disagree with `wayful` about a map.
+the UI cannot disagree with `wayful` about a map.
 
 | On screen                                | Source                            |
 | ---------------------------------------- | --------------------------------- |

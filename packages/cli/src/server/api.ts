@@ -1,10 +1,10 @@
-// The read-only JSON surface the Wayful viewer consumes. Its shapes are the
+// The read-only JSON surface the Wayful UI consumes. Its shapes are the
 // ones `wayful … --json` prints, because they are built from the same backend
-// and the same pure domain functions the commands use — the viewer cannot
+// and the same pure domain functions the commands use — the UI cannot
 // disagree with the CLI about the state of a map.
 //
 // Every function here is total: a failure becomes an `error` field in the
-// payload rather than a rejected request, which is what lets the viewer render
+// payload rather than a rejected request, which is what lets the UI render
 // a broken project instead of a blank page.
 
 import { Effect, Option, Result } from "effect";
@@ -106,7 +106,7 @@ const view = (snapshot: MapSnapshot): MapViewPayload => ({
 const status = (snapshot: MapSnapshot): MapStatus =>
   mapStatus(snapshot.map, snapshot.steps, snapshot.goals);
 
-/** Turns a read failure into the `{error}` body the viewer knows how to show. */
+/** Turns a read failure into the `{error}` body the UI knows how to show. */
 function orError<A>(read: Read<A>): Api<A | ErrorPayload> {
   return Effect.result(read).pipe(
     Effect.map((result) =>

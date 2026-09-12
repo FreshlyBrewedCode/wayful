@@ -4,7 +4,7 @@
 @custom-variant dark (&:is(.dark *));
 
 /* Status colours are defined per theme rather than shared, so contrast holds in
-   both. They are the one palette the viewer owns: every other colour is
+   both. They are the one palette the UI owns: every other colour is
    shadcn's. */
 :root {
   --radius: 0.75rem;

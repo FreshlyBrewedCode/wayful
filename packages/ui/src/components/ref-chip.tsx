@@ -1,5 +1,5 @@
 /**
- * A step or goal attachment carries its ref directly (ADR-0004) — the viewer
+ * A step or goal attachment carries its ref directly (ADR-0004) — the UI
  * never dereferences it, and never looks it up in a separate registry.
  */
 export function RefChip({ reference, kind }: { reference: string; kind: string }) {

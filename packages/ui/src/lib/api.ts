@@ -3,7 +3,7 @@ import { queryOptions } from "@tanstack/react-query";
 import type { MapResponse, Overview, StepResponse } from "@/lib/wayful";
 
 /**
- * The viewer's whole data surface. Each endpoint forwards the CLI's own
+ * The UI's whole data surface. Each endpoint forwards the CLI's own
  * `--json`, so nothing here reshapes domain state — it only types it.
  */
 async function get<T>(path: string): Promise<T> {

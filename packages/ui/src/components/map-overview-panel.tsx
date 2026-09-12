@@ -30,7 +30,7 @@ export function MapOverviewPanel({ detail }: { detail: MapDetail }) {
       <Section heading="Steps">
         <div className="flex flex-wrap gap-1.5">
           {/* Counts come from `map status`, which knows only the four persisted
-              statuses — `ready` is the viewer's own reading of `map next`. */}
+              statuses — `ready` is the UI's own reading of `map next`. */}
           {PERSISTED_STATUSES.map((persisted) => (
             <span
               key={persisted}

@@ -7,8 +7,10 @@ Monorepo for the wayful system. `skills/wayful/SKILL.md` (or your wayful skill) 
 
 - `packages/cli` - wayful CLI
   - EffectTS CLI
+  - provides commands to interact with wayful primitives
+    - provides different backends that define where wayful primitives are actually stored
   - bundles ui and server
-- `packages/ui` - wayful UI (or "viewer")
+- `packages/ui` - wayful UI
   - React SPA with Vite
   - Tanstack Router, Query
   - shadcn, tailwind
@@ -33,12 +35,16 @@ Monorepo for the wayful system. `skills/wayful/SKILL.md` (or your wayful skill) 
 
 # Glossary
 
-- wayful primitives
-  - project (has many maps)
-  - maps (has start, goals, steps)
-  - steps (like a ticket in an issue tracker, has a type, inputs, and outputs)
-  - step type (like a schema for steps)
-  - artifacts (scoped to a map, can be set as inputs/outputs of steps)
+Wayful primitives, in one line each:
+
+- **project** — outermost container, scoped to a directory; owns the step types, the backend, and many maps
+- **map** — a start, one or more goals, and a graph of interdependent steps
+- **goal** — a destination on a map; satisfied when its required output slots are filled
+- **step** — a unit of work, like an issue: it describes work and records the result, it never performs it
+- **step type** — a project-level schema for steps, declaring the slots a step inherits
+- **artifact** — a ref (`file:docs/spec.md`, `https://…`) attached as a step input/output or a goal output; derived from those attachments, never stored on its own
+
+Use `CONTEXT.md` for the full technical glossary (refs, slots, attachments, kinds, statuses, backends) and `docs/adr/` for the decisions behind them. `skills/wayful/SKILL.md` is the user-facing account of the same concepts; `CONTEXT.md` is canonical where they disagree.
 
 ## Agent skills
 

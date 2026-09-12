@@ -5,7 +5,7 @@ export type LiveState = "connecting" | "live" | "updating" | "offline";
 
 /**
  * The server watches `.wayful` and pushes an invalidation over SSE. Watching is
- * best-effort — the viewer works without it, so a dropped stream only changes
+ * best-effort — the UI works without it, so a dropped stream only changes
  * the indicator.
  */
 export function useLiveUpdates(): LiveState {

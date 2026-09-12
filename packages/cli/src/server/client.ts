@@ -1,4 +1,4 @@
-// Where the built viewer client lives. `wayful ui` must work from any working
+// Where the built UI client lives. `wayful ui` must work from any working
 // directory and without the `packages/ui` workspace present, so the client is
 // looked up by candidate rather than by a relative path from the caller.
 

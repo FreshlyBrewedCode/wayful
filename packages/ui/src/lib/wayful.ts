@@ -1,6 +1,6 @@
 // The shapes the Wayful CLI emits with `--json`, transcribed. Nothing here is
 // derived: if a field is not in the CLI's output it does not exist in the
-// viewer either, which is what keeps the viewer from disagreeing with `wayful`.
+// UI either, which is what keeps the UI from disagreeing with `wayful`.
 
 /** The four statuses Wayful persists. */
 export type StepStatus = "pending" | "blocked" | "complete" | "cancelled";

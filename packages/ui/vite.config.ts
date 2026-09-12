@@ -5,15 +5,15 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-// The viewer's data always comes from `wayful serve` (or the same API inside
+// The UI's data always comes from `wayful serve` (or the same API inside
 // `wayful ui`). In dev, Vite proxies to it so the client code is identical in
 // both modes.
-const API_TARGET = process.env.WAYFUL_VIEWER_API ?? "http://127.0.0.1:7830";
+const API_TARGET = process.env.WAYFUL_UI_API ?? "http://127.0.0.1:7830";
 
 // Vite refuses requests for hostnames it does not know, which blocks reaching a
 // dev server running on another machine. Opt in explicitly rather than by
-// default: `WAYFUL_VIEWER_HOSTS=box.local,*.ts.net bun run dev`.
-const ALLOWED_HOSTS = process.env.WAYFUL_VIEWER_HOSTS?.split(",").filter(Boolean) ?? [];
+// default: `WAYFUL_UI_HOSTS=box.local,*.ts.net bun run dev`.
+const ALLOWED_HOSTS = process.env.WAYFUL_UI_HOSTS?.split(",").filter(Boolean) ?? [];
 
 export default defineConfig({
   plugins: [tanstackRouter({ target: "react", autoCodeSplitting: true }), react(), tailwindcss()],

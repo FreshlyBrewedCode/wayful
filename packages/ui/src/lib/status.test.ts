@@ -20,7 +20,7 @@ describe("displayStatus", () => {
   });
 
   test("`ready` is never derived for a non-pending step, even if the CLI lists it", () => {
-    // Defensive: `map next` only returns pending steps, but the viewer must not
+    // Defensive: `map next` only returns pending steps, but the UI must not
     // invent a status the CLI would not agree with.
     expect(displayStatus(step(1, { status: "blocked" }), [1])).toBe("blocked");
     expect(displayStatus(step(2, { status: "complete" }), [2])).toBe("complete");

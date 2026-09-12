@@ -97,7 +97,7 @@ export const serveCommand = Command.make(
         clientDescription: undefined,
       });
     }),
-).pipe(Command.withDescription("Serve the read-only viewer API without a client"));
+).pipe(Command.withDescription("Serve the read-only UI API without a client"));
 
 export const uiCommand = Command.make("ui", { port: portFlag, host: hostFlag }, ({ port, host }) =>
   Effect.gen(function* () {
@@ -107,7 +107,7 @@ export const uiCommand = Command.make("ui", { port: portFlag, host: hostFlag }, 
       return yield* handle(
         false,
         fail(
-          "no built viewer client found; run 'bun run build' in packages/cli, or set WAYFUL_UI_DIST.",
+          "no built UI client found; run 'bun run build' in packages/cli, or set WAYFUL_UI_DIST.",
         ),
       );
     yield* serveUntilInterrupted("ui", {
@@ -118,4 +118,4 @@ export const uiCommand = Command.make("ui", { port: portFlag, host: hostFlag }, 
       clientDescription: resolved.description,
     });
   }),
-).pipe(Command.withDescription("Serve the viewer API and the bundled viewer client"));
+).pipe(Command.withDescription("Serve the UI API and the bundled UI client"));

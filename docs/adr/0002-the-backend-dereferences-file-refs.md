@@ -4,7 +4,7 @@ status: accepted
 
 # The backend dereferences `file:` refs
 
-Wayful previously never dereferenced a ref at all, but both the viewer (to preview a markdown
+Wayful previously never dereferenced a ref at all, but both the UI (to preview a markdown
 artifact) and agents driving the CLI (to read one without a second tool) need the content behind a
 `file:` ref. Dereferencing is therefore added to `WayfulBackend` as a read operation — not to
 `server/` and not to a CLI command — so the HTTP endpoint and the CLI read command are two callers
@@ -58,7 +58,7 @@ Defence is layered, cheapest first:
    than streamed.
 5. **Response shaping**: content is returned as JSON with `cache-control: no-store` and
    `X-Content-Type-Options: nosniff`, never as raw bytes under a sniffable content type on the
-   viewer's own origin.
+   UI's own origin.
 
 ## The GitHub backend
 
@@ -75,7 +75,7 @@ The layers above are reused rather than restated, with one change of source:
 
 1. **Membership is a network read.** *Only a ref attached on the map is readable* is checked
    against the attachments the snapshot fetched from GitHub — the same derived-artifact set the
-   viewer sees — so a path that exists in the checkout but is attached nowhere is still refused.
+   UI sees — so a path that exists in the checkout but is attached nowhere is still refused.
 2. **Containment is local.** Because the file is local, the syntax re-check, the extension
    allowlist, `realpath` containment and the regular-file/`stat` cap apply exactly as they do on
    the filesystem. They live in one shared reader, so the two backends cannot drift.

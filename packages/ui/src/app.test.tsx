@@ -52,7 +52,7 @@ function backend(): Backend {
   };
 }
 
-describe("the viewer", () => {
+describe("the UI", () => {
   test("opens on the first map and lists every map with its progress", async () => {
     renderApp("/", backend());
 
