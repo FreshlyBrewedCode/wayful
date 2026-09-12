@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { DISPLAY_STATUSES, displayStatus, groupByDisplayStatus, statusLabel } from "@/lib/status";
-import { step } from "./fixtures";
+import { step } from "@test/fixtures";
 
 describe("displayStatus", () => {
   test("a pending step listed by `map next` shows as ready", () => {

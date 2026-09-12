@@ -5,7 +5,8 @@
     "types": ["bun", "vite/client"],
     "jsx": "react-jsx",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@test/*": ["./test/*"]
     }
   },
   "include": ["src", "test", "vite.config.ts"]

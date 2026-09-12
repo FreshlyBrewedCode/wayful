@@ -3,8 +3,8 @@ import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import { routeTree } from "./routeTree.gen";
-import "./styles.css";
+import { routeTree } from "@/routeTree.gen";
+import "@/styles.css";
 
 // Data is invalidated by the `.wayful` watcher rather than by polling, so
 // nothing refetches on its own.
