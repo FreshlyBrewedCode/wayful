@@ -3,14 +3,35 @@ name: release
 # This filename is load-bearing: npm's trusted-publisher configuration pins
 # the exact org/repo/workflow-filename triple it will mint an OIDC token for.
 # Renaming this file silently breaks publishing for all five packages.
+#
+# Two modes, sharing one job:
+#   - push to main      -> publish a pre-release (`X.Y.Z-next.N`) on the npm
+#                          `next` dist-tag and a GitHub pre-release.
+#   - workflow_dispatch -> publish a stable release on the npm `latest` dist-tag.
+#                          `--branches main` makes semantic-release treat main as
+#                          a plain release branch; stable runs ignore pre-release
+#                          tags, so it recomputes the final `X.Y.Z` from the last
+#                          stable tag rather than promoting an existing version.
+#
+# .releaserc.json must keep a non-pre-release "release" branch configured (here
+# `stable`, which is never pushed to or published from) because semantic-release
+# rejects a config whose only branch is a pre-release branch.
 
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
   id-token: write
+
+# Cancel superseded runs of the same mode: rapid merges to main cancel the older
+# pre-release run, while a manual stable release is tracked separately so a later
+# merge can't cancel it mid-publish.
+concurrency:
+  group: release-${{ github.event_name }}
+  cancel-in-progress: true
 
 jobs:
   release:
@@ -38,6 +59,14 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      - run: npx semantic-release
+      - name: Publish pre-release
+        if: github.event_name == 'push'
+        run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish stable release
+        if: github.event_name == 'workflow_dispatch'
+        run: npx semantic-release --branches main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
