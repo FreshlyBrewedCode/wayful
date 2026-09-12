@@ -1,4 +1,4 @@
-import { Effect, Option, Result } from "effect";
+import { DateTime, Effect, Option, Result } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 
 import { MapStore } from "@backend/MapStore";
@@ -64,7 +64,9 @@ const contextCommand = Command.make(
 
         let sinceCutoff: Date | undefined;
         if (Option.isSome(since))
-          sinceCutoff = yield* liftSync(() => parseSince(since.value, new Date()));
+          sinceCutoff = yield* liftSync(() =>
+            parseSince(since.value, DateTime.toDateUtc(DateTime.nowUnsafe())),
+          );
 
         if (Option.isNone(ref)) {
           const mapsRead = yield* mapStore.listMaps(project);
@@ -159,12 +161,10 @@ const contextCommand = Command.make(
         if (!target) return yield* fail(`step '${describeToken(reference.token)}' does not exist.`);
         const type = yield* projectStore.getType(project, target.type).pipe(
           Effect.map((t) => ({ name: t.name, description: t.description })),
-          Effect.catch(() =>
-            Effect.succeed({
-              name: target.type,
-              description: "unavailable: referenced type is missing or malformed.",
-            }),
-          ),
+          Effect.orElseSucceed(() => ({
+            name: target.type,
+            description: "unavailable: referenced type is missing or malformed.",
+          })),
         );
         const view = buildStepContext({
           mapName: map.metadata.name,

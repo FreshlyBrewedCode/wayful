@@ -1,3 +1,5 @@
+import { DateTime, Option } from "effect";
+
 import { WayfulError } from "@domain/errors";
 
 /**
@@ -43,11 +45,13 @@ export function parseSince(raw: string, now: Date): Date {
   if (duration) {
     const amount = Number(duration[1]);
     const unitMs = duration[2] === "d" ? 86_400_000 : 3_600_000;
-    return new Date(now.getTime() - amount * unitMs);
+    return DateTime.toDateUtc(
+      DateTime.subtract(DateTime.fromDateUnsafe(now), { milliseconds: amount * unitMs }),
+    );
   }
   if (ABSOLUTE_DATE_PATTERN.test(raw)) {
-    const parsed = new Date(`${raw}T00:00:00.000Z`);
-    if (!Number.isNaN(parsed.getTime())) return parsed;
+    const parsed = DateTime.make(`${raw}T00:00:00.000Z`);
+    if (Option.isSome(parsed)) return DateTime.toDateUtc(parsed.value);
   }
   throw new WayfulError({
     message: `--since must be a duration (e.g. '7d', '24h') or an absolute date (e.g. '2026-09-01'); got '${raw}'.`,

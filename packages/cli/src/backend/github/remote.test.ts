@@ -57,7 +57,7 @@ describe("resolveOriginRemote", () => {
       expect(invocation).toEqual(["git", "remote", "get-url", "origin"]);
       return Effect.succeed("git@github.com:acme/widgets.git\n");
     });
-    const result = await Effect.runPromise(resolveOriginRemote().pipe(Effect.provide(layer)));
+    const result = await Effect.runPromise(resolveOriginRemote.pipe(Effect.provide(layer)));
     expect(result).toEqual(Option.some({ host: "github.com", owner: "acme", repo: "widgets" }));
   });
 
@@ -65,13 +65,13 @@ describe("resolveOriginRemote", () => {
     const layer = stubChildProcessSpawner(() =>
       Effect.fail(fakeSpawnFailure("fatal: No such remote")),
     );
-    const result = await Effect.runPromise(resolveOriginRemote().pipe(Effect.provide(layer)));
+    const result = await Effect.runPromise(resolveOriginRemote.pipe(Effect.provide(layer)));
     expect(result).toEqual(Option.none());
   });
 
   test("resolves to none when git prints nothing", async () => {
     const layer = stubChildProcessSpawner(() => Effect.succeed("\n"));
-    const result = await Effect.runPromise(resolveOriginRemote().pipe(Effect.provide(layer)));
+    const result = await Effect.runPromise(resolveOriginRemote.pipe(Effect.provide(layer)));
     expect(result).toEqual(Option.none());
   });
 });

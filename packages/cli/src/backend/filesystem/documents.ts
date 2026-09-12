@@ -1,4 +1,4 @@
-import { Effect, type FileSystem } from "effect";
+import { Clock, Effect, Random, type FileSystem } from "effect";
 
 import { WayfulError } from "@domain/errors";
 
@@ -63,7 +63,7 @@ export function writeAtomic(
   text: string,
 ): Effect.Effect<void, WayfulError> {
   return Effect.gen(function* () {
-    const tmp = `${path}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const tmp = `${path}.tmp-${process.pid}-${yield* Clock.currentTimeMillis}-${(yield* Random.next).toString(36).slice(2)}`;
     const onError = new WayfulError({ message: `cannot write ${path}.` });
     yield* fs.writeFileString(tmp, text).pipe(Effect.mapError(() => onError));
     yield* fs.rename(tmp, path).pipe(Effect.mapError(() => onError));

@@ -189,7 +189,7 @@ export function stepDetail(
       if (!target) return yield* fail(`step '${reference}' does not exist.`);
       const instructions = yield* projectStore.getType(project, target.type).pipe(
         Effect.map((type) => type.instructions),
-        Effect.catch(() => Effect.succeed("unavailable: referenced type is missing or malformed.")),
+        Effect.orElseSucceed(() => "unavailable: referenced type is missing or malformed."),
       );
       return { ...target, instructions };
     }),

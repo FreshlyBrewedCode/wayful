@@ -46,11 +46,13 @@ export const stepDependsCommand = Command.make(
         const onRef = yield* liftSync(() => expectStep(on));
         yield* liftSync(() => assertSameMap(onRef.map, map.metadata.name, "a dependency"));
         const prerequisite = yield* findStep(steps, onRef.token);
-        if (target.id === prerequisite.id) yield* fail("a step cannot depend on itself.");
-        if (target.dependencies.includes(prerequisite.id)) yield* fail("duplicate dependency.");
-        if (prerequisite.status === "cancelled") yield* fail("cannot depend on a cancelled step.");
+        if (target.id === prerequisite.id) return yield* fail("a step cannot depend on itself.");
+        if (target.dependencies.includes(prerequisite.id))
+          return yield* fail("duplicate dependency.");
+        if (prerequisite.status === "cancelled")
+          return yield* fail("cannot depend on a cancelled step.");
         if (reaches(steps, prerequisite.id, target.id))
-          yield* fail("dependency would create a cycle.");
+          return yield* fail("dependency would create a cycle.");
         yield* mapStore.saveStep(map, {
           ...target,
           dependencies: [...target.dependencies, prerequisite.id],

@@ -38,7 +38,7 @@ export const stepBlockCommand = Command.make(
         const steps = yield* strict(yield* mapStore.listSteps(map));
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
-        if (target.status !== "pending") yield* fail("only pending steps can be blocked.");
+        if (target.status !== "pending") return yield* fail("only pending steps can be blocked.");
         const blockReason = yield* liftSync(() => nonEmpty(reason, "block reason"));
         yield* mapStore.saveStep(map, { ...target, status: "blocked", block_reason: blockReason });
         yield* Console.log(`Updated step '${target.name}'.`);
@@ -62,7 +62,7 @@ export const stepUnblockCommand = Command.make(
         const steps = yield* strict(yield* mapStore.listSteps(map));
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
-        if (target.status !== "blocked") yield* fail("only blocked steps can be unblocked.");
+        if (target.status !== "blocked") return yield* fail("only blocked steps can be unblocked.");
         const { block_reason: _blockReason, ...rest } = target;
         yield* mapStore.saveStep(map, { ...rest, status: "pending" });
         yield* Console.log(`Updated step '${target.name}'.`);
@@ -94,7 +94,7 @@ export const stepCompleteCommand = Command.make(
         yield* assertNotTerminal(target);
         const completionSummary = yield* liftSync(() => nonEmpty(summary, "completion summary"));
         if (!attachmentOK(target.required_outputs, target.outputs))
-          yield* fail("required output slots are not fulfilled.");
+          return yield* fail("required output slots are not fulfilled.");
         yield* mapStore.saveStep(map, {
           ...target,
           status: "complete",

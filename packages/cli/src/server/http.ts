@@ -2,8 +2,7 @@
 // when a built client is supplied — the viewer SPA itself. Nothing here writes
 // to `.wayful`; the server only ever reads through the backend.
 
-import { Effect, Option, Result } from "effect";
-import { resolve } from "node:path";
+import { Effect, Option, Path, Result } from "effect";
 
 import { MapStore } from "@backend/MapStore";
 import type { ProjectStore } from "@backend/ProjectStore";
@@ -57,6 +56,9 @@ function decodeSafely(pathname: string): string {
  * only ever looked up as a map key — never resolved against a directory — so
  * there is no filesystem path for it to escape into in the first place.
  */
+// TODO(#75): effecttsgo/async-function. On hold: this streams `Bun.file(...)` on
+// the Bun.serve request path; converting to Effect would wrap platform promises
+// (and run a runtime) just to satisfy the rule, risking streaming/fallback behavior.
 async function asset(assets: Record<string, string>, pathname: string): Promise<Response> {
   const requested = decodeSafely(pathname);
   const matched = assets[requested === "/" ? "/index.html" : requested];
@@ -82,13 +84,14 @@ async function asset(assets: Record<string, string>, pathname: string): Promise<
  */
 export function startServer(
   config: ServerConfig,
-): Effect.Effect<RunningServer, WayfulError, MapStore | ProjectStore> {
+): Effect.Effect<RunningServer, WayfulError, MapStore | ProjectStore | Path.Path> {
   return Effect.gen(function* () {
     const services = yield* Effect.context<MapStore | ProjectStore>();
     const run = <A>(effect: Effect.Effect<A, never, MapStore | ProjectStore>) =>
       Effect.runPromiseWith(services)(effect);
 
-    const hint = resolve(config.project);
+    const path = yield* Path.Path;
+    const hint = path.resolve(config.project);
     const opened = yield* Effect.result(resolveProject(Option.some(hint)));
     const root = Result.isSuccess(opened) ? opened.success.root : hint;
 
@@ -131,6 +134,9 @@ export function startServer(
       });
     }
 
+    // TODO(#75): effecttsgo/async-function. On hold: this is Bun.serve's native
+    // `fetch` callback; an Effect-native body would force a runtime into a
+    // non-Effect handler.
     async function handle(request: Request): Promise<Response> {
       const url = new URL(request.url);
       const parameter = (name: string) => url.searchParams.get(name) ?? "";

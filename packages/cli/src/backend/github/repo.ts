@@ -23,11 +23,11 @@ export function resolveRepo(
 ): Effect.Effect<ResolvedRepo, WayfulError, ChildProcessSpawner.ChildProcessSpawner> {
   return Effect.gen(function* () {
     if (project.backend !== "github" || project.repo === undefined)
-      return yield* Effect.fail(
-        new WayfulError({ message: "project is not configured for the github backend." }),
-      );
+      return yield* new WayfulError({
+        message: "project is not configured for the github backend.",
+      });
     const [owner, repo] = project.repo.split("/");
-    const remote = yield* resolveOriginRemote();
+    const remote = yield* resolveOriginRemote;
     const host = Option.match(remote, { onNone: () => "github.com", onSome: (r) => r.host });
     const token = yield* credentials.token(host);
     return { ref: { host, owner: owner!, repo: repo! }, token };

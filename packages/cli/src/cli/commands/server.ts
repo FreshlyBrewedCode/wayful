@@ -1,6 +1,5 @@
-import { Console, Effect, Option } from "effect";
+import { Config, Console, Effect, Option, Path } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
-import { resolve } from "node:path";
 
 import { fail } from "@/scope";
 import { resolveClientAssets } from "@server/client";
@@ -25,8 +24,14 @@ const hostFlag = Flag.string("host").pipe(
  * precedence every other command uses, resolved once so the server reports a
  * stable absolute path no matter where it was launched from.
  */
-function projectHint(flag: Option.Option<string>): string {
-  return resolve(Option.getOrElse(flag, () => process.env.WAYFUL_PROJECT ?? process.cwd()));
+function projectHint(path: Path.Path, flag: Option.Option<string>): Effect.Effect<string> {
+  return Effect.gen(function* () {
+    const environment = yield* Config.option(Config.string("WAYFUL_PROJECT")).pipe(
+      Effect.orElseSucceed(() => Option.none<string>()),
+    );
+    const hint = Option.getOrElse(flag, () => Option.getOrElse(environment, () => process.cwd()));
+    return path.resolve(hint);
+  });
 }
 
 function banner(
@@ -61,14 +66,16 @@ function serveUntilInterrupted(
   return handle(
     false,
     Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const project = yield* projectHint(path, options.project);
       const server = yield* startServer({
-        project: projectHint(options.project),
+        project,
         host: options.host,
         port: options.port,
         client: options.client,
       });
       yield* Console.log(banner(command, server, options.clientDescription));
-      yield* Effect.ensuring(
+      return yield* Effect.ensuring(
         Effect.never,
         Effect.sync(() => server.stop()),
       );
@@ -95,7 +102,7 @@ export const serveCommand = Command.make(
 export const uiCommand = Command.make("ui", { port: portFlag, host: hostFlag }, ({ port, host }) =>
   Effect.gen(function* () {
     const root = yield* wayfulRoot;
-    const resolved = resolveClientAssets();
+    const resolved = yield* resolveClientAssets();
     if (!resolved)
       return yield* handle(
         false,

@@ -78,6 +78,6 @@ export function resolveStepTarget(
 
 export function assertNotTerminal(step: StepRecord): Effect.Effect<void, WayfulError> {
   return Effect.gen(function* () {
-    if (closesStep(step.status)) yield* fail("terminal steps cannot be changed.");
+    if (closesStep(step.status)) return yield* fail("terminal steps cannot be changed.");
   });
 }

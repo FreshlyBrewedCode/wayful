@@ -1,4 +1,6 @@
-import { Console, Effect } from "effect";
+import { Console, Effect, Schema } from "effect";
+
+const errorOutputJson = Schema.fromJsonString(Schema.Struct({ error: Schema.String }));
 
 /**
  * The `wayful: `/`--json`/exit-code contract every command failure reports
@@ -17,7 +19,10 @@ export function report(options: {
   return Effect.gen(function* () {
     yield* Console.error(`wayful: ${options.message}`);
     if (options.usageHint) yield* Console.error(`wayful: ${options.usageHint}`);
-    if (options.json) yield* Console.log(JSON.stringify({ error: options.message }));
+    if (options.json)
+      yield* Console.log(
+        yield* Schema.encodeEffect(errorOutputJson)({ error: options.message }).pipe(Effect.orDie),
+      );
     process.exitCode = 2;
   });
 }

@@ -24,6 +24,9 @@ export function strict<T>(read: CollectionRead<T>): Effect.Effect<readonly T[], 
     : Effect.succeed(read.records);
 }
 
+// TODO(#75): read this through Effect `Config` rather than `process.env`. The fix
+// is on hold because it adds a `Config` requirement to `resolveProject`/
+// `resolveMap` and ripples through their ~15 command/server callers.
 function envOption(name: string): Option.Option<string> {
   return Option.fromNullishOr(process.env[name]);
 }
@@ -53,11 +56,9 @@ export function resolveMap(
       const types = yield* projectStore.listTypes(project);
       const known = new Set(types.records.map((type) => type.name));
       if (map.metadata.allowed_step_types.some((type) => !known.has(type)))
-        return yield* Effect.fail(
-          new MapMetadataError({
-            message: "map allowed_step_types contains an unknown project type.",
-          }),
-        );
+        return yield* new MapMetadataError({
+          message: "map allowed_step_types contains an unknown project type.",
+        });
     }
     return map;
   });
@@ -111,6 +112,6 @@ export function assertWritableMapIntegrity(
     const { snapshot, errors: readErrors } = yield* buildSnapshot(map);
     const validationErrors = validateMap(snapshot, { includeProgress: false });
     const errors = [...readErrors.map((e) => `${e.file}: ${e.message}`), ...validationErrors];
-    if (errors.length) yield* fail(`map integrity check failed: ${errors.join(" ")}`);
+    if (errors.length) return yield* fail(`map integrity check failed: ${errors.join(" ")}`);
   });
 }

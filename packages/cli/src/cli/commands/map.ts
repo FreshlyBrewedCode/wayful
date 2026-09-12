@@ -1,4 +1,4 @@
-import { Console, Effect, Result } from "effect";
+import { Console, Effect, Result, Schema } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 
 import { MapStore } from "@backend/MapStore";
@@ -76,7 +76,7 @@ const mapValidateCommand = Command.make(
             yield* reportValidation(json, [mapResult.failure.message]);
             return;
           }
-          return yield* Effect.fail(mapResult.failure);
+          return yield* mapResult.failure;
         }
         const snapshotResult = yield* Effect.result(buildSnapshot(mapResult.success));
         if (Result.isFailure(snapshotResult)) {
@@ -93,10 +93,18 @@ const mapValidateCommand = Command.make(
     ),
 ).pipe(Command.withDescription("Validate a map without modifying it"));
 
+const validationOutputJson = Schema.fromJsonString(
+  Schema.Struct({ valid: Schema.Boolean, errors: Schema.Array(Schema.String) }),
+  { space: 2 },
+);
+
 function reportValidation(json: boolean, errors: readonly string[]) {
   return Effect.gen(function* () {
     const value = { valid: errors.length === 0, errors };
-    if (json) yield* Console.log(JSON.stringify(value, null, 2));
+    if (json)
+      yield* Console.log(
+        yield* Schema.encodeEffect(validationOutputJson)(value).pipe(Effect.orDie),
+      );
     else if (errors.length) yield* Console.error(`wayful: invalid map: ${errors.join(" ")}`);
     else yield* Console.log("Map is valid.");
     if (errors.length) process.exitCode = 1;

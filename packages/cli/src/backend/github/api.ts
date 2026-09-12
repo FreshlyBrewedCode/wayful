@@ -1,4 +1,4 @@
-import { Effect, Option, Redacted } from "effect";
+import { DateTime, Effect, Option, Redacted } from "effect";
 import { HttpClientRequest } from "effect/unstable/http";
 
 import { WayfulError } from "@domain/errors";
@@ -63,10 +63,10 @@ export function verifyAccess(
     );
     const response = yield* execute(request);
     if (response.status === 401 || response.status === 403 || response.status === 404) {
-      return yield* Effect.fail(insufficientAccess(repo));
+      return yield* insufficientAccess(repo);
     }
     if (response.status < 200 || response.status >= 300) {
-      return yield* Effect.fail(requestFailed(`unexpected status ${response.status}.`));
+      return yield* requestFailed(`unexpected status ${response.status}.`);
     }
     const body = yield* response.json.pipe(
       Effect.mapError((error) => requestFailed(error.message)),
@@ -78,7 +78,7 @@ export function verifyAccess(
       onNone: () => false,
       onSome: (p) => p.push === true,
     });
-    if (!canPush) return yield* Effect.fail(insufficientAccess(repo));
+    if (!canPush) return yield* insufficientAccess(repo);
   });
 }
 
@@ -102,8 +102,8 @@ export function ensureLabel(
     ).pipe(HttpClientRequest.bodyJsonUnsafe(label));
     const response = yield* execute(request);
     if (response.status === 201 || response.status === 422) return;
-    return yield* Effect.fail(
-      requestFailed(`could not create label "${label.name}" (status ${response.status}).`),
+    return yield* requestFailed(
+      `could not create label "${label.name}" (status ${response.status}).`,
     );
   });
 }
@@ -126,8 +126,8 @@ export function ensureLabels(
  */
 function isoMillis(value: unknown): string {
   if (typeof value !== "string") return "";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+  const date = DateTime.make(value);
+  return Option.isNone(date) ? "" : DateTime.formatIso(date.value);
 }
 
 /**
@@ -193,8 +193,7 @@ function listPaginated(
     let next: string | undefined = initialUrl;
     while (next !== undefined) {
       const { value, headers } = yield* fetchJson(authorized(HttpClientRequest.get(next), token));
-      if (!Array.isArray(value))
-        return yield* Effect.fail(requestFailed("expected a JSON array of issues."));
+      if (!Array.isArray(value)) return yield* requestFailed("expected a JSON array of issues.");
       for (const raw of value) {
         const issue = normalizeIssue(raw);
         if (issue) issues.push(issue);
@@ -264,7 +263,7 @@ export function getIssue(
       ),
     );
     const issue = normalizeIssue(value);
-    if (!issue) return yield* Effect.fail(requestFailed(`could not read issue #${number}.`));
+    if (!issue) return yield* requestFailed(`could not read issue #${number}.`);
     return issue;
   });
 }
@@ -293,7 +292,7 @@ export function updateIssue(
     ).pipe(HttpClientRequest.bodyJsonUnsafe(patch));
     const response = yield* execute(request);
     if (response.status < 200 || response.status >= 300)
-      return yield* Effect.fail(requestFailed(`could not update issue #${number}.`));
+      return yield* requestFailed(`could not update issue #${number}.`);
   });
 }
 
@@ -315,7 +314,7 @@ export function addLabels(
     ).pipe(HttpClientRequest.bodyJsonUnsafe({ labels }));
     const response = yield* execute(request);
     if (response.status < 200 || response.status >= 300)
-      return yield* Effect.fail(requestFailed(`could not label issue #${number}.`));
+      return yield* requestFailed(`could not label issue #${number}.`);
   });
 }
 
@@ -336,7 +335,7 @@ export function removeLabel(
     );
     const response = yield* execute(request);
     if (response.status === 200 || response.status === 404) return;
-    return yield* Effect.fail(requestFailed(`could not remove label from issue #${number}.`));
+    return yield* requestFailed(`could not remove label from issue #${number}.`);
   });
 }
 
@@ -358,9 +357,9 @@ export function addSubIssue(
     const response = yield* execute(request);
     if (response.status === 201) return;
     // GitHub rejects the 101st sub-issue with 422; that is a cap, not a raw failure.
-    if (response.status === 422) return yield* Effect.fail(subIssueCapError());
-    return yield* Effect.fail(
-      requestFailed(`could not add sub-issue to #${parent} (status ${response.status}).`),
+    if (response.status === 422) return yield* subIssueCapError();
+    return yield* requestFailed(
+      `could not add sub-issue to #${parent} (status ${response.status}).`,
     );
   });
 }
@@ -386,8 +385,8 @@ export function addBlockedBy(
     ).pipe(HttpClientRequest.bodyJsonUnsafe({ issue_id: blockingIssueId }));
     const response = yield* execute(request);
     if (response.status === 201) return;
-    return yield* Effect.fail(
-      requestFailed(`could not add a dependency to issue #${number} (status ${response.status}).`),
+    return yield* requestFailed(
+      `could not add a dependency to issue #${number} (status ${response.status}).`,
     );
   });
 }
@@ -409,10 +408,8 @@ export function removeBlockedBy(
     );
     const response = yield* execute(request);
     if (response.status === 200) return;
-    return yield* Effect.fail(
-      requestFailed(
-        `could not remove a dependency from issue #${number} (status ${response.status}).`,
-      ),
+    return yield* requestFailed(
+      `could not remove a dependency from issue #${number} (status ${response.status}).`,
     );
   });
 }
@@ -443,14 +440,12 @@ export function createIssue(
     );
     const response = yield* execute(request);
     if (response.status !== 201)
-      return yield* Effect.fail(
-        requestFailed(`could not create issue (status ${response.status}).`),
-      );
+      return yield* requestFailed(`could not create issue (status ${response.status}).`);
     const body = yield* response.json.pipe(
       Effect.mapError((error) => requestFailed(error.message)),
     );
     const created = normalizeIssue(body);
-    if (!created) return yield* Effect.fail(requestFailed("the created issue could not be read."));
+    if (!created) return yield* requestFailed("the created issue could not be read.");
     return created;
   });
 }
