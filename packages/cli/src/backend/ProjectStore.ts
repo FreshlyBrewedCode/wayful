@@ -14,16 +14,24 @@ export interface ProjectHandle {
   readonly backend: ProjectBackend;
   /** Only present when `backend` is "github"; `owner/name`. */
   readonly repo?: string;
+  /**
+   * The host recorded at init; absent on projects that predate the key, which
+   * fall back to the git remote resolved in `root`.
+   */
+  readonly host?: string;
 }
 
 export class ProjectStore extends Context.Service<
   ProjectStore,
   {
+    /** Whether `directory` already holds wayful state, checked before any remote work. */
+    readonly projectExists: (directory: string) => Effect.Effect<boolean, WayfulError>;
     readonly initProject: (options: {
       readonly directory: string;
       readonly description: string;
       readonly backend?: ProjectBackend;
       readonly repo?: string;
+      readonly host?: string;
     }) => Effect.Effect<void, WayfulError>;
     readonly openProject: (
       hint: Option.Option<string>,

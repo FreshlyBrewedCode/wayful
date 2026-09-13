@@ -10,8 +10,28 @@ import { WAYFUL_LABELS } from "@backend/github/labels";
 import { resolveOriginRemote } from "@backend/github/remote";
 import { WayfulError } from "@domain/errors";
 import { nonEmpty } from "@domain/identifier";
+import type { ProjectBackend } from "@domain/model";
+import { fail } from "@/scope";
 import { handle } from "@cli/render";
 import { wayfulRoot } from "@cli/root";
+
+const EXISTING_PROJECT_MESSAGE = "Wayful state already exists; refusing to overwrite it.";
+
+/**
+ * The human report `wayful init` prints, naming the backend it bound the
+ * project to and, for github, the repository and host.
+ */
+export function initializedMessage(options: {
+  readonly directory: string;
+  readonly backend: ProjectBackend;
+  readonly repo?: string;
+  readonly host?: string;
+}): string {
+  const details = [`backend: ${options.backend}`];
+  if (options.repo !== undefined) details.push(`repository: ${options.repo}`);
+  if (options.host !== undefined) details.push(`host: ${options.host}`);
+  return `Initialized Wayful project (${details.join(", ")}) in ${options.directory}.`;
+}
 
 export const initCommand = Command.make(
   "init",
@@ -43,20 +63,27 @@ export const initCommand = Command.make(
           onSome: (value) => liftSync(() => nonEmpty(value, "project description")),
         });
 
-        if (backend !== "github") {
-          if (Option.isSome(repo))
-            return yield* new WayfulError({ message: "--repo requires --backend github." });
-          yield* projectStore.initProject({ directory, description: resolvedDescription, backend });
-          yield* Console.log("Initialized Wayful project.");
-          return;
-        }
-
-        if (Option.isSome(repo) && !REPO_PATTERN.test(repo.value))
+        if (backend !== "github" && Option.isSome(repo))
+          return yield* new WayfulError({ message: "--repo requires --backend github." });
+        if (backend === "github" && Option.isSome(repo) && !REPO_PATTERN.test(repo.value))
           return yield* new WayfulError({
             message: `--repo must be in the form "owner/name".`,
           });
 
-        const remote = yield* resolveOriginRemote;
+        // Checked before any remote work: a repeat init must leave the remote
+        // untouched rather than verifying access and creating labels first.
+        if (yield* projectStore.projectExists(directory))
+          return yield* fail(EXISTING_PROJECT_MESSAGE);
+
+        if (backend !== "github") {
+          yield* projectStore.initProject({ directory, description: resolvedDescription, backend });
+          yield* Console.log(initializedMessage({ directory, backend }));
+          return;
+        }
+
+        // The remote is read in the directory being initialised, not the
+        // process working directory, so the recorded host matches the project.
+        const remote = yield* resolveOriginRemote(directory);
         const host = Option.match(remote, { onNone: () => "github.com", onSome: (r) => r.host });
         const ownerName = yield* Option.match(repo, {
           onSome: (value) => Effect.succeed(value),
@@ -82,8 +109,9 @@ export const initCommand = Command.make(
           description: resolvedDescription,
           backend,
           repo: ownerName,
+          host,
         });
-        yield* Console.log("Initialized Wayful project.");
+        yield* Console.log(initializedMessage({ directory, backend, repo: ownerName, host }));
       }),
     ),
 ).pipe(Command.withDescription("Initialize a Wayful project"));

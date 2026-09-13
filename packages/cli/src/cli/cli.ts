@@ -2,6 +2,7 @@ import { Command } from "effect/unstable/cli";
 
 import { artifactCommand } from "@cli/commands/artifact";
 import { contextCommand } from "@cli/commands/context";
+import { doctorCommand } from "@cli/commands/doctor";
 import { goalCommand } from "@cli/commands/goal";
 import { initCommand } from "@cli/commands/init";
 import { labelCommand } from "@cli/commands/label";
@@ -21,6 +22,7 @@ export const cli = wayfulRoot.pipe(
     goalCommand,
     typeCommand,
     labelCommand,
+    doctorCommand,
     uiCommand,
     serveCommand,
   ]),
