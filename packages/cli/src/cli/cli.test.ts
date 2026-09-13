@@ -17,6 +17,14 @@ describe("project and context contracts", () => {
     }
   });
 
+  test("describes the CLI by what it does, not by one storage backend", async () => {
+    const project = await temporaryDirectory();
+    const result = invoke(["--help"], project);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Plan and complete work on maps of steps and goals");
+    expect(result.stdout).not.toContain("filesystem CLI");
+  });
+
   test("names what was wrong with a usage mistake instead of only requesting help", async () => {
     const project = await temporaryDirectory();
     // Every parse mistake reaches this CLI as one framework `ShowHelp` whose

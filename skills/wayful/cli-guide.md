@@ -32,8 +32,8 @@ For less verbose batch changes, set the project and map context with `WAYFUL_PRO
 ```sh
 export WAYFUL_PROJECT=/path/to/website-redesign
 export WAYFUL_MAP=redesign
-wayful step update 2 --description "Produce an approved responsive proposal"
-wayful step complete 2 --summary "Proposal approved"
+wayful step update 17 --description "Produce an approved responsive proposal"
+wayful step complete 17 --summary "Proposal approved"
 ```
 
 An explicit `--project` or `--map` takes precedence over its corresponding environment variable. `wayful map next` returns steps that are currently actionable: their dependencies are satisfied and their required input artifacts are available. Treat this as guidance rather than a mandate. If the map is incomplete, add or revise steps before proceeding.
@@ -76,9 +76,9 @@ wayful type list
 wayful type show research
 ```
 
-Add steps using a type supported by the project's or map's configuration. Give each step a concise description of the result it should achieve, rather than a rigid implementation plan. Every step also receives an automatically generated integer ID, starting at `1` and increasing for each new step.
+Add steps using a type supported by the project's or map's configuration. Give each step a concise description of the result it should achieve, rather than a rigid implementation plan. The backend assigns each step an integer id when it is created, and reports it — read that id from the command's output (or from `map next` or `step show`) rather than guessing it. Backends allocate differently: under the GitHub backend a step's id is its repository-wide issue number. An id is unique within its map, stable, and increasing with creation; it is not necessarily small or contiguous.
 
-Once a step exists, address it with a reference: a bare integer id (`1`), or `#` followed by its id or name (`#1`, `#research-users`). The bare-integer form only ever means a step id — reserve the `#` sigil for by-name addressing, since a bare name would otherwise be ambiguous with a map name. A step reference can be map-qualified with a `map/` prefix (e.g. `redesign/#1`) to address a step outside the current `--map`/`WAYFUL_MAP` context. Artifacts are addressed differently: by their ref directly (e.g. `file:docs/research/interviews.md`), never map-qualified — see "Attach artifacts and record progress" below.
+Once a step exists, address it with a reference: a bare integer id (`17`), or `#` followed by its id or name (`#17`, `#research-users`). The bare-integer form only ever means a step id — reserve the `#` sigil for by-name addressing, since a bare name would otherwise be ambiguous with a map name. A step reference can be map-qualified with a `map/` prefix (e.g. `redesign/#17`) to address a step outside the current `--map`/`WAYFUL_MAP` context. Artifacts are addressed differently: by their ref directly (e.g. `file:docs/research/interviews.md`), never map-qualified — see "Attach artifacts and record progress" below.
 
 ```sh
 wayful step create research-users \
@@ -95,10 +95,10 @@ wayful step create design-proposal \
 wayful step depends #design-proposal --map redesign --on #research-users
 ```
 
-For example, if `research-users` has ID `1` and `design-proposal` has ID `2`, the dependency can also be expressed with bare ids:
+For example, if `research-users` was assigned id `17` and `design-proposal` id `23`, the dependency can also be expressed with bare ids:
 
 ```sh
-wayful step depends 2 --map redesign --on 1
+wayful step depends 23 --map redesign --on 17
 ```
 
 Use dependencies to express ordering or prerequisites, not to force the entire future path up front. As work reveals new needs, create a new step, change a dependency, or retire a step that is no longer useful:
