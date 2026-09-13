@@ -22,9 +22,13 @@ export const RoutedMapStore = Layer.effect(
     const storeFor = (backend: ProjectBackend) => (backend === "github" ? github : local);
 
     return MapStore.of({
-      listMaps: (project) => storeFor(project.backend).listMaps(project),
+      listMaps: (project, options) => storeFor(project.backend).listMaps(project, options),
       createMap: (project, options) => storeFor(project.backend).createMap(project, options),
       openMap: (project, name) => storeFor(project.backend).openMap(project, name),
+      archiveMap: (project, name) => storeFor(project.backend).archiveMap(project, name),
+      unarchiveMap: (project, name) => storeFor(project.backend).unarchiveMap(project, name),
+      setAllowedStepTypes: (map, allowed) =>
+        storeFor(map.project.backend).setAllowedStepTypes(map, allowed),
       listSteps: (map) => storeFor(map.project.backend).listSteps(map),
       createStep: (map, step) => storeFor(map.project.backend).createStep(map, step),
       saveStep: (map, step) => storeFor(map.project.backend).saveStep(map, step),

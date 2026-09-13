@@ -12,6 +12,13 @@ export interface ProjectMetadata {
   readonly backend: ProjectBackend;
   /** Only present (and required) when `backend` is "github"; `owner/name`. */
   readonly repo?: string;
+  /**
+   * The GitHub host the project was initialised against, recorded at init so a
+   * project always addresses the host it was bound to, regardless of the
+   * invocation directory. Absent on projects created before this key existed;
+   * those fall back to the git remote resolved in the project root.
+   */
+  readonly host?: string;
   readonly created_at: string;
   readonly updated_at: string;
 }
@@ -21,6 +28,13 @@ export interface MapMetadata {
   readonly name: string;
   readonly start: string;
   readonly allowed_step_types?: readonly string[];
+  /**
+   * Whether the map is archived. Derived per backend from the state that
+   * already expresses it — a `map.toml` `archived_at` stamp on the
+   * filesystem, the map issue's closed state under GitHub — never a second
+   * stored fact.
+   */
+  readonly archived: boolean;
   readonly created_at: string;
   readonly updated_at: string;
 }

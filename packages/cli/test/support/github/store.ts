@@ -17,6 +17,8 @@ export interface GithubHarnessOptions {
   readonly remote?: string | null;
   /** The type library the store's snapshot reads; empty unless a test supplies one. */
   readonly types?: readonly TypeDefinition[];
+  /** Overrides the fixed success credential, e.g. to exercise credential failures. */
+  readonly credentials?: GithubCredentials["Service"];
 }
 
 /** A `ProjectStore` stub: types are on disk in production, a fixed set in tests. */
@@ -24,6 +26,7 @@ function stubProjectStore(types: readonly TypeDefinition[]) {
   return Layer.succeed(
     ProjectStore,
     ProjectStore.of({
+      projectExists: () => Effect.die("ProjectStore.projectExists is not used by the github store"),
       initProject: () => Effect.void,
       openProject: () => Effect.die("ProjectStore.openProject is not used by the github store"),
       listTypes: () => Effect.succeed({ records: types, errors: [] }),
@@ -52,7 +55,11 @@ export function githubInfra(
   });
   const credentials = Layer.succeed(
     GithubCredentials,
-    GithubCredentials.of({ token: () => Effect.succeed(Redacted.make("test-token")) }),
+    options.credentials ??
+      GithubCredentials.of({
+        resolve: () => Effect.succeed({ token: Redacted.make("test-token"), source: "GH_TOKEN" }),
+        token: () => Effect.succeed(Redacted.make("test-token")),
+      }),
   );
   return Layer.mergeAll(
     stubGithubHttp((request) => {

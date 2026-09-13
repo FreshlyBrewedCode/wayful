@@ -78,6 +78,7 @@ export function describeMapStoreContract(name: string, mapStoreLayer: Layer.Laye
           name: "plan",
           start: "here",
           allowed_step_types: undefined,
+          archived: false,
           created_at: T0,
           updated_at: T0,
         });
@@ -135,6 +136,86 @@ export function describeMapStoreContract(name: string, mapStoreLayer: Layer.Laye
         expect(error).toBeInstanceOf(WayfulError);
         expect(error).not.toBeInstanceOf(MapMetadataError);
         expect((error as WayfulError).message).toContain("does not exist");
+      });
+
+      test("createMap records an allowed step types restriction", async () => {
+        const project = await initializedProject();
+        const map = await run(
+          Effect.gen(function* () {
+            const b = yield* backend();
+            yield* b.createMap(project, {
+              name: "plan",
+              start: "here",
+              goal: "done",
+              goalBody: "",
+              allowedStepTypes: ["task"],
+            });
+            return yield* b.openMap(project, "plan");
+          }),
+        );
+        expect(map.metadata.allowed_step_types).toEqual(["task"]);
+      });
+
+      test("setAllowedStepTypes sets and clears the restriction on an existing map", async () => {
+        const map = await initializedMap();
+        const restricted = await run(
+          Effect.gen(function* () {
+            const b = yield* backend();
+            yield* b.setAllowedStepTypes(map, ["task"]);
+            return (yield* b.openMap(map.project, "plan")).metadata.allowed_step_types;
+          }),
+        );
+        expect(restricted).toEqual(["task"]);
+        const cleared = await run(
+          Effect.gen(function* () {
+            const b = yield* backend();
+            yield* b.setAllowedStepTypes(map, undefined);
+            return (yield* b.openMap(map.project, "plan")).metadata.allowed_step_types;
+          }),
+        );
+        expect(cleared).toBeUndefined();
+      });
+
+      test("archiveMap hides a map from the default listing and unarchiveMap restores it with its steps", async () => {
+        const map = await initializedMap();
+        const archived = await run(
+          Effect.gen(function* () {
+            const b = yield* backend();
+            yield* b.createStep(map, newStep({ name: "work" }));
+            yield* b.archiveMap(map.project, "plan");
+            const invalid = yield* Effect.flip(b.archiveMap(map.project, "plan"));
+            return {
+              live: (yield* b.listMaps(map.project)).records,
+              all: (yield* b.listMaps(map.project, { includeArchived: true })).records,
+              reopened: (yield* b.openMap(map.project, "plan")).metadata.archived,
+              steps: (yield* b.listSteps(yield* b.openMap(map.project, "plan"))).records.map(
+                (step) => step.name,
+              ),
+              reinvalid: invalid.message,
+            };
+          }),
+        );
+        expect(archived.live).toEqual([]);
+        expect(archived.all).toEqual([{ ...map.metadata, archived: true }]);
+        expect(archived.reopened).toBe(true);
+        expect(archived.steps).toEqual(["work"]);
+        expect(archived.reinvalid).toContain("already archived");
+
+        const restored = await run(
+          Effect.gen(function* () {
+            const b = yield* backend();
+            yield* b.unarchiveMap(map.project, "plan");
+            const invalid = yield* Effect.flip(b.unarchiveMap(map.project, "plan"));
+            return {
+              live: (yield* b.listMaps(map.project)).records.map((entry) => entry.name),
+              archived: (yield* b.openMap(map.project, "plan")).metadata.archived,
+              reinvalid: invalid.message,
+            };
+          }),
+        );
+        expect(restored.live).toEqual(["plan"]);
+        expect(restored.archived).toBe(false);
+        expect(restored.reinvalid).toContain("not archived");
       });
     });
 

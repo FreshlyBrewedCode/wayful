@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { CURRENT_FORMAT_VERSION } from "@domain/model";
@@ -153,8 +153,10 @@ describe("artifacts, goals, and validation", () => {
     );
   });
 
-  test("artifact show prints an artifact's ref and kind, derived from its attachments", async () => {
+  test("artifact show prints an artifact's ref and kind plus the content behind a markdown file: ref", async () => {
     const project = await projectFixture();
+    await mkdir(join(project, "docs"), { recursive: true });
+    await writeFile(join(project, "docs", "brief.md"), "# Brief\n\nDetails.\n");
     await writeStepFixture(project, {
       id: 1,
       name: "producer",
@@ -169,6 +171,7 @@ describe("artifacts, goals, and validation", () => {
     const view = JSON.parse(result.stdout);
     expect(view.ref).toBe("file:docs/brief.md");
     expect(view.kind).toBe("document");
+    expect(view.content).toBe("# Brief\n\nDetails.\n");
 
     const human = invoke(
       ["artifact", "show", "file:docs/brief.md", "--map", "plan"],
@@ -176,9 +179,35 @@ describe("artifacts, goals, and validation", () => {
     ).stdout;
     expect(human).toContain("Ref: file:docs/brief.md");
     expect(human).toContain("Kind: document");
+    expect(human).toContain("Content:\n# Brief\n\nDetails.");
 
     expectCommandError(
       invoke(["artifact", "show", "file:does-not-exist", "--map", "plan"], project),
+    );
+  });
+
+  test("artifact show keeps an opaque ref opaque and refuses an unattached one", async () => {
+    const project = await projectFixture();
+    await writeStepFixture(project, {
+      id: 1,
+      name: "producer",
+      outputs: [{ ref: "git:abc123", kind: "document" }],
+    });
+
+    const result = invoke(["artifact", "show", "git:abc123", "--map", "plan", "--json"], project);
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ ref: "git:abc123", kind: "document" });
+
+    const human = invoke(["artifact", "show", "git:abc123", "--map", "plan"], project).stdout;
+    expect(human).toContain("Ref: git:abc123");
+    expect(human).toContain("only file: refs are dereferenced");
+
+    // A ref not attached anywhere on the map is refused, even though the file
+    // might exist: the readable set is closed.
+    await mkdir(join(project, "docs"), { recursive: true });
+    await writeFile(join(project, "docs", "unattached.md"), "# Nope\n");
+    expectCommandError(
+      invoke(["artifact", "show", "file:docs/unattached.md", "--map", "plan"], project),
     );
   });
 

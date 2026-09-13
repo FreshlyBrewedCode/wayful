@@ -41,6 +41,21 @@ export function resolveProject(
   });
 }
 
+/**
+ * Resolves the map name a command targets: explicit `--map`, then
+ * `WAYFUL_MAP`. A missing value is the shared context error. Kept separate
+ * from `resolveMap` because archive/unarchive must name an archived map that
+ * `resolveMap` deliberately refuses.
+ */
+export function resolveMapName(mapFlag: Option.Option<string>): Effect.Effect<string, WayfulError> {
+  return Effect.gen(function* () {
+    const name = Option.orElse(mapFlag, () => envOption("WAYFUL_MAP"));
+    if (Option.isNone(name))
+      return yield* fail("map context is required; pass --map or set WAYFUL_MAP.");
+    return name.value;
+  });
+}
+
 export function resolveMap(
   mapFlag: Option.Option<string>,
   project: ProjectHandle,
@@ -48,10 +63,12 @@ export function resolveMap(
   return Effect.gen(function* () {
     const mapStore = yield* MapStore;
     const projectStore = yield* ProjectStore;
-    const name = Option.orElse(mapFlag, () => envOption("WAYFUL_MAP"));
-    if (Option.isNone(name))
-      return yield* fail("map context is required; pass --map or set WAYFUL_MAP.");
-    const map = yield* mapStore.openMap(project, name.value);
+    const name = yield* resolveMapName(mapFlag);
+    const map = yield* mapStore.openMap(project, name);
+    if (map.metadata.archived)
+      return yield* fail(
+        `map '${name}' is archived; run 'wayful map unarchive --map ${name}' to restore it.`,
+      );
     if (map.metadata.allowed_step_types !== undefined) {
       const types = yield* projectStore.listTypes(project);
       const known = new Set(types.records.map((type) => type.name));

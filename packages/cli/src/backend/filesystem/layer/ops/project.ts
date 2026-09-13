@@ -31,17 +31,37 @@ export function makeProjectOps(fs: FileSystem.FileSystem, path: Path.Path) {
       return yield* fail("no Wayful project found; run 'wayful init' first.");
     });
 
+  // Walks upward like `discoverProjectRoot`, so `init` refuses anywhere inside
+  // an existing project rather than nesting a second one.
+  const projectExists = (directory: string): Effect.Effect<boolean, WayfulError> =>
+    Effect.gen(function* () {
+      let current = path.resolve(directory);
+      while (true) {
+        const exists = yield* fs
+          .exists(path.join(current, ".wayful"))
+          .pipe(Effect.mapError(accessError));
+        if (exists) return true;
+        const parent = path.dirname(current);
+        if (parent === current) return false;
+        current = parent;
+      }
+    });
+
   return {
+    projectExists,
+
     initProject: ({
       directory,
       description,
       backend = "filesystem",
       repo,
+      host,
     }: {
       readonly directory: string;
       readonly description: string;
       readonly backend?: ProjectBackend;
       readonly repo?: string;
+      readonly host?: string;
     }) =>
       Effect.gen(function* () {
         const root = path.resolve(directory);
@@ -63,6 +83,7 @@ export function makeProjectOps(fs: FileSystem.FileSystem, path: Path.Path) {
             description,
             backend,
             ...(repo !== undefined ? { repo } : {}),
+            ...(host !== undefined ? { host } : {}),
             created_at: now,
             updated_at: now,
           }),
@@ -93,6 +114,7 @@ export function makeProjectOps(fs: FileSystem.FileSystem, path: Path.Path) {
           description: metadata.description,
           backend: metadata.backend,
           repo: metadata.repo,
+          host: metadata.host,
         };
       }),
   };

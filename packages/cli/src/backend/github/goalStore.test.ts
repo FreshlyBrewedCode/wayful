@@ -24,6 +24,7 @@ function metadata(name: string): MapMetadata {
     name,
     start: "here",
     allowed_step_types: undefined,
+    archived: false,
     created_at: ISSUE_TIME,
     updated_at: ISSUE_TIME,
   };

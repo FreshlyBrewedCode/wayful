@@ -5,7 +5,7 @@ import { MapStore } from "@backend/MapStore";
 import { liftSync } from "@backend/filesystem/documents";
 import { normalizeRef } from "@domain/artifact-ref";
 import { WayfulError } from "@domain/errors";
-import { attachmentOK } from "@domain/graph";
+import { attachmentOK, normalizedAttachments } from "@domain/graph";
 import { identifier, nonEmpty, slots } from "@domain/identifier";
 import type { Slot } from "@domain/identifier";
 import { CURRENT_FORMAT_VERSION, type Attachment } from "@domain/model";
@@ -36,6 +36,51 @@ const goalListCommand = Command.make("list", { json: jsonFlag }, ({ json }) =>
     }),
   ),
 ).pipe(Command.withDescription("List goals"));
+
+const goalShowCommand = Command.make(
+  "show",
+  {
+    goal: Flag.string("goal").pipe(Flag.withMetavar("NAME"), Flag.withDescription("Goal name")),
+    json: jsonFlag,
+  },
+  ({ goal, json }) =>
+    handle(
+      json,
+      Effect.gen(function* () {
+        const parent = yield* goalParent;
+        const mapStore = yield* MapStore;
+        const root = yield* wayfulRoot;
+        const project = yield* resolveProject(root.project);
+        const map = yield* resolveMap(parent.map, project);
+        const goals = yield* strict(yield* mapStore.listGoals(map));
+        const resolvedGoalName = yield* liftSync(() => identifier(goal, "goal name"));
+        const target = goals.find((candidate) => candidate.name === resolvedGoalName);
+        if (!target) return yield* fail(`goal '${resolvedGoalName}' does not exist.`);
+        const requiredOutputs = target.required_outputs.length
+          ? target.required_outputs.map((slot) => `- ${slot.name} (${slot.kind})`)
+          : ["- none"];
+        const attachments = normalizedAttachments(target.outputs);
+        const attachmentLines = attachments.length
+          ? attachments.map((attachment) =>
+              attachment.slot !== undefined
+                ? `- ${attachment.slot}: ${attachment.ref}`
+                : `- ${attachment.ref} (${attachment.kind})`,
+            )
+          : ["- none"];
+        const human = [
+          `${target.name}: ${target.description}`,
+          ...bodyLines(target.body),
+          "Required outputs:",
+          ...requiredOutputs,
+          "Attachments:",
+          ...attachmentLines,
+        ].join("\n");
+        yield* printOutput(json, target, human);
+      }),
+    ),
+).pipe(
+  Command.withDescription("Show a goal's description, body, required outputs, and attachments"),
+);
 
 function parseRequiredOutputs(json: string): readonly Slot[] {
   let parsed: unknown;
@@ -191,5 +236,11 @@ const goalSatisfyCommand = Command.make(
 ).pipe(Command.withDescription("Satisfy a goal once its required output slots are filled"));
 
 export const goalCommand = goalParent.pipe(
-  Command.withSubcommands([goalListCommand, goalAddCommand, goalOutputCommand, goalSatisfyCommand]),
+  Command.withSubcommands([
+    goalListCommand,
+    goalShowCommand,
+    goalAddCommand,
+    goalOutputCommand,
+    goalSatisfyCommand,
+  ]),
 );

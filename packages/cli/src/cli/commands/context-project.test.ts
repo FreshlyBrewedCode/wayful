@@ -41,11 +41,11 @@ describe("project scope", () => {
     expect(human).toContain("Maps:\n- none");
   });
 
-  test("context --help documents no --map flag and no --limit flag", async () => {
+  test("context --help documents --map, --since, and --json but no --limit flag", async () => {
     const project = await temporaryDirectory();
     const result = invoke(["context", "--help"], project);
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).not.toContain("--map ");
+    expect(result.stdout).toContain("--map ");
     expect(result.stdout).not.toContain("--limit");
     expect(result.stdout).toContain("--since");
     expect(result.stdout).toContain("--json");

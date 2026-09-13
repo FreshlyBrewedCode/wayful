@@ -1,13 +1,16 @@
-import { Console, Effect, Result, Schema } from "effect";
+import { Console, Effect, Option, Result, Schema } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 
 import { MapStore } from "@backend/MapStore";
-import { MapMetadataError } from "@domain/errors";
+import { ProjectStore, type ProjectHandle } from "@backend/ProjectStore";
+import { liftSync } from "@backend/filesystem/documents";
+import { MapMetadataError, WayfulError } from "@domain/errors";
 import { deriveArtifacts, nextSteps } from "@domain/graph";
+import { identifier } from "@domain/identifier";
 import type { DecodeError } from "@domain/model";
 import { mapStatus } from "@domain/status";
 import { validateMap } from "@domain/validate";
-import { buildSnapshot, resolveMap, resolveProject } from "@/scope";
+import { buildSnapshot, fail, resolveMap, resolveMapName, resolveProject, strict } from "@/scope";
 import { jsonFlag, mapFlag } from "@cli/flags";
 import { bodyLines, handle, printOutput } from "@cli/render";
 import { wayfulRoot } from "@cli/root";
@@ -15,6 +18,37 @@ import { wayfulRoot } from "@cli/root";
 /** Renders decode errors as an explicit section — omitted entirely when there are none, so degraded output is never confused with the ordinary case. */
 function errorLines(errors: readonly DecodeError[]): string[] {
   return errors.length ? ["Errors:", ...errors.map((e) => `- ${e.file}: ${e.message}`)] : [];
+}
+
+/** Parses a comma-separated `--allowed-step-types` value into validated, unique type names. */
+function parseAllowedStepTypes(raw: string): Effect.Effect<readonly string[], WayfulError> {
+  return liftSync(() => {
+    const parts = raw
+      .split(",")
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
+    if (parts.length === 0)
+      throw new WayfulError({ message: "--allowed-step-types must name at least one type." });
+    const names = parts.map((part) => identifier(part, "allowed step type"));
+    if (new Set(names).size !== names.length)
+      throw new WayfulError({ message: "--allowed-step-types repeats a type." });
+    return names;
+  });
+}
+
+/** Fails unless every name is one of the project's types, so a restriction can never name a phantom. */
+function requireKnownTypes(
+  project: ProjectHandle,
+  names: readonly string[],
+): Effect.Effect<void, WayfulError, ProjectStore> {
+  return Effect.gen(function* () {
+    const projectStore = yield* ProjectStore;
+    const types = yield* strict(yield* projectStore.listTypes(project));
+    const known = new Set(types.map((type) => type.name));
+    for (const name of names) {
+      if (!known.has(name)) return yield* fail(`type '${name}' does not exist.`);
+    }
+  });
 }
 
 const mapCreateCommand = Command.make(
@@ -34,32 +68,128 @@ const mapCreateCommand = Command.make(
       Flag.withDescription("Optional initial goal Markdown body"),
       Flag.withDefault(""),
     ),
+    allowedStepTypes: Flag.string("allowed-step-types").pipe(
+      Flag.withMetavar("CSV"),
+      Flag.withDescription("Comma-separated step types this map permits (default: every type)"),
+      Flag.optional,
+    ),
   },
-  ({ map, start, goal, goalBody }) =>
+  ({ map, start, goal, goalBody, allowedStepTypes }) =>
     handle(
       false,
       Effect.gen(function* () {
         const root = yield* wayfulRoot;
         const mapStore = yield* MapStore;
         const p = yield* resolveProject(root.project);
-        yield* mapStore.createMap(p, { name: map, start, goal, goalBody });
+        let allowed: readonly string[] | undefined;
+        if (Option.isSome(allowedStepTypes)) {
+          allowed = yield* parseAllowedStepTypes(allowedStepTypes.value);
+          yield* requireKnownTypes(p, allowed);
+        }
+        yield* mapStore.createMap(p, {
+          name: map,
+          start,
+          goal,
+          goalBody,
+          ...(allowed !== undefined ? { allowedStepTypes: allowed } : {}),
+        });
         yield* Console.log(`Created map '${map}'.`);
       }),
     ),
 ).pipe(Command.withDescription("Create a map"));
 
-const mapListCommand = Command.make("list", { json: jsonFlag }, ({ json }) =>
+const mapListCommand = Command.make(
+  "list",
+  {
+    all: Flag.boolean("all").pipe(
+      Flag.withDescription("Include archived maps"),
+      Flag.withDefault(false),
+    ),
+    json: jsonFlag,
+  },
+  ({ all, json }) =>
+    handle(
+      json,
+      Effect.gen(function* () {
+        const root = yield* wayfulRoot;
+        const mapStore = yield* MapStore;
+        const p = yield* resolveProject(root.project);
+        const maps = (yield* mapStore.listMaps(p, { includeArchived: all })).records;
+        yield* printOutput(
+          json,
+          maps,
+          maps.map((m) => `${m.name}${m.archived ? " (archived)" : ""}: ${m.start}`).join("\n"),
+        );
+      }),
+    ),
+).pipe(Command.withDescription("List every map in the project"));
+
+const mapArchiveCommand = Command.make("archive", { map: mapFlag }, ({ map }) =>
   handle(
-    json,
+    false,
     Effect.gen(function* () {
       const root = yield* wayfulRoot;
       const mapStore = yield* MapStore;
       const p = yield* resolveProject(root.project);
-      const maps = (yield* mapStore.listMaps(p)).records;
-      yield* printOutput(json, maps, maps.map((m) => `${m.name}: ${m.start}`).join("\n"));
+      const name = yield* resolveMapName(map);
+      yield* mapStore.archiveMap(p, name);
+      yield* Console.log(`Archived map '${name}'.`);
     }),
   ),
-).pipe(Command.withDescription("List every map in the project"));
+).pipe(Command.withDescription("Archive a map, keeping its steps and goals"));
+
+const mapUnarchiveCommand = Command.make("unarchive", { map: mapFlag }, ({ map }) =>
+  handle(
+    false,
+    Effect.gen(function* () {
+      const root = yield* wayfulRoot;
+      const mapStore = yield* MapStore;
+      const p = yield* resolveProject(root.project);
+      const name = yield* resolveMapName(map);
+      yield* mapStore.unarchiveMap(p, name);
+      yield* Console.log(`Restored map '${name}'.`);
+    }),
+  ),
+).pipe(Command.withDescription("Restore an archived map with its steps and goals"));
+
+const mapRestrictCommand = Command.make(
+  "restrict",
+  {
+    map: mapFlag,
+    allowedStepTypes: Flag.string("allowed-step-types").pipe(
+      Flag.withMetavar("CSV"),
+      Flag.withDescription("Comma-separated step types this map permits"),
+      Flag.optional,
+    ),
+    clear: Flag.boolean("clear").pipe(
+      Flag.withDescription("Remove the restriction, permitting every type"),
+      Flag.withDefault(false),
+    ),
+  },
+  ({ map, allowedStepTypes, clear }) =>
+    handle(
+      false,
+      Effect.gen(function* () {
+        const root = yield* wayfulRoot;
+        const mapStore = yield* MapStore;
+        const p = yield* resolveProject(root.project);
+        if (clear && Option.isSome(allowedStepTypes))
+          return yield* fail("--clear and --allowed-step-types are mutually exclusive.");
+        if (!clear && Option.isNone(allowedStepTypes))
+          return yield* fail("pass --allowed-step-types to restrict, or --clear to remove it.");
+        const target = yield* resolveMap(map, p);
+        if (clear) {
+          yield* mapStore.setAllowedStepTypes(target, undefined);
+          yield* Console.log(`Cleared the type restriction on map '${target.name}'.`);
+        } else {
+          const allowed = yield* parseAllowedStepTypes(Option.getOrThrow(allowedStepTypes));
+          yield* requireKnownTypes(p, allowed);
+          yield* mapStore.setAllowedStepTypes(target, allowed);
+          yield* Console.log(`Restricted map '${target.name}' to types: ${allowed.join(", ")}.`);
+        }
+      }),
+    ),
+).pipe(Command.withDescription("Set or clear a map's allowed step types"));
 
 const mapValidateCommand = Command.make(
   "validate",
@@ -131,6 +261,7 @@ const mapShowCommand = Command.make("show", { map: mapFlag, json: jsonFlag }, ({
       const human = [
         `Map ${m.name}`,
         `Start: ${m.metadata.start}`,
+        `Allowed step types: ${m.metadata.allowed_step_types?.join(", ") ?? "(all)"}`,
         "Goals:",
         ...(goals.length
           ? goals.flatMap((g) => [`- ${g.name}: ${g.description}`, ...bodyLines(g.body, "  ")])
@@ -210,6 +341,9 @@ export const mapCommand = Command.make("map").pipe(
   Command.withSubcommands([
     mapCreateCommand,
     mapListCommand,
+    mapArchiveCommand,
+    mapUnarchiveCommand,
+    mapRestrictCommand,
     mapValidateCommand,
     mapShowCommand,
     mapNextCommand,
