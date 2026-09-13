@@ -11,16 +11,18 @@ import { validateMap } from "@domain/validate";
 export const fail = (message: string) => Effect.fail(new WayfulError({ message }));
 
 /**
- * Folds a collection read's skip-and-collect contract back into the
- * abort-on-first-decode-error effect callers had before this contract
- * existed: fails with the first decode error's message, or succeeds with the
- * records. Commands that haven't been upgraded to render partial results
- * (everything but `map show`, `map status`, and `map next`) use this to keep
- * their existing, unaffected behaviour.
+ * Folds a collection read's skip-and-collect contract back into an
+ * abort-on-first-decode-error effect for callers that cannot render partial
+ * results: fails naming the record that failed (`#4` or `2-bad.md`), or
+ * succeeds with the records.
  */
 export function strict<T>(read: CollectionRead<T>): Effect.Effect<readonly T[], WayfulError> {
   return read.errors.length
-    ? Effect.fail(new WayfulError({ message: read.errors[0]!.message }))
+    ? Effect.fail(
+        new WayfulError({
+          message: `${read.errors[0]!.file}: ${read.errors[0]!.message}`,
+        }),
+      )
     : Effect.succeed(read.records);
 }
 
@@ -99,19 +101,24 @@ export function buildSnapshot(
 }
 
 /**
- * The write path's integrity check: any decode error anywhere in the map —
- * not just a `validateMap` semantic error — blocks the write. This is what
- * keeps read-side leniency from letting a write succeed while silently
- * ignoring a record the reader skipped (for instance a new step whose id
- * collides with a broken one).
+ * The write path's integrity gate, scoped to the records a command actually
+ * touches. Whole-map `validateMap` semantics still gate every write — a
+ * duplicate identity anywhere invalidates the map, the same as before — but
+ * *decode* errors are taken from the collection the command read and is about
+ * to mutate, not from every record in the map. A malformed goal therefore
+ * never blocks a step write, nor a malformed step a goal write.
+ *
+ * The failed record is named by its own `file`, so a decode error surfaced
+ * through this hard failure says which record produced it.
  */
-export function assertWritableMapIntegrity(
+export function assertWritableMapIntegrity<T>(
   map: MapHandle,
+  read: CollectionRead<T>,
 ): Effect.Effect<void, WayfulError, MapStore> {
   return Effect.gen(function* () {
-    const { snapshot, errors: readErrors } = yield* buildSnapshot(map);
+    const { snapshot } = yield* buildSnapshot(map);
     const validationErrors = validateMap(snapshot, { includeProgress: false });
-    const errors = [...readErrors.map((e) => `${e.file}: ${e.message}`), ...validationErrors];
+    const errors = [...read.errors.map((e) => `${e.file}: ${e.message}`), ...validationErrors];
     if (errors.length) return yield* fail(`map integrity check failed: ${errors.join(" ")}`);
   });
 }

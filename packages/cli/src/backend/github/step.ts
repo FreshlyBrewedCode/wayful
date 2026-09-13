@@ -22,14 +22,17 @@ const fail = (message: string): never => {
  * The step's native status. Open is pending, or blocked when it carries the
  * `wayful:blocked` label; closed reads its `state_reason` for whether it was
  * completed or cancelled. Nothing about status lives in the body.
+ *
+ * A close reason wayful does not model — or none at all — reads as cancelled:
+ * a human or a merged pull request can close an issue in ways this backend
+ * never wrote, and none of them may make the record undecodable.
  */
 function statusFromIssue(issue: GithubIssue): StepStatus {
   if (issue.state === "open")
     return issue.labels.includes(WAYFUL_BLOCKED_LABEL) ? "blocked" : "pending";
   if (issue.state === "closed") {
     if (issue.state_reason === "completed") return "complete";
-    if (issue.state_reason === "not_planned") return "cancelled";
-    return fail(`step #${issue.number} was closed with an unsupported reason.`);
+    return "cancelled";
   }
   return fail(`step #${issue.number} has an unknown state.`);
 }
@@ -47,6 +50,16 @@ function arrayField(raw: unknown, label: string): readonly unknown[] {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) fail(`${label} must be an array.`);
   return raw as unknown[];
+}
+
+/**
+ * A reason/summary field that a native GitHub action may not have written.
+ * Absent is valid — the issue carries the status natively — but a present
+ * value must still be the non-empty string the writer would have produced.
+ */
+function optionalText(raw: unknown, label: string): string | undefined {
+  if (raw === undefined) return undefined;
+  return nonEmpty(raw, label);
 }
 
 /**
@@ -83,9 +96,11 @@ export function decodeStepIssue(issue: GithubIssue, dependencies: readonly numbe
   const outputs = arrayField(data.outputs, "step outputs");
   const requiredInputs = slots(data.required_inputs ?? [], "required_inputs");
   const requiredOutputs = slots(data.required_outputs ?? [], "required_outputs");
-  if (status === "complete") nonEmpty(data.completion_summary, "completion summary");
-  if (status === "cancelled") nonEmpty(data.cancellation_reason, "cancellation reason");
-  if (status === "blocked") nonEmpty(data.block_reason, "block reason");
+  // A human closing the issue on GitHub never writes a reason or summary, so
+  // the native status alone is authoritative and these stay optional.
+  const completionSummary = optionalText(data.completion_summary, "completion summary");
+  const cancellationReason = optionalText(data.cancellation_reason, "cancellation reason");
+  const blockReason = optionalText(data.block_reason, "block reason");
   const closesNow = closesStep(status);
   const closedAt = closesNow
     ? timestamp(issue.closed_at, `step #${issue.number} closed_at`)
@@ -103,9 +118,9 @@ export function decodeStepIssue(issue: GithubIssue, dependencies: readonly numbe
     required_inputs: requiredInputs,
     required_outputs: requiredOutputs,
     body,
-    completion_summary: data.completion_summary as string | undefined,
-    cancellation_reason: data.cancellation_reason as string | undefined,
-    block_reason: data.block_reason as string | undefined,
+    completion_summary: completionSummary,
+    cancellation_reason: cancellationReason,
+    block_reason: blockReason,
     created_at: timestamp(issue.created_at, `step #${issue.number} created_at`),
     updated_at: timestamp(issue.updated_at, `step #${issue.number} updated_at`),
     closed_at: closedAt,

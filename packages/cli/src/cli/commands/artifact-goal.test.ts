@@ -44,7 +44,7 @@ describe("artifacts, goals, and validation", () => {
     ).toBe(0);
 
     const listed = invoke(["goal", "list", "--map", "plan", "--json"], project);
-    expect(JSON.parse(listed.stdout)[0].body).toBe("Acceptance details.\nSecond line.");
+    expect(JSON.parse(listed.stdout).goals[0].body).toBe("Acceptance details.\nSecond line.");
     expect(invoke(["goal", "list", "--map", "plan"], project).stdout).toContain(
       "Acceptance details.\n  Second line.",
     );
@@ -195,10 +195,13 @@ describe("artifacts, goals, and validation", () => {
 
     const result = invoke(["artifact", "list", "--map", "plan", "--json"], project);
     expect(result.exitCode).toBe(0);
-    expect(JSON.parse(result.stdout)).toEqual([
-      { ref: "file:a", kind: "document" },
-      { ref: "file:b", kind: "document" },
-    ]);
+    expect(JSON.parse(result.stdout)).toEqual({
+      artifacts: [
+        { ref: "file:a", kind: "document" },
+        { ref: "file:b", kind: "document" },
+      ],
+      errors: [],
+    });
 
     const human = invoke(["artifact", "list", "--map", "plan"], project).stdout;
     expect(human).toContain("- file:a (document)");
@@ -208,7 +211,7 @@ describe("artifacts, goals, and validation", () => {
     expect(empty).toContain("- none");
   });
 
-  test("artifact list and artifact show reject a broken sibling step", async () => {
+  test("artifact list skips a broken sibling step and names it, while artifact show stays strict", async () => {
     const project = await projectFixture();
     await writeStepFixture(project, {
       id: 1,
@@ -218,7 +221,18 @@ describe("artifacts, goals, and validation", () => {
     await writeStepFixture(project, { id: 2, name: "bad" });
     await breakStep(project, "2-bad.md");
 
-    expectCommandError(invoke(["artifact", "list", "--map", "plan"], project));
+    const listed = invoke(["artifact", "list", "--map", "plan", "--json"], project);
+    expect(listed.exitCode).toBe(0);
+    const view = JSON.parse(listed.stdout);
+    expect(view.artifacts).toEqual([{ ref: "file:good", kind: "document" }]);
+    expect(view.errors).toHaveLength(1);
+    expect(view.errors[0].file).toBe("2-bad.md");
+
+    const human = invoke(["artifact", "list", "--map", "plan"], project).stdout;
+    expect(human).toContain("- file:good (document)");
+    expect(human).toContain("Errors:");
+    expect(human).toContain("2-bad.md");
+
     expectCommandError(invoke(["artifact", "show", "file:good", "--map", "plan"], project));
   });
 

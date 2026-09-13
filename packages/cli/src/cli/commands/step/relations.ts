@@ -8,7 +8,7 @@ import { reaches } from "@domain/graph";
 import { identifier, nonEmpty } from "@domain/identifier";
 import type { Attachment } from "@domain/model";
 import { assertSameMap, expectStep } from "@domain/reference";
-import { assertWritableMapIntegrity, fail, resolveProject, strict } from "@/scope";
+import { fail, resolveProject } from "@/scope";
 import { handle } from "@cli/render";
 import { wayfulRoot } from "@cli/root";
 import {
@@ -17,6 +17,7 @@ import {
   resolveStepTarget,
   stepArgument,
   stepParent,
+  writableSteps,
 } from "@cli/commands/step/shared";
 
 export const stepDependsCommand = Command.make(
@@ -39,8 +40,7 @@ export const stepDependsCommand = Command.make(
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
-        yield* assertWritableMapIntegrity(map);
-        const steps = yield* strict(yield* mapStore.listSteps(map));
+        const steps = yield* writableSteps(map);
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         const onRef = yield* liftSync(() => expectStep(on));
@@ -91,8 +91,7 @@ function makeAttachCommand(name: "input" | "output", direction: "inputs" | "outp
           const root = yield* wayfulRoot;
           const project = yield* resolveProject(root.project);
           const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
-          yield* assertWritableMapIntegrity(map);
-          const steps = yield* strict(yield* mapStore.listSteps(map));
+          const steps = yield* writableSteps(map);
           const target = yield* findStep(steps, token);
           yield* assertNotTerminal(target);
           const normalizedRef = yield* liftSync(() => normalizeRef(rawRef));

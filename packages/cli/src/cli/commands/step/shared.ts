@@ -2,6 +2,7 @@ import { Effect, Option } from "effect";
 import { Argument, Command } from "effect/unstable/cli";
 
 import type { MapHandle, MapStore } from "@backend/MapStore";
+import { MapStore as MapStoreService } from "@backend/MapStore";
 import type { ProjectHandle, ProjectStore } from "@backend/ProjectStore";
 import { liftSync } from "@backend/filesystem/documents";
 import { MapMetadataError, WayfulError } from "@domain/errors";
@@ -9,7 +10,7 @@ import { slots } from "@domain/identifier";
 import type { Slot } from "@domain/identifier";
 import { closesStep, type StepRecord } from "@domain/model";
 import { describeToken, expectStep, resolveToken, type ReferenceToken } from "@domain/reference";
-import { fail, resolveReferencedMap } from "@/scope";
+import { assertWritableMapIntegrity, fail, resolveReferencedMap } from "@/scope";
 import { mapFlag } from "@cli/flags";
 
 export const stepArgument = Argument.string("step").pipe(
@@ -79,5 +80,21 @@ export function resolveStepTarget(
 export function assertNotTerminal(step: StepRecord): Effect.Effect<void, WayfulError> {
   return Effect.gen(function* () {
     if (closesStep(step.status)) return yield* fail("terminal steps cannot be changed.");
+  });
+}
+
+/**
+ * The step collection a write reads and mutates, gated for whole-map semantic
+ * integrity and for decode errors in the steps themselves. A malformed goal
+ * elsewhere on the map never blocks a step write.
+ */
+export function writableSteps(
+  map: MapHandle,
+): Effect.Effect<readonly StepRecord[], WayfulError, MapStore> {
+  return Effect.gen(function* () {
+    const mapStore = yield* MapStoreService;
+    const read = yield* mapStore.listSteps(map);
+    yield* assertWritableMapIntegrity(map, read);
+    return read.records;
   });
 }

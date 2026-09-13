@@ -217,6 +217,35 @@ describe("GithubMapStore: createGoal", () => {
     expect(error.message).toContain("steps and goals share");
     expect(find("POST", "/repos/acme/widgets/issues")).toBeUndefined();
   });
+
+  test("deletes the created issue when linking it as a sub-issue fails", async () => {
+    const { record, requests } = recorder();
+    const error = await runGithubMapStore(
+      (request) => {
+        record(request);
+        const path = new URL(request.url).pathname;
+        if (request.method === "GET" && path.endsWith("/sub_issues")) return jsonResponse(200, []);
+        if (request.method === "POST" && path === "/repos/acme/widgets/issues")
+          return jsonResponse(201, issueJson(42, { id: 1042, node_id: "NODE_42" }));
+        if (request.method === "POST" && path.endsWith("/sub_issues"))
+          return jsonResponse(500, { message: "boom" });
+        if (request.method === "POST" && path === "/graphql")
+          return jsonResponse(200, { data: { deleteIssue: { clientMutationId: null } } });
+        throw new Error(`unexpected ${request.method} ${request.url}`);
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        return yield* Effect.flip(store.createGoal(mapHandle(), newGoal()));
+      }),
+    );
+    expect(error.message).toContain("sub-issue");
+    const deletion = requests.find((r) => r.method === "POST" && r.path === "/graphql");
+    expect(deletion).toBeDefined();
+    expect(deletion!.body).toMatchObject({
+      query: expect.stringContaining("deleteIssue"),
+      variables: { id: "NODE_42" },
+    });
+  });
 });
 
 describe("GithubMapStore: listGoals", () => {
