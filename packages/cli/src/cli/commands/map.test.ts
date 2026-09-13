@@ -122,11 +122,13 @@ describe("maps, types, and readable rendering", () => {
         format_version: CURRENT_FORMAT_VERSION,
         name: "plan",
         start: "here",
+        archived: false,
       },
       {
         format_version: CURRENT_FORMAT_VERSION,
         name: "release-plan",
         start: "now",
+        archived: false,
       },
     ]);
   });

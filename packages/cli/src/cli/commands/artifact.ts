@@ -1,8 +1,9 @@
 import { Effect } from "effect";
 import { Argument, Command } from "effect/unstable/cli";
 
+import { MapStore } from "@backend/MapStore";
 import { liftSync } from "@backend/filesystem/documents";
-import { normalizeRef } from "@domain/artifact-ref";
+import { classifyRef, normalizeRef } from "@domain/artifact-ref";
 import { buildSnapshot, fail, resolveMap, resolveProject } from "@/scope";
 import { jsonFlag, mapFlag } from "@cli/flags";
 import { handle, printOutput } from "@cli/render";
@@ -27,6 +28,7 @@ const artifactShowCommand = Command.make(
       Effect.gen(function* () {
         const parent = yield* artifactParent;
         const root = yield* wayfulRoot;
+        const mapStore = yield* MapStore;
         const project = yield* resolveProject(root.project);
         const map = yield* resolveMap(parent.map, project);
         const normalizedRef = yield* liftSync(() => normalizeRef(ref));
@@ -34,7 +36,30 @@ const artifactShowCommand = Command.make(
         if (errors.length) return yield* fail(errors[0]!.message);
         const target = snapshot.artifacts.find((a) => a.ref === normalizedRef);
         if (!target) return yield* fail(`artifact '${normalizedRef}' does not exist.`);
-        const human = [`Ref: ${target.ref}`, `Kind: ${target.kind}`].join("\n");
+        // Only markdown file: refs resolve to bytes; every other scheme is
+        // opaque, so its ref and kind are the whole answer. A readable ref is
+        // dereferenced through the backend, which enforces the closed set.
+        if (classifyRef(normalizedRef).kind === "file") {
+          const content = yield* mapStore.readArtifact(map, normalizedRef);
+          const human = [
+            `Ref: ${content.ref}`,
+            `Kind: ${target.kind}`,
+            "Content:",
+            content.content || "(empty)",
+            ...(content.truncated ? ["(truncated)"] : []),
+          ].join("\n");
+          yield* printOutput(
+            json,
+            { ...target, content: content.content, truncated: content.truncated },
+            human,
+          );
+          return;
+        }
+        const human = [
+          `Ref: ${target.ref}`,
+          `Kind: ${target.kind}`,
+          "Content: unavailable; only file: refs are dereferenced.",
+        ].join("\n");
         yield* printOutput(json, target, human);
       }),
     ),

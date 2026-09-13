@@ -256,24 +256,24 @@ export const makeGithubMapStore = Effect.gen(function* () {
       ? fail(`map '${map.name}' is missing its github issue number.`)
       : Effect.succeed(map.number);
 
-  // Reads every open `wayful:map` issue once, decoding each into metadata and
+  // Reads every `wayful:map` issue once, decoding each into metadata and
   // keeping the issue number the decoder cannot carry (metadata is portable
-  // across backends; the number is not).
-  const readMaps = (project: ProjectHandle) =>
+  // across backends; the number is not). Archived maps are closed issues:
+  // `includeArchived` widens the listing to every state, while the default
+  // `state=open` is the server-side half of hiding them. Callers that want the
+  // live set only (and trust the listing) can still filter on `archived`.
+  const readMaps = (project: ProjectHandle, options: { readonly includeArchived?: boolean } = {}) =>
     withInfra(
       Effect.gen(function* () {
         const { ref, token } = yield* context(project);
         const issues = yield* listIssues(ref, token, {
           labels: [WAYFUL_MAP_LABEL],
-          state: "open",
+          state: options.includeArchived ? "all" : "open",
         });
         const records: MapMetadata[] = [];
         const errors: DecodeError[] = [];
         const numbers = new Map<string, number>();
         for (const issue of issues) {
-          // `state=open` already excludes closed issues server-side; this is
-          // the belt to that braces, so a closed map is never returned.
-          if (issue.state !== "open") continue;
           const decoded = yield* Effect.result(liftSync(() => decodeMapIssue(issue)));
           if (Result.isFailure(decoded))
             errors.push({ file: `#${issue.number}`, message: describeError(decoded.failure) });
@@ -286,10 +286,12 @@ export const makeGithubMapStore = Effect.gen(function* () {
       }),
     );
 
-  const listMaps = (project: ProjectHandle) =>
-    readMaps(project).pipe(
+  const listMaps = (project: ProjectHandle, options: { readonly includeArchived?: boolean } = {}) =>
+    readMaps(project, options).pipe(
       Effect.map(({ records, errors }) => ({
-        records: records.toSorted((a, b) => a.name.localeCompare(b.name)),
+        records: records
+          .filter((map) => options.includeArchived || !map.archived)
+          .toSorted((a, b) => a.name.localeCompare(b.name)),
         errors,
       })),
     );
@@ -301,11 +303,13 @@ export const makeGithubMapStore = Effect.gen(function* () {
       start,
       goal,
       goalBody,
+      allowedStepTypes,
     }: {
       readonly name: string;
       readonly start: string;
       readonly goal: string;
       readonly goalBody: string;
+      readonly allowedStepTypes?: readonly string[];
     },
   ) =>
     withInfra(
@@ -313,13 +317,13 @@ export const makeGithubMapStore = Effect.gen(function* () {
         yield* liftSync(() => identifier(name, "map name", true));
         const trimmedStart = yield* liftSync(() => nonEmpty(start, "map start"));
         const trimmedGoal = yield* liftSync(() => nonEmpty(goal, "map goal"));
-        const { records } = yield* readMaps(project);
+        const { records } = yield* readMaps(project, { includeArchived: true });
         if (records.some((map) => map.name === name))
           return yield* fail(`map '${name}' already exists.`);
         const { ref, token } = yield* context(project);
         const map = yield* createIssue(ref, token, {
           title: trimmedStart,
-          body: encodeIssueBody("", mapIssueData(name)),
+          body: encodeIssueBody("", mapIssueData(name, allowedStepTypes)),
           labels: [WAYFUL_MAP_LABEL],
         });
         // A map is born with one goal, itself a sub-issue, so the map is
@@ -343,10 +347,53 @@ export const makeGithubMapStore = Effect.gen(function* () {
     withInfra(
       Effect.gen(function* () {
         yield* liftSync(() => identifier(name, "map name", true));
-        const { records, numbers } = yield* readMaps(project);
+        const { records, numbers } = yield* readMaps(project, { includeArchived: true });
         const metadata = records.find((candidate) => candidate.name === name);
         if (metadata === undefined) return yield* fail(`map '${name}' does not exist.`);
         return { project, name, metadata, number: numbers.get(name) };
+      }),
+    );
+
+  // Closing the map issue is the archive under GitHub: it carries the map's
+  // native state, so archiving hides it from the open-only listing while its
+  // step and goal sub-issues persist untouched and reopening restores it.
+  const archiveMap = (project: ProjectHandle, name: string) =>
+    withInfra(
+      Effect.gen(function* () {
+        const map = yield* openMap(project, name);
+        if (map.metadata.archived) return yield* fail(`map '${name}' is already archived.`);
+        const { ref, token } = yield* context(project);
+        yield* updateIssue(ref, token, yield* mapNumber(map), {
+          state: "closed",
+          state_reason: "not_planned",
+        });
+        yield* invalidateSnapshot(map);
+      }),
+    );
+
+  const unarchiveMap = (project: ProjectHandle, name: string) =>
+    withInfra(
+      Effect.gen(function* () {
+        const map = yield* openMap(project, name);
+        if (!map.metadata.archived) return yield* fail(`map '${name}' is not archived.`);
+        const { ref, token } = yield* context(project);
+        yield* updateIssue(ref, token, yield* mapNumber(map), { state: "open" });
+        yield* invalidateSnapshot(map);
+      }),
+    );
+
+  const setAllowedStepTypes = (map: MapHandle, allowed: readonly string[] | undefined) =>
+    withInfra(
+      Effect.gen(function* () {
+        if (map.metadata.archived)
+          return yield* fail(
+            `map '${map.name}' is archived; run 'wayful map unarchive --map ${map.name}' to restore it.`,
+          );
+        const { ref, token } = yield* context(map.project);
+        yield* updateIssue(ref, token, yield* mapNumber(map), {
+          body: encodeIssueBody("", mapIssueData(map.name, allowed)),
+        });
+        yield* invalidateSnapshot(map);
       }),
     );
 
@@ -634,6 +681,9 @@ export const makeGithubMapStore = Effect.gen(function* () {
     listMaps,
     createMap,
     openMap,
+    archiveMap,
+    unarchiveMap,
+    setAllowedStepTypes,
     listSteps,
     createStep,
     saveStep,

@@ -28,6 +28,13 @@ export interface MapMetadata {
   readonly name: string;
   readonly start: string;
   readonly allowed_step_types?: readonly string[];
+  /**
+   * Whether the map is archived. Derived per backend from the state that
+   * already expresses it — a `map.toml` `archived_at` stamp on the
+   * filesystem, the map issue's closed state under GitHub — never a second
+   * stored fact.
+   */
+  readonly archived: boolean;
   readonly created_at: string;
   readonly updated_at: string;
 }

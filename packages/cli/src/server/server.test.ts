@@ -104,6 +104,7 @@ describe("the JSON API the UI requires", () => {
         format_version: CURRENT_FORMAT_VERSION,
         name: "plan",
         start: "here",
+        archived: false,
         created_at: FIXTURE_TIME,
         updated_at: FIXTURE_TIME,
         status: {

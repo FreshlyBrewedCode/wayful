@@ -84,6 +84,7 @@ export function decodeMapMetadata(data: unknown, expectedName: string): MapMetad
     "start",
     "step_id_counter",
     "allowed_step_types",
+    "archived_at",
     "created_at",
     "updated_at",
   ]);
@@ -106,11 +107,14 @@ export function decodeMapMetadata(data: unknown, expectedName: string): MapMetad
   }
   const createdAt = timestamp(record.created_at, "map created_at");
   const updatedAt = timestamp(record.updated_at, "map updated_at");
+  const archivedAt =
+    record.archived_at === undefined ? undefined : timestamp(record.archived_at, "map archived_at");
   return {
     format_version: CURRENT_FORMAT_VERSION,
     name: expectedName,
     start: record.start as string,
     allowed_step_types: allowedStepTypes,
+    archived: archivedAt !== undefined,
     created_at: createdAt,
     updated_at: updatedAt,
   };

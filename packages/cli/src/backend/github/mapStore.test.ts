@@ -46,6 +46,7 @@ function metadata(name: string, start: string): MapMetadata {
     name,
     start,
     allowed_step_types: undefined,
+    archived: false,
     created_at: ISSUE_TIME,
     updated_at: ISSUE_TIME,
   };
@@ -282,7 +283,7 @@ describe("GithubMapStore: openMap", () => {
     expect(map.metadata).toEqual(metadata("beta", "second"));
   });
 
-  test("reports a closed map as absent", async () => {
+  test("reports a genuinely missing map as absent", async () => {
     const error = await run(
       () => jsonResponse(200, []),
       Effect.gen(function* () {
@@ -291,6 +292,18 @@ describe("GithubMapStore: openMap", () => {
       }),
     );
     expect(error.message).toBe("map 'archived' does not exist.");
+  });
+
+  test("resolves a closed map as archived rather than absent", async () => {
+    const map = await run(
+      () => jsonResponse(200, [mapIssue(9, "alpha", { title: "here", state: "closed" })]),
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        return yield* store.openMap(project, "alpha");
+      }),
+    );
+    expect(map.metadata.archived).toBe(true);
+    expect(map.number).toBe(9);
   });
 
   test("uses the enterprise host resolved from the remote", async () => {
@@ -309,5 +322,109 @@ describe("GithubMapStore: openMap", () => {
     expect(seen).toBe(
       "https://github.example.com/api/v3/repos/acme/widgets/issues?per_page=100&state=open&labels=wayful%3Amap",
     );
+  });
+});
+
+describe("GithubMapStore: archiving and restrictions", () => {
+  test("listMaps includeArchived returns closed map issues marked archived", async () => {
+    const result = await run(
+      () => jsonResponse(200, [mapIssue(9, "alpha", { title: "here", state: "closed" })]),
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        return yield* store.listMaps(project, { includeArchived: true });
+      }),
+    );
+    expect(result.records).toEqual([{ ...metadata("alpha", "here"), archived: true }]);
+  });
+
+  test("archiveMap closes the map issue as not_planned", async () => {
+    const patches: unknown[] = [];
+    await run(
+      (request) => {
+        if (request.method === "PATCH") {
+          patches.push(JSON.parse(bodyText(request)));
+          return jsonResponse(200, issueJson(9));
+        }
+        return jsonResponse(200, [mapIssue(9, "alpha", { title: "here" })]);
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        yield* store.archiveMap(project, "alpha");
+      }),
+    );
+    expect(patches).toEqual([{ state: "closed", state_reason: "not_planned" }]);
+  });
+
+  test("unarchiveMap reopens the map issue and refuses a live map", async () => {
+    const patches: unknown[] = [];
+    let state = "closed";
+    const error = await run(
+      (request) => {
+        if (request.method === "PATCH") {
+          const patch = JSON.parse(bodyText(request)) as { state: "open" | "closed" };
+          patches.push(patch);
+          state = patch.state;
+          return jsonResponse(200, issueJson(9, { state }));
+        }
+        return jsonResponse(200, [mapIssue(9, "alpha", { title: "here", state })]);
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        yield* store.unarchiveMap(project, "alpha");
+        return yield* Effect.flip(store.unarchiveMap(project, "alpha"));
+      }),
+    );
+    expect(patches).toEqual([{ state: "open" }]);
+    expect(error.message).toContain("not archived");
+  });
+
+  test("createMap records an allowed step types restriction in the issue body", async () => {
+    let created: HttpClientRequest.HttpClientRequest | undefined;
+    await run(
+      (request) => {
+        const pathname = new URL(request.url).pathname;
+        if (request.method === "GET") return jsonResponse(200, []);
+        if (pathname.endsWith("/sub_issues")) return jsonResponse(201, issueJson(13));
+        const body = JSON.parse(bodyText(request)) as { labels: string[] };
+        if (!body.labels.includes("wayful:map")) return jsonResponse(201, issueJson(13));
+        created = request;
+        return jsonResponse(201, issueJson(12, { title: "here" }));
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        yield* store.createMap(project, {
+          name: "redesign",
+          start: "here",
+          goal: "done",
+          goalBody: "",
+          allowedStepTypes: ["task"],
+        });
+      }),
+    );
+    const payload = JSON.parse(bodyText(created!)) as { body: string };
+    expect(payload.body).toContain("allowed_step_types");
+    expect(payload.body).toContain("task");
+  });
+
+  test("setAllowedStepTypes patches the map body, and clearing removes the key", async () => {
+    const patches: string[] = [];
+    await run(
+      (request) => {
+        if (request.method === "PATCH") {
+          patches.push((JSON.parse(bodyText(request)) as { body: string }).body);
+          return jsonResponse(200, issueJson(9));
+        }
+        return jsonResponse(200, [mapIssue(9, "alpha", { title: "here" })]);
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        const map = yield* store.openMap(project, "alpha");
+        yield* store.setAllowedStepTypes(map, ["task"]);
+        yield* store.setAllowedStepTypes(map, undefined);
+      }),
+    );
+    expect(patches[0]).toContain("allowed_step_types");
+    expect(patches[0]).toContain("task");
+    expect(patches[1]).not.toContain("allowed_step_types");
   });
 });

@@ -38,6 +38,7 @@ export function decodeMapIssue(issue: GithubIssue): MapMetadata {
     name,
     start: nonEmpty(issue.title, "map start"),
     allowed_step_types: decodeAllowedStepTypes(data.allowed_step_types),
+    archived: issue.state === "closed",
     created_at: timestamp(issue.created_at, `map #${issue.number} created_at`),
     updated_at: timestamp(issue.updated_at, `map #${issue.number} updated_at`),
   };

@@ -69,6 +69,7 @@ export function map(overrides: Partial<MapMetadata> = {}): MapMetadata {
     format_version: CURRENT_FORMAT_VERSION,
     name: "plan",
     start: "here",
+    archived: false,
     created_at: T,
     updated_at: T,
     ...overrides,
