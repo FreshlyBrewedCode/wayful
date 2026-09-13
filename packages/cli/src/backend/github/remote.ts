@@ -27,20 +27,21 @@ export function parseGitRemoteUrl(url: string): Option.Option<GitRemoteRef> {
  * Resolves and parses the `origin` remote's URL via `git remote get-url
  * origin`, the one shell-out this needs — `.git/config` isn't parsed
  * directly since remote URL rewriting (`insteadOf`, worktree-local
- * overrides) only git itself resolves correctly. Absent a usable origin (no
- * remote, not a git repository, git unavailable, or an unparseable URL)
- * resolves to `None` rather than failing, so a caller can fall back to an
- * explicit `--repo` flag.
+ * overrides) only git itself resolves correctly. `cwd` is the directory git
+ * runs in; callers pass the project root so resolution never depends on the
+ * invocation directory. Absent a usable origin (no remote, not a git
+ * repository, git unavailable, or an unparseable URL) resolves to `None`
+ * rather than failing, so a caller can fall back to an explicit `--repo` flag
+ * or the default host.
  */
-export const resolveOriginRemote: Effect.Effect<
-  Option.Option<GitRemoteRef>,
-  never,
-  ChildProcessSpawner.ChildProcessSpawner
-> = Effect.gen(function* () {
-  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const output = yield* spawner
-    .string(ChildProcess.make("git", ["remote", "get-url", "origin"]))
-    .pipe(Effect.orElseSucceed(() => ""));
-  const url = output.trim();
-  return url ? parseGitRemoteUrl(url) : Option.none();
-});
+export const resolveOriginRemote = (
+  cwd?: string,
+): Effect.Effect<Option.Option<GitRemoteRef>, never, ChildProcessSpawner.ChildProcessSpawner> =>
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const output = yield* spawner
+      .string(ChildProcess.make("git", ["remote", "get-url", "origin"], cwd ? { cwd } : undefined))
+      .pipe(Effect.orElseSucceed(() => ""));
+    const url = output.trim();
+    return url ? parseGitRemoteUrl(url) : Option.none();
+  });

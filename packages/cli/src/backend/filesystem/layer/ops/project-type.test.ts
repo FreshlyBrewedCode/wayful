@@ -107,4 +107,64 @@ describe("FileSystemBackend: project and type round-trips", () => {
     expect(project.backend).toBe("github");
     expect(project.repo).toBe("acme/widgets");
   });
+
+  test("initProject persists the github host, and openProject round-trips it", async () => {
+    const directory = await temporaryDirectory();
+    const project = await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.initProject({
+          directory,
+          description: "",
+          backend: "github",
+          repo: "acme/widgets",
+          host: "github.example.com",
+        });
+        return yield* b.openProject(Option.some(directory));
+      }),
+    );
+    expect(project.backend).toBe("github");
+    expect(project.host).toBe("github.example.com");
+  });
+
+  test("openProject tolerates a github project with no recorded host, for the fallback", async () => {
+    const directory = await temporaryDirectory();
+    const project = await run(
+      Effect.gen(function* () {
+        const b = yield* backend();
+        yield* b.initProject({
+          directory,
+          description: "",
+          backend: "github",
+          repo: "acme/widgets",
+        });
+        return yield* b.openProject(Option.some(directory));
+      }),
+    );
+    expect(project.host).toBeUndefined();
+  });
+
+  test("rejects a host on a filesystem project and a malformed host", async () => {
+    const cases: Array<{
+      readonly backend: "filesystem" | "github";
+      readonly host: string;
+      readonly repo?: string;
+    }> = [
+      { backend: "filesystem", host: "github.com" },
+      { backend: "github", host: "has a space", repo: "acme/widgets" },
+      { backend: "github", host: "", repo: "acme/widgets" },
+    ];
+    for (const { backend: targetBackend, host, repo } of cases) {
+      const directory = await temporaryDirectory();
+      const error = await runFailure(
+        Effect.gen(function* () {
+          const b = yield* backend();
+          yield* b.initProject({ directory, description: "", backend: targetBackend, repo, host });
+          return yield* b.openProject(Option.some(directory));
+        }),
+      );
+      expect(error).toBeInstanceOf(WayfulError);
+      expect((error as WayfulError).message).toContain("host");
+    }
+  });
 });

@@ -18,6 +18,10 @@ const fail = (message: string): never => {
 // leading/trailing/doubled); repo names additionally allow `.` and `_`.
 export const REPO_PATTERN = /^[A-Za-z0-9](?:-?[A-Za-z0-9])*\/[A-Za-z0-9._-]+$/;
 
+// A GitHub host: a DNS name, optionally dotted (`github.example.com`), never a
+// URL, port, or path.
+export const HOST_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/;
+
 export function decodeProjectMetadata(data: unknown): ProjectMetadata {
   if (!data || typeof data !== "object" || Array.isArray(data)) fail("malformed project metadata.");
   const record = data as Record<string, unknown>;
@@ -26,6 +30,7 @@ export function decodeProjectMetadata(data: unknown): ProjectMetadata {
     "description",
     "backend",
     "repo",
+    "host",
     "created_at",
     "updated_at",
   ]);
@@ -50,6 +55,13 @@ export function decodeProjectMetadata(data: unknown): ProjectMetadata {
   } else if (backend === "github") {
     fail(`project backend "github" requires repo.`);
   }
+  let host: string | undefined;
+  if (record.host !== undefined) {
+    if (backend !== "github") fail(`project host requires backend "github".`);
+    if (typeof record.host !== "string" || !HOST_PATTERN.test(record.host))
+      fail(`project host must be a valid hostname.`);
+    host = record.host as string;
+  }
   const createdAt = timestamp(record.created_at, "project created_at");
   const updatedAt = timestamp(record.updated_at, "project updated_at");
   return {
@@ -57,6 +69,7 @@ export function decodeProjectMetadata(data: unknown): ProjectMetadata {
     description: record.description as string,
     backend,
     repo,
+    host,
     created_at: createdAt,
     updated_at: updatedAt,
   };

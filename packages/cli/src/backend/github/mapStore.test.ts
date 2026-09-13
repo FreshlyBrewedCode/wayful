@@ -145,6 +145,22 @@ describe("GithubMapStore: listMaps", () => {
     expect(maps).toEqual([metadata("alpha", "first")]);
   });
 
+  test("addresses the host recorded on the project, not the working directory's remote", async () => {
+    let seen = "";
+    await run(
+      (request) => {
+        seen = request.url;
+        return jsonResponse(200, []);
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        yield* store.listMaps({ ...project, host: "github.example.com" });
+      }),
+      { remote: "git@github.com:acme/widgets.git" },
+    );
+    expect(new URL(seen).host).toBe("github.example.com");
+  });
+
   test("sorts maps by name", async () => {
     const maps = await run(
       () =>

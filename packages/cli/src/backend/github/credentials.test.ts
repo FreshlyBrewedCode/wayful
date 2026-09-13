@@ -131,6 +131,31 @@ describe("GithubCredentials", () => {
     expect(result.message).toBe("run 'gh auth login', or set GH_TOKEN");
   });
 
+  test("resolve reports the environment variable the token came from", async () => {
+    process.env.GITHUB_TOKEN = "github-token";
+    const credential = await runWithSpawner(
+      Effect.gen(function* () {
+        const credentials = yield* GithubCredentials;
+        return yield* credentials.resolve("github.com");
+      }),
+      () => Effect.fail(fakeSpawnFailure("should not be called")),
+    );
+    expect(credential.source).toBe("GITHUB_TOKEN");
+    expect(Redacted.value(credential.token)).toBe("github-token");
+  });
+
+  test("resolve reports `gh auth token` when it falls back to the CLI", async () => {
+    const credential = await runWithSpawner(
+      Effect.gen(function* () {
+        const credentials = yield* GithubCredentials;
+        return yield* credentials.resolve("github.com");
+      }),
+      () => Effect.succeed("cli-token\n"),
+    );
+    expect(credential.source).toBe("gh auth token");
+    expect(Redacted.value(credential.token)).toBe("cli-token");
+  });
+
   test("never includes the resolved token in the missing-credentials error, even when other hosts had one cached", async () => {
     const secret = "super-secret-token-value";
     const result = await runWithSpawner(

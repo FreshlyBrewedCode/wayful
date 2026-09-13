@@ -114,7 +114,9 @@ describe("project and context contracts", () => {
 
   test("init creates versioned, timestamped metadata and the generic task type, then refuses overwrite", async () => {
     const project = await temporaryDirectory();
-    expect(invoke(["init", "--description", "Refresh the site"], project).exitCode).toBe(0);
+    const initialized = invoke(["init", "--description", "Refresh the site"], project);
+    expect(initialized.exitCode).toBe(0);
+    expect(initialized.stdout).toContain("backend: filesystem");
     const projectToml = await readFile(join(project, ".wayful", "project.toml"), "utf8");
     expect(projectToml).toContain(`format_version = ${CURRENT_FORMAT_VERSION}`);
     expect(projectToml).toContain('backend = "filesystem"');

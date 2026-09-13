@@ -1,12 +1,15 @@
 import { Effect, Layer, PlatformError, Stream } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
-import type { Command } from "effect/unstable/process/ChildProcess";
+import type { Command, CommandOptions } from "effect/unstable/process/ChildProcess";
 
 const notImplemented = () => Effect.die(new Error("not stubbed"));
 const streamNotImplemented = () => Stream.die(new Error("not stubbed"));
 
 const commandOf = (command: Command): readonly string[] =>
   command["_tag"] === "StandardCommand" ? [command.command, ...command.args] : [];
+
+const optionsOf = (command: Command): CommandOptions =>
+  command["_tag"] === "StandardCommand" ? command.options : {};
 
 /** A fake failure a stubbed command can return, mirroring a real spawn failure. */
 export const fakeSpawnFailure = (description: string): PlatformError.PlatformError =>
@@ -24,7 +27,10 @@ export const fakeSpawnFailure = (description: string): PlatformError.PlatformErr
  * so callers can match on the exact invocation.
  */
 export function stubChildProcessSpawner(
-  respond: (invocation: readonly string[]) => Effect.Effect<string, PlatformError.PlatformError>,
+  respond: (
+    invocation: readonly string[],
+    options: CommandOptions,
+  ) => Effect.Effect<string, PlatformError.PlatformError>,
 ) {
   return Layer.succeed(
     ChildProcessSpawner.ChildProcessSpawner,
@@ -34,7 +40,7 @@ export function stubChildProcessSpawner(
       streamString: streamNotImplemented,
       streamLines: streamNotImplemented,
       lines: notImplemented,
-      string: (command) => respond(commandOf(command)),
+      string: (command) => respond(commandOf(command), optionsOf(command)),
     }),
   );
 }
