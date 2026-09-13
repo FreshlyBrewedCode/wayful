@@ -1,7 +1,22 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
 
 @custom-variant dark (&:is(.dark *));
+
+/* Self-hosted rather than linked: `wayful ui` serves the built client from
+   inside the binary, so a font CDN would make the embedded UI need the network.
+   The platform stack stays behind each face, so a failed load degrades to what
+   the UI looked like before these were added. */
+@theme {
+  --font-sans:
+    "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    "Noto Sans", Arial, sans-serif;
+  --font-mono:
+    "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+}
 
 /* Status colours are defined per theme rather than shared, so contrast holds in
    both. They are the one palette the UI owns: every other colour is
