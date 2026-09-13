@@ -1,5 +1,7 @@
 import { Console, Effect, Schema } from "effect";
 
+import { oneLine } from "@domain/errors";
+
 const errorOutputJson = Schema.fromJsonString(Schema.Struct({ error: Schema.String }));
 
 /**
@@ -17,11 +19,12 @@ export function report(options: {
   readonly usageHint?: string;
 }): Effect.Effect<void> {
   return Effect.gen(function* () {
-    yield* Console.error(`wayful: ${options.message}`);
+    const message = oneLine(options.message);
+    yield* Console.error(`wayful: ${message}`);
     if (options.usageHint) yield* Console.error(`wayful: ${options.usageHint}`);
     if (options.json)
       yield* Console.log(
-        yield* Schema.encodeEffect(errorOutputJson)({ error: options.message }).pipe(Effect.orDie),
+        yield* Schema.encodeEffect(errorOutputJson)({ error: message }).pipe(Effect.orDie),
       );
     process.exitCode = 2;
   });

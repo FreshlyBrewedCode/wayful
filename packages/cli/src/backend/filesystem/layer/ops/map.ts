@@ -16,7 +16,7 @@ import {
   writeAtomic,
 } from "@backend/filesystem/documents";
 import { goalFile, goalsDir, mapDir, mapFile, mapsDir, stepsDir } from "@backend/filesystem/paths";
-import { accessError, collect, fail } from "@backend/filesystem/layer/records";
+import { accessError, collect, fail, readDirError } from "@backend/filesystem/layer/records";
 
 export function makeMapOps(fs: FileSystem.FileSystem, path: Path.Path) {
   const openMapHandle = (
@@ -45,7 +45,7 @@ export function makeMapOps(fs: FileSystem.FileSystem, path: Path.Path) {
         if (!exists) return { records: [], errors: [] };
         const entries = yield* fs
           .readDirectory(dir)
-          .pipe(Effect.mapError(() => new WayfulError({ message: "cannot read project maps." })));
+          .pipe(Effect.mapError(() => readDirError(dir, "project maps")));
         const names: string[] = [];
         for (const name of entries.toSorted()) {
           const stat = yield* fs
@@ -89,7 +89,9 @@ export function makeMapOps(fs: FileSystem.FileSystem, path: Path.Path) {
         const dir = mapDir(path, project.root, name);
         const exists = yield* fs.exists(dir).pipe(Effect.mapError(accessError));
         if (exists) return yield* fail(`map '${name}' already exists.`);
-        const onCreateError = new WayfulError({ message: `cannot create map '${name}'.` });
+        const onCreateError = new WayfulError({
+          message: `cannot create map '${name}' under '${dir}'; check that the directory is writable.`,
+        });
         yield* fs
           .makeDirectory(stepsDir(path, dir), { recursive: true })
           .pipe(Effect.mapError(() => onCreateError));

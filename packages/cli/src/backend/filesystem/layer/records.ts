@@ -14,7 +14,17 @@ import {
 // `yield* fail(...)` rather than call a throwing helper directly.
 export const fail = (message: string) => Effect.fail(new WayfulError({ message }));
 
-export const accessError = () => new WayfulError({ message: "cannot access filesystem." });
+export const accessError = () =>
+  new WayfulError({
+    message:
+      "cannot access a project file; check that the project exists and you have permission to read it.",
+  });
+
+/** The named error a collection read produces when its directory cannot be listed. */
+export const readDirError = (dir: string, what: string) =>
+  new WayfulError({
+    message: `cannot read ${what} from '${dir}'; check that it exists and you have permission to read it.`,
+  });
 
 /**
  * Runs `decode` for each item in `items`, collecting successes and turning

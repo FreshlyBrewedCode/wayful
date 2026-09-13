@@ -165,7 +165,7 @@ export function startServer(
         }),
       catch: (cause) =>
         new WayfulError({
-          message: `cannot listen on ${config.host}:${config.port} (${String(cause)}).`,
+          message: `cannot listen on ${config.host}:${config.port} (${String(cause)}); stop the process using that port or choose another with --port.`,
         }),
     }).pipe(Effect.tapError(() => Effect.sync(() => stopWatching())));
 

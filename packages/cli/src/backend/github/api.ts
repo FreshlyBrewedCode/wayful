@@ -1,8 +1,15 @@
 import { DateTime, Effect, Option, Redacted } from "effect";
-import { HttpClientRequest } from "effect/unstable/http";
+import { HttpClientRequest, type HttpClientResponse } from "effect/unstable/http";
 
-import { WayfulError } from "@domain/errors";
-import { GithubHttp, requestFailed } from "@backend/github/http";
+import { oneLine, WayfulError } from "@domain/errors";
+import {
+  GithubHttp,
+  GithubRequestError,
+  githubMessage,
+  githubRequestError,
+  unreadableResponse,
+  type GithubFailure,
+} from "@backend/github/http";
 import type { GithubIssue } from "@backend/github/issue";
 import type { GitRemoteRef } from "@backend/github/remote";
 import { subIssueCapError } from "@backend/github/subIssues";
@@ -20,9 +27,58 @@ export function apiBase(host: string): ApiBase {
   return { rest: `https://${host}/api/v3`, graphql: `https://${host}/api/graphql` };
 }
 
-function insufficientAccess(repo: GitRemoteRef): WayfulError {
-  return new WayfulError({
-    message: `github token cannot access ${repo.owner}/${repo.repo}; run 'gh auth login' with repo scope or check the token's permissions.`,
+export function repoLabel(repo: GitRemoteRef): string {
+  return `${repo.owner}/${repo.repo}`;
+}
+
+/**
+ * Phrases a classified transport failure in the caller's terms. The transport
+ * reports *what kind* of failure it was; only the caller knows whether the
+ * repository itself or a named resource within it was being addressed, and
+ * each of the four kinds has a different remedy.
+ */
+export function githubFailure(
+  repo: GitRemoteRef,
+  failure: GithubFailure,
+  resource?: string,
+): WayfulError {
+  const where = resource === undefined ? repoLabel(repo) : `${resource} in ${repoLabel(repo)}`;
+  switch (failure.kind) {
+    case "unauthenticated":
+      return new WayfulError({
+        message: `the github credential for ${where} is invalid or expired (status ${failure.status}); run 'gh auth login' or set GH_TOKEN to supply a working token.`,
+      });
+    case "forbidden":
+      return new WayfulError({
+        message: `the github credential is valid but cannot access ${where} (status ${failure.status}); check the token's repository access and scope.`,
+      });
+    case "not-found":
+      return new WayfulError({
+        message:
+          resource === undefined
+            ? `github cannot find ${where} (status ${failure.status}); it may not exist or may not be visible to the current credential.`
+            : `github cannot find ${where} (status ${failure.status}); it may have been deleted, renamed, or not be visible to the current credential.`,
+      });
+    case "unexpected":
+      return new WayfulError({
+        message: `github could not complete the request for ${where} (status ${failure.status})${failure.message ? `: ${oneLine(failure.message)}` : "."}`,
+      });
+  }
+}
+
+/** Fails with the caller-terms message for a non-2xx response. */
+export function responseFailure(
+  repo: GitRemoteRef,
+  response: HttpClientResponse.HttpClientResponse,
+  resource?: string,
+): Effect.Effect<never, WayfulError> {
+  return Effect.gen(function* () {
+    const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
+    return yield* githubFailure(
+      repo,
+      githubRequestError(response.status, githubMessage(text)),
+      resource,
+    );
   });
 }
 
@@ -42,9 +98,21 @@ function execute(request: HttpClientRequest.HttpClientRequest) {
   return Effect.flatMap(GithubHttp, (http) => http.execute(request));
 }
 
-/** A conditional `GET` through the shared transport, cached and revalidated with ETags. */
-function fetchJson(request: HttpClientRequest.HttpClientRequest) {
-  return Effect.flatMap(GithubHttp, (http) => http.getJson(request));
+/**
+ * A conditional `GET` through the shared transport, cached and revalidated with
+ * ETags. The transport's classified failure is rewritten with the repository
+ * the request addressed, so the message names what was being read.
+ */
+function fetchJson(
+  repo: GitRemoteRef,
+  request: HttpClientRequest.HttpClientRequest,
+  resource?: string,
+) {
+  return Effect.flatMap(GithubHttp, (http) => http.getJson(request)).pipe(
+    Effect.mapError((error) =>
+      error instanceof GithubRequestError ? githubFailure(repo, error, resource) : error,
+    ),
+  );
 }
 
 /**
@@ -62,14 +130,10 @@ export function verifyAccess(
       token,
     );
     const response = yield* execute(request);
-    if (response.status === 401 || response.status === 403 || response.status === 404) {
-      return yield* insufficientAccess(repo);
-    }
-    if (response.status < 200 || response.status >= 300) {
-      return yield* requestFailed(`unexpected status ${response.status}.`);
-    }
+    if (response.status < 200 || response.status >= 300)
+      return yield* responseFailure(repo, response);
     const body = yield* response.json.pipe(
-      Effect.mapError((error) => requestFailed(error.message)),
+      Effect.mapError((error) => unreadableResponse(error.message)),
     );
     const permissions = Option.fromNullishOr(
       (body as { permissions?: { push?: boolean } }).permissions,
@@ -78,7 +142,10 @@ export function verifyAccess(
       onNone: () => false,
       onSome: (p) => p.push === true,
     });
-    if (!canPush) return yield* insufficientAccess(repo);
+    if (!canPush)
+      return yield* new WayfulError({
+        message: `the github credential is valid but cannot push to ${repoLabel(repo)}; check the token's repository access and scope.`,
+      });
   });
 }
 
@@ -102,9 +169,7 @@ export function ensureLabel(
     ).pipe(HttpClientRequest.bodyJsonUnsafe(label));
     const response = yield* execute(request);
     if (response.status === 201 || response.status === 422) return;
-    return yield* requestFailed(
-      `could not create label "${label.name}" (status ${response.status}).`,
-    );
+    return yield* responseFailure(repo, response, `label "${label.name}"`);
   });
 }
 
@@ -185,6 +250,7 @@ export interface ListIssuesOptions {
  * listing so both follow pagination identically.
  */
 function listPaginated(
+  repo: GitRemoteRef,
   token: Redacted.Redacted<string>,
   initialUrl: string,
 ): Effect.Effect<readonly GithubIssue[], WayfulError, GithubHttp> {
@@ -192,8 +258,14 @@ function listPaginated(
     const issues: GithubIssue[] = [];
     let next: string | undefined = initialUrl;
     while (next !== undefined) {
-      const { value, headers } = yield* fetchJson(authorized(HttpClientRequest.get(next), token));
-      if (!Array.isArray(value)) return yield* requestFailed("expected a JSON array of issues.");
+      const { value, headers } = yield* fetchJson(
+        repo,
+        authorized(HttpClientRequest.get(next), token),
+      );
+      if (!Array.isArray(value))
+        return yield* new WayfulError({
+          message: `github returned an unexpected response for ${repoLabel(repo)}; expected a JSON array of issues.`,
+        });
       for (const raw of value) {
         const issue = normalizeIssue(raw);
         if (issue) issues.push(issue);
@@ -219,7 +291,7 @@ export function listIssues(
   url.searchParams.set("per_page", "100");
   url.searchParams.set("state", options.state ?? "open");
   if (options.labels?.length) url.searchParams.set("labels", options.labels.join(","));
-  return listPaginated(token, url.toString());
+  return listPaginated(repo, token, url.toString());
 }
 
 /** Every sub-issue of `parent`, which is how a map's steps and goals are listed. */
@@ -230,7 +302,7 @@ export function listSubIssues(
 ): Effect.Effect<readonly GithubIssue[], WayfulError, GithubHttp> {
   const base = apiBase(repo.host);
   const url = `${base.rest}/repos/${repo.owner}/${repo.repo}/issues/${parent}/sub_issues?per_page=100`;
-  return listPaginated(token, url);
+  return listPaginated(repo, token, url);
 }
 
 /**
@@ -245,7 +317,7 @@ export function listBlockedBy(
 ): Effect.Effect<readonly GithubIssue[], WayfulError, GithubHttp> {
   const base = apiBase(repo.host);
   const url = `${base.rest}/repos/${repo.owner}/${repo.repo}/issues/${number}/dependencies/blocked_by?per_page=100`;
-  return listPaginated(token, url);
+  return listPaginated(repo, token, url);
 }
 
 /** One issue by number, or a `WayfulError` when it cannot be read. */
@@ -257,13 +329,18 @@ export function getIssue(
   return Effect.gen(function* () {
     const base = apiBase(repo.host);
     const { value } = yield* fetchJson(
+      repo,
       authorized(
         HttpClientRequest.get(`${base.rest}/repos/${repo.owner}/${repo.repo}/issues/${number}`),
         token,
       ),
+      `issue #${number}`,
     );
     const issue = normalizeIssue(value);
-    if (!issue) return yield* requestFailed(`could not read issue #${number}.`);
+    if (!issue)
+      return yield* new WayfulError({
+        message: `github returned an unexpected representation of issue #${number} in ${repoLabel(repo)}.`,
+      });
     return issue;
   });
 }
@@ -292,7 +369,7 @@ export function updateIssue(
     ).pipe(HttpClientRequest.bodyJsonUnsafe(patch));
     const response = yield* execute(request);
     if (response.status < 200 || response.status >= 300)
-      return yield* requestFailed(`could not update issue #${number}.`);
+      return yield* responseFailure(repo, response, `issue #${number}`);
   });
 }
 
@@ -314,7 +391,7 @@ export function addLabels(
     ).pipe(HttpClientRequest.bodyJsonUnsafe({ labels }));
     const response = yield* execute(request);
     if (response.status < 200 || response.status >= 300)
-      return yield* requestFailed(`could not label issue #${number}.`);
+      return yield* responseFailure(repo, response, `issue #${number}`);
   });
 }
 
@@ -335,7 +412,7 @@ export function removeLabel(
     );
     const response = yield* execute(request);
     if (response.status === 200 || response.status === 404) return;
-    return yield* requestFailed(`could not remove label from issue #${number}.`);
+    return yield* responseFailure(repo, response, `issue #${number}`);
   });
 }
 
@@ -358,9 +435,7 @@ export function addSubIssue(
     if (response.status === 201) return;
     // GitHub rejects the 101st sub-issue with 422; that is a cap, not a raw failure.
     if (response.status === 422) return yield* subIssueCapError();
-    return yield* requestFailed(
-      `could not add sub-issue to #${parent} (status ${response.status}).`,
-    );
+    return yield* responseFailure(repo, response, `issue #${parent}`);
   });
 }
 
@@ -385,9 +460,7 @@ export function addBlockedBy(
     ).pipe(HttpClientRequest.bodyJsonUnsafe({ issue_id: blockingIssueId }));
     const response = yield* execute(request);
     if (response.status === 201) return;
-    return yield* requestFailed(
-      `could not add a dependency to issue #${number} (status ${response.status}).`,
-    );
+    return yield* responseFailure(repo, response, `issue #${number}`);
   });
 }
 
@@ -408,9 +481,7 @@ export function removeBlockedBy(
     );
     const response = yield* execute(request);
     if (response.status === 200) return;
-    return yield* requestFailed(
-      `could not remove a dependency from issue #${number} (status ${response.status}).`,
-    );
+    return yield* responseFailure(repo, response, `issue #${number}`);
   });
 }
 
@@ -439,13 +510,15 @@ export function createIssue(
       }),
     );
     const response = yield* execute(request);
-    if (response.status !== 201)
-      return yield* requestFailed(`could not create issue (status ${response.status}).`);
+    if (response.status !== 201) return yield* responseFailure(repo, response, "a new issue");
     const body = yield* response.json.pipe(
-      Effect.mapError((error) => requestFailed(error.message)),
+      Effect.mapError((error) => unreadableResponse(error.message)),
     );
     const created = normalizeIssue(body);
-    if (!created) return yield* requestFailed("the created issue could not be read.");
+    if (!created)
+      return yield* new WayfulError({
+        message: `github returned an unexpected representation of the created issue in ${repoLabel(repo)}.`,
+      });
     return created;
   });
 }

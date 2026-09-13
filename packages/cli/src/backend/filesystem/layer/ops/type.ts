@@ -7,7 +7,7 @@ import type { ProjectHandle } from "@backend/ProjectStore";
 import { decodeType } from "@backend/filesystem/decode";
 import { liftSync, parseFrontmatter, readTextFile } from "@backend/filesystem/documents";
 import { typeFile, typesDir } from "@backend/filesystem/paths";
-import { accessError, collect, fail } from "@backend/filesystem/layer/records";
+import { accessError, collect, fail, readDirError } from "@backend/filesystem/layer/records";
 
 export function makeTypeOps(fs: FileSystem.FileSystem, path: Path.Path) {
   const readType = (
@@ -30,7 +30,7 @@ export function makeTypeOps(fs: FileSystem.FileSystem, path: Path.Path) {
         const dir = typesDir(path, project.root);
         const files = yield* fs
           .readDirectory(dir)
-          .pipe(Effect.mapError(() => new WayfulError({ message: "cannot read project types." })));
+          .pipe(Effect.mapError(() => readDirError(dir, "project types")));
         const names = files
           .filter((file) => file.endsWith(".md"))
           .map((file) => file.slice(0, -3))

@@ -1,4 +1,4 @@
-import { Context, DateTime, Effect, Layer, Option, Ref } from "effect";
+import { Context, Data, DateTime, Effect, Layer, Option, Ref } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
 import { WayfulError } from "@domain/errors";
@@ -37,7 +37,7 @@ export interface GithubHttpService {
    */
   readonly getJson: (
     request: HttpClientRequest.HttpClientRequest,
-  ) => Effect.Effect<JsonRead, WayfulError>;
+  ) => Effect.Effect<JsonRead, WayfulError | GithubRequestError>;
   /** The last rate-limit budget observed, for budgeting and for tests. */
   readonly rateLimit: Effect.Effect<Option.Option<RateLimit>>;
 }
@@ -46,8 +46,58 @@ export class GithubHttp extends Context.Service<GithubHttp, GithubHttpService>()
   "wayful/GithubHttp",
 ) {}
 
-export function requestFailed(reason: string): WayfulError {
-  return new WayfulError({ message: `github api request failed: ${reason}` });
+/** The network itself failed before GitHub answered. */
+export function networkFailed(reason: string): WayfulError {
+  return new WayfulError({
+    message: `github request failed: ${reason}; check your network connection and try again.`,
+  });
+}
+
+/** GitHub answered, but not with JSON wayful can read. */
+export function unreadableResponse(reason: string): WayfulError {
+  return new WayfulError({ message: `github sent a response that could not be read: ${reason}.` });
+}
+
+/**
+ * The kind of a non-2xx GitHub response, independent of which resource was
+ * requested. The transport reports this and the caller phrases it: an invalid
+ * credential, a credential that cannot reach a repository, a repository or
+ * resource that is missing, and everything else each need a different remedy.
+ */
+export type GithubFailureKind = "unauthenticated" | "forbidden" | "not-found" | "unexpected";
+
+export function classifyStatus(status: number): GithubFailureKind {
+  if (status === 401) return "unauthenticated";
+  if (status === 403) return "forbidden";
+  if (status === 404) return "not-found";
+  return "unexpected";
+}
+
+/**
+ * A non-2xx GitHub response, classified so a caller can report it in its own
+ * terms. `message` is GitHub's own explanation when it sent one, kept for the
+ * `unexpected` case where no generic remedy exists.
+ */
+export interface GithubFailure {
+  readonly status: number;
+  readonly kind: GithubFailureKind;
+  readonly message: string;
+}
+
+export class GithubRequestError extends Data.TaggedError("GithubRequestError")<GithubFailure> {}
+
+export function githubRequestError(status: number, message: string): GithubRequestError {
+  return new GithubRequestError({ status, kind: classifyStatus(status), message });
+}
+
+/** GitHub's own human message from a JSON error body, or an empty string. */
+export function githubMessage(text: string): string {
+  try {
+    const parsed = JSON.parse(text) as { message?: unknown };
+    return typeof parsed?.message === "string" ? parsed.message : "";
+  } catch {
+    return "";
+  }
 }
 
 function headerInt(headers: Readonly<Record<string, string>>, name: string): number | undefined {
@@ -106,15 +156,6 @@ function primaryRateLimitError(headers: Readonly<Record<string, string>>): Wayfu
   });
 }
 
-function messageOf(text: string): string {
-  try {
-    const parsed = JSON.parse(text) as { message?: unknown };
-    return typeof parsed?.message === "string" ? parsed.message : "";
-  } catch {
-    return "";
-  }
-}
-
 /**
  * Classifies a `403`/`429` as a primary or secondary rate limit. A primary
  * limit is exhausted budget; a secondary one is a burst (`retry-after`, an
@@ -169,7 +210,7 @@ export function makeGithubHttp(client: HttpClient.HttpClient): Effect.Effect<Git
 
         const response = yield* client
           .execute(request)
-          .pipe(Effect.mapError((error) => requestFailed(error.message)));
+          .pipe(Effect.mapError((error) => networkFailed(error.message)));
 
         // A 304 is GitHub's own way of saying "nothing changed, this is free":
         // it neither carries a body nor spends budget, so leave both alone.
@@ -180,7 +221,7 @@ export function makeGithubHttp(client: HttpClient.HttpClient): Effect.Effect<Git
 
         if (response.status === 403 || response.status === 429) {
           const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
-          const limit = classifyRateLimit(response.status, response.headers, messageOf(text));
+          const limit = classifyRateLimit(response.status, response.headers, githubMessage(text));
           if (limit !== undefined) return yield* limit;
           // Not a rate limit: hand the response back intact for the caller.
           return rebuild(request, response, text);
@@ -200,11 +241,13 @@ export function makeGithubHttp(client: HttpClient.HttpClient): Effect.Effect<Git
         const response = yield* execute(conditional);
         if (response.status === 304 && cached !== undefined)
           return { value: cached.value, headers: cached.headers };
-        if (response.status < 200 || response.status >= 300)
-          return yield* requestFailed(`unexpected status ${response.status}.`);
+        if (response.status < 200 || response.status >= 300) {
+          const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
+          return yield* githubRequestError(response.status, githubMessage(text));
+        }
 
         const value = yield* response.json.pipe(
-          Effect.mapError((error) => requestFailed(error.message)),
+          Effect.mapError((error) => unreadableResponse(error.message)),
         );
         const etag = response.headers["etag"];
         const read = { value, headers: response.headers };

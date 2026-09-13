@@ -80,14 +80,27 @@ describe("readMapSnapshot", () => {
       () => jsonResponse(200, { data: { repository: { issue: null } } }),
       Effect.flip(readMapSnapshot(repo, token, 10)),
     );
-    expect(error.message).toContain("map #10 was not found");
+    expect(error.message).toContain("map #10");
+    expect(error.message).toContain("acme/widgets");
+    expect(error.message).toMatch(/not exist|not be visible/);
   });
 
-  test("fails clearly on a non-2xx response", async () => {
+  test("keeps GitHub's own message on an unexpected non-2xx response", async () => {
     const error = await runGithub(
       () => jsonResponse(500, { message: "server error" }),
       Effect.flip(readMapSnapshot(repo, token, 10)),
     );
-    expect(error.message).toContain("graphql snapshot failed with status 500");
+    expect(error.message).toContain("acme/widgets");
+    expect(error.message).toContain("500");
+    expect(error.message).toContain("server error");
+  });
+
+  test("classifies a bad credential on the graphql transport", async () => {
+    const error = await runGithub(
+      () => jsonResponse(401, { message: "Bad credentials" }),
+      Effect.flip(readMapSnapshot(repo, token, 10)),
+    );
+    expect(error.message).toContain("invalid or expired");
+    expect(error.message).toMatch(/gh auth login|GH_TOKEN/);
   });
 });

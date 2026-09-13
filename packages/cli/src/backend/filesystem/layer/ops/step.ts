@@ -15,7 +15,13 @@ import {
   writeAtomic,
 } from "@backend/filesystem/documents";
 import { mapDir, mapFile, stepFile, stepsDir } from "@backend/filesystem/paths";
-import { accessError, collect, fail, stepToDocument } from "@backend/filesystem/layer/records";
+import {
+  accessError,
+  collect,
+  fail,
+  readDirError,
+  stepToDocument,
+} from "@backend/filesystem/layer/records";
 
 export function makeStepOps(fs: FileSystem.FileSystem, path: Path.Path) {
   // Guards each map's `step_id_counter` read-modify-write so that two
@@ -37,7 +43,7 @@ export function makeStepOps(fs: FileSystem.FileSystem, path: Path.Path) {
       const raw = (yield* liftSync(() => parseToml(text, file))) as Record<string, unknown>;
       const counter = raw.step_id_counter;
       if (!Number.isInteger(counter) || (counter as number) < 1)
-        return yield* fail("malformed map metadata.");
+        return yield* fail(`map metadata in ${file} is missing a positive step_id_counter.`);
       yield* writeAtomic(
         fs,
         file,
@@ -52,7 +58,7 @@ export function makeStepOps(fs: FileSystem.FileSystem, path: Path.Path) {
         const dir = stepsDir(path, mapDir(path, map.project.root, map.name));
         const files = yield* fs
           .readDirectory(dir)
-          .pipe(Effect.mapError(() => new WayfulError({ message: "cannot read steps." })));
+          .pipe(Effect.mapError(() => readDirError(dir, "steps")));
         const filenames = files.filter((file) => file.endsWith(".md")).toSorted();
         const result = yield* collect(
           filenames,

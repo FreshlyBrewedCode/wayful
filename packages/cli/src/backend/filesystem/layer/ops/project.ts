@@ -48,7 +48,9 @@ export function makeProjectOps(fs: FileSystem.FileSystem, path: Path.Path) {
         const wayfulDir = path.join(root, ".wayful");
         const exists = yield* fs.exists(wayfulDir).pipe(Effect.mapError(accessError));
         if (exists) return yield* fail("Wayful state already exists; refusing to overwrite it.");
-        const onCreateError = new WayfulError({ message: `cannot create ${root}.` });
+        const onCreateError = new WayfulError({
+          message: `cannot create '${root}'; check that the parent directory exists and is writable.`,
+        });
         yield* fs
           .makeDirectory(typesDir(path, root), { recursive: true })
           .pipe(Effect.mapError(() => onCreateError));

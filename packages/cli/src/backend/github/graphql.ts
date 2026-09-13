@@ -1,9 +1,9 @@
 import { DateTime, Effect, Option, Redacted } from "effect";
 import { HttpClientRequest } from "effect/unstable/http";
 
-import { WayfulError } from "@domain/errors";
-import { apiBase, authorized } from "@backend/github/api";
-import { GithubHttp, requestFailed } from "@backend/github/http";
+import { oneLine, WayfulError } from "@domain/errors";
+import { apiBase, authorized, repoLabel, responseFailure } from "@backend/github/api";
+import { GithubHttp } from "@backend/github/http";
 import type { GithubIssue } from "@backend/github/issue";
 import type { GitRemoteRef } from "@backend/github/remote";
 
@@ -134,21 +134,34 @@ export function readMapSnapshot(
     );
     const response = yield* http.execute(request);
     if (response.status < 200 || response.status >= 300)
-      return yield* requestFailed(`graphql snapshot failed with status ${response.status}.`);
+      return yield* responseFailure(repo, response, `map #${number}`);
     const body = (yield* response.json.pipe(
-      Effect.mapError((error) => requestFailed(error.message)),
+      Effect.mapError(
+        (error) =>
+          new WayfulError({
+            message: `github returned an unreadable map snapshot for ${repoLabel(repo)}: ${error.message}.`,
+          }),
+      ),
     )) as {
       readonly data?: { readonly repository?: { readonly issue?: unknown } | null } | null;
       readonly errors?: unknown;
     };
     const graphqlError = graphqlMessage(body.errors);
-    if (graphqlError) return yield* requestFailed(graphqlError);
+    if (graphqlError)
+      return yield* new WayfulError({
+        message: `github rejected the map snapshot request for ${repoLabel(repo)}: ${oneLine(graphqlError)}.`,
+      });
     const raw = body.data?.repository?.issue;
     if (!raw || typeof raw !== "object")
-      return yield* requestFailed(`map #${number} was not found.`);
+      return yield* new WayfulError({
+        message: `github cannot find map #${number} in ${repoLabel(repo)}; it may not exist or may not be visible to the current credential.`,
+      });
     const node = raw as Record<string, unknown>;
     const map = normalizeIssue(node);
-    if (!map) return yield* requestFailed(`map #${number} could not be read.`);
+    if (!map)
+      return yield* new WayfulError({
+        message: `github returned an unexpected representation of map #${number} in ${repoLabel(repo)}.`,
+      });
 
     const subIssues = (node.subIssues as { nodes?: unknown } | undefined)?.nodes;
     const children: SnapshotChild[] = [];

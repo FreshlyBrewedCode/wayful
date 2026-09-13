@@ -8,6 +8,7 @@ import {
   createIssue,
   ensureLabel,
   ensureLabels,
+  getIssue,
   listBlockedBy,
   listIssues,
   removeBlockedBy,
@@ -82,6 +83,80 @@ describe("verifyAccess", () => {
     );
     expect(error["_tag"]).toBe("WayfulError");
     expect(error.message).not.toContain(Redacted.value(secretToken));
+  });
+});
+
+describe("github failures name the problem and the remedy", () => {
+  async function failure(status: number, message: string) {
+    const layer = stubGithubHttp(() => jsonResponse(status, { message }));
+    return Effect.runPromise(
+      listIssues(repo, secretToken, { labels: ["wayful:map"] }).pipe(
+        Effect.flip,
+        Effect.provide(layer),
+      ),
+    );
+  }
+
+  test("an invalid credential says so and how to supply a working one", async () => {
+    const error = await failure(401, "Bad credentials");
+    expect(error.message).toContain("acme/widgets");
+    expect(error.message).toContain("invalid or expired");
+    expect(error.message).toMatch(/gh auth login|GH_TOKEN/);
+  });
+
+  test("a credential that cannot reach the repo says so without suggesting a new sign-in", async () => {
+    const error = await failure(403, "Resource not accessible by integration");
+    expect(error.message).toContain("cannot access acme/widgets");
+    expect(error.message).not.toContain("gh auth login");
+    expect(error.message).not.toMatch(/sign in/i);
+  });
+
+  test("a missing repository names it and says it is not found or not visible", async () => {
+    const error = await failure(404, "Not Found");
+    expect(error.message).toContain("acme/widgets");
+    expect(error.message).toMatch(/not exist|not be visible/);
+  });
+
+  test("an unexpected status keeps GitHub's own explanation", async () => {
+    const error = await failure(422, "Validation Failed");
+    expect(error.message).toContain("422");
+    expect(error.message).toContain("Validation Failed");
+  });
+
+  test("a missing resource names the resource and its repository", async () => {
+    const layer = stubGithubHttp(() => jsonResponse(404, { message: "Not Found" }));
+    const error = await Effect.runPromise(
+      getIssue(repo, secretToken, 7).pipe(Effect.flip, Effect.provide(layer)),
+    );
+    expect(error.message).toContain("issue #7");
+    expect(error.message).toContain("acme/widgets");
+  });
+});
+
+describe("verifyAccess failures", () => {
+  async function failure(status: number, body: unknown) {
+    const layer = stubGithubHttp(() => jsonResponse(status, body));
+    return Effect.runPromise(
+      verifyAccess(repo, secretToken).pipe(Effect.flip, Effect.provide(layer)),
+    );
+  }
+
+  test("a 401 reports an invalid or expired credential, not a permissions problem", async () => {
+    const error = await failure(401, { message: "Bad credentials" });
+    expect(error.message).toContain("invalid or expired");
+    expect(error.message).toMatch(/gh auth login|GH_TOKEN/);
+  });
+
+  test("a 403 reports an access problem without suggesting a new sign-in", async () => {
+    const error = await failure(403, { message: "Forbidden" });
+    expect(error.message).toContain("cannot access");
+    expect(error.message).not.toMatch(/gh auth login|sign in/i);
+  });
+
+  test("a 404 names the repository as not found or not visible", async () => {
+    const error = await failure(404, { message: "Not Found" });
+    expect(error.message).toContain("acme/widgets");
+    expect(error.message).toMatch(/not exist|not be visible/);
   });
 });
 
