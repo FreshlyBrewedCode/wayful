@@ -33,6 +33,16 @@ export interface MapHandle {
   readonly number?: number;
 }
 
+/**
+ * A map's usage of a backend-imposed cap on steps and goals. The GitHub
+ * backend has one shared sub-issue budget; the filesystem backend is
+ * unbounded and reports no capacity at all.
+ */
+export interface SubIssueUsage {
+  readonly used: number;
+  readonly cap: number;
+}
+
 export class MapStore extends Context.Service<
   MapStore,
   {
@@ -69,10 +79,13 @@ export class MapStore extends Context.Service<
      * network this is one round trip where composing `listSteps`/`listGoals`/
      * `listTypes` separately would be three.
      */
-    readonly snapshot: (
-      map: MapHandle,
-    ) => Effect.Effect<
-      { readonly snapshot: MapSnapshot; readonly errors: readonly DecodeError[] },
+    readonly snapshot: (map: MapHandle) => Effect.Effect<
+      {
+        readonly snapshot: MapSnapshot;
+        readonly errors: readonly DecodeError[];
+        /** Present only where the backend caps steps and goals; absent under the filesystem backend. */
+        readonly capacity?: SubIssueUsage;
+      },
       WayfulError
     >;
 

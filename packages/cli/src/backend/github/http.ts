@@ -1,7 +1,8 @@
-import { Context, DateTime, Effect, Layer, Option, Ref } from "effect";
+import { Context, Data, DateTime, Duration, Effect, Layer, Option, Ref } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
 import { WayfulError } from "@domain/errors";
+import { GithubCache } from "@backend/github/cache";
 
 /**
  * The number of remaining requests below which wayful stops issuing them and
@@ -9,6 +10,15 @@ import { WayfulError } from "@domain/errors";
  * with a raw `403`; observing the budget lets wayful say why before that.
  */
 export const RATE_LIMIT_FLOOR = 5;
+
+/**
+ * How many times a burst-limited request is retried before wayful gives up. The
+ * waits back off exponentially and honor GitHub's `retry-after` when it sends
+ * one, so a burst of writes drains rather than tripping the secondary limit.
+ */
+export const SECONDARY_RATE_LIMIT_ATTEMPTS = 5;
+const SECONDARY_RATE_LIMIT_BASE_MS = 1_000;
+const SECONDARY_RATE_LIMIT_CAP_MS = 30_000;
 
 /** The subset of GitHub's rate-limit headers wayful budgets against. */
 export interface RateLimit {
@@ -26,14 +36,15 @@ export interface JsonRead {
 }
 
 export interface GithubHttpService {
-  /** Executes any request, observing rate-limit headers and translating limit responses into clear errors. */
+  /** Executes any request, observing rate-limit headers, translating limit responses into clear errors, and backing off a burst limit. */
   readonly execute: (
     request: HttpClientRequest.HttpClientRequest,
   ) => Effect.Effect<HttpClientResponse.HttpClientResponse, WayfulError>;
   /**
-   * A conditional `GET` whose parsed body is cached per process. A repeat sends
+   * A conditional `GET` whose parsed body is cached. A repeat sends
    * `If-None-Match`; a `304` serves the cached value without re-parsing it or
-   * spending rate-limit budget.
+   * spending rate-limit budget. The cache outlives the process when a
+   * filesystem-backed `GithubCache` is provided.
    */
   readonly getJson: (
     request: HttpClientRequest.HttpClientRequest,
@@ -134,11 +145,20 @@ export function classifyRateLimit(
   return undefined;
 }
 
-interface CachedGet {
-  readonly etag: string;
-  readonly value: unknown;
-  readonly headers: Readonly<Record<string, string>>;
+/** The wait before retrying a burst-limited request: the larger of exponential backoff and GitHub's own `retry-after`, capped. */
+export function secondaryRetryDelay(
+  attempt: number,
+  retryAfterSeconds?: number,
+): Duration.Duration {
+  const exponential = SECONDARY_RATE_LIMIT_BASE_MS * 2 ** attempt;
+  const instructed = retryAfterSeconds !== undefined ? retryAfterSeconds * 1_000 : 0;
+  return Duration.millis(Math.min(Math.max(exponential, instructed), SECONDARY_RATE_LIMIT_CAP_MS));
 }
+
+/** Internal signal that a request hit GitHub's burst limit and should be retried. */
+class SecondaryLimit extends Data.TaggedError("SecondaryLimit")<{
+  readonly retryAfterSeconds?: number;
+}> {}
 
 function rebuild(
   request: HttpClientRequest.HttpClientRequest,
@@ -153,15 +173,18 @@ function rebuild(
 
 /**
  * The GitHub-aware HTTP seam. Every request flows through here so rate-limit
- * headers are observed in one place, and conditional `GET`s are revalidated
- * with `If-None-Match` against a per-process body cache.
+ * headers are observed in one place, burst limits back off instead of failing,
+ * and conditional `GET`s are revalidated with `If-None-Match` against the
+ * provided cache.
  */
-export function makeGithubHttp(client: HttpClient.HttpClient): Effect.Effect<GithubHttpService> {
+export function makeGithubHttp(
+  client: HttpClient.HttpClient,
+): Effect.Effect<GithubHttpService, never, GithubCache> {
   return Effect.gen(function* () {
-    const cache = yield* Ref.make(new Map<string, CachedGet>());
+    const cache = yield* GithubCache;
     const observed = yield* Ref.make(Option.none<RateLimit>());
 
-    const execute = (request: HttpClientRequest.HttpClientRequest) =>
+    const executeOnce = (request: HttpClientRequest.HttpClientRequest) =>
       Effect.gen(function* () {
         const budget = yield* Ref.get(observed);
         if (Option.isSome(budget) && budget.value.remaining <= RATE_LIMIT_FLOOR)
@@ -180,7 +203,15 @@ export function makeGithubHttp(client: HttpClient.HttpClient): Effect.Effect<Git
 
         if (response.status === 403 || response.status === 429) {
           const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
-          const limit = classifyRateLimit(response.status, response.headers, messageOf(text));
+          const message = messageOf(text);
+          const retryAfter = headerInt(response.headers, "retry-after");
+          if (
+            response.status === 429 ||
+            response.headers["retry-after"] !== undefined ||
+            /secondary rate limit/i.test(message)
+          )
+            return yield* new SecondaryLimit({ retryAfterSeconds: retryAfter });
+          const limit = classifyRateLimit(response.status, response.headers, message);
           if (limit !== undefined) return yield* limit;
           // Not a rate limit: hand the response back intact for the caller.
           return rebuild(request, response, text);
@@ -188,30 +219,45 @@ export function makeGithubHttp(client: HttpClient.HttpClient): Effect.Effect<Git
         return response;
       });
 
+    const attempt = (
+      request: HttpClientRequest.HttpClientRequest,
+      attemptNumber: number,
+    ): Effect.Effect<HttpClientResponse.HttpClientResponse, WayfulError> =>
+      executeOnce(request).pipe(
+        Effect.catchIf(
+          (error): error is SecondaryLimit => error instanceof SecondaryLimit,
+          (error) =>
+            attemptNumber + 1 >= SECONDARY_RATE_LIMIT_ATTEMPTS
+              ? Effect.fail(secondaryRateLimitError(error.retryAfterSeconds?.toString()))
+              : Effect.sleep(secondaryRetryDelay(attemptNumber, error.retryAfterSeconds)).pipe(
+                  Effect.andThen(attempt(request, attemptNumber + 1)),
+                ),
+        ),
+      );
+
+    const execute = (request: HttpClientRequest.HttpClientRequest) => attempt(request, 0);
+
     const getJson = (request: HttpClientRequest.HttpClientRequest) =>
       Effect.gen(function* () {
         const url = request.url;
-        const cached = (yield* Ref.get(cache)).get(url);
-        const conditional =
-          cached === undefined
-            ? request
-            : HttpClientRequest.setHeader(request, "if-none-match", cached.etag);
+        const cached = yield* cache.read(url);
+        const conditional = Option.isNone(cached)
+          ? request
+          : HttpClientRequest.setHeader(request, "if-none-match", cached.value.etag);
 
         const response = yield* execute(conditional);
-        if (response.status === 304 && cached !== undefined)
-          return { value: cached.value, headers: cached.headers };
+        if (response.status === 304 && Option.isSome(cached))
+          return { value: cached.value.value, headers: cached.value.headers };
         if (response.status < 200 || response.status >= 300)
           return yield* requestFailed(`unexpected status ${response.status}.`);
 
         const value = yield* response.json.pipe(
           Effect.mapError((error) => requestFailed(error.message)),
         );
-        const etag = response.headers["etag"];
-        const read = { value, headers: response.headers };
-        if (etag !== undefined && etag !== "")
-          yield* Ref.update(cache, (map) =>
-            new Map(map).set(url, { etag, value, headers: read.headers }),
-          );
+        const headers = response.headers;
+        const read = { value, headers };
+        const etag = headers["etag"];
+        if (etag !== undefined && etag !== "") yield* cache.write(url, { etag, value, headers });
         return read;
       });
 
@@ -219,7 +265,7 @@ export function makeGithubHttp(client: HttpClient.HttpClient): Effect.Effect<Git
   });
 }
 
-/** The shared GitHub transport, layered over the ambient `HttpClient`. */
+/** The shared GitHub transport, layered over the ambient `HttpClient` and `GithubCache`. */
 export const GithubHttpLayer = Layer.effect(
   GithubHttp,
   Effect.flatMap(HttpClient.HttpClient, makeGithubHttp),

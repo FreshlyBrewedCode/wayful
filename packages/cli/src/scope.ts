@@ -1,7 +1,7 @@
 import { Effect, Option } from "effect";
 
 import type { MapHandle } from "@backend/MapStore";
-import { MapStore } from "@backend/MapStore";
+import { MapStore, type SubIssueUsage } from "@backend/MapStore";
 import type { ProjectHandle } from "@backend/ProjectStore";
 import { ProjectStore } from "@backend/ProjectStore";
 import { MapMetadataError, WayfulError } from "@domain/errors";
@@ -91,9 +91,15 @@ export function resolveReferencedMap(
  * (`assertWritableMapIntegrity`, `map validate`) or are only reported
  * (`map show`, `map status`, `map next`).
  */
-export function buildSnapshot(
-  map: MapHandle,
-): Effect.Effect<{ snapshot: MapSnapshot; errors: readonly DecodeError[] }, WayfulError, MapStore> {
+export function buildSnapshot(map: MapHandle): Effect.Effect<
+  {
+    snapshot: MapSnapshot;
+    errors: readonly DecodeError[];
+    capacity?: SubIssueUsage;
+  },
+  WayfulError,
+  MapStore
+> {
   return Effect.gen(function* () {
     const mapStore = yield* MapStore;
     return yield* mapStore.snapshot(map);

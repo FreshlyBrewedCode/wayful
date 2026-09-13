@@ -1,13 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { Effect, Layer, Option } from "effect";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Duration, Effect, Fiber, Layer, Option } from "effect";
+import { TestClock } from "effect/testing";
 import { HttpClientRequest } from "effect/unstable/http";
+import { BunFileSystem, BunPath } from "@effect/platform-bun";
 
+import { GithubDiskCache, GithubMemoryCache } from "@backend/github/cache";
 import {
   GithubHttp,
   GithubHttpLayer,
   classifyRateLimit,
   readRateLimit,
   RATE_LIMIT_FLOOR,
+  SECONDARY_RATE_LIMIT_ATTEMPTS,
+  secondaryRetryDelay,
 } from "@backend/github/http";
 import { stubHttpClient } from "@test/support/github/httpClient";
 import { jsonResponse } from "@test/support/github/issues";
@@ -18,7 +26,45 @@ function run<A, E>(
   respond: Parameters<typeof stubHttpClient>[0],
   effect: Effect.Effect<A, E, GithubHttp>,
 ): Promise<A> {
-  const layer = GithubHttpLayer.pipe(Layer.provide(stubHttpClient(respond)));
+  const layer = GithubHttpLayer.pipe(
+    Layer.provide(stubHttpClient(respond)),
+    Layer.provide(GithubMemoryCache),
+  );
+  return Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<A, E, never>);
+}
+
+/** Runs `effect` on a virtual clock, so a retry's sleeps cost no wall time. */
+function runWithTestClock<A, E>(
+  respond: Parameters<typeof stubHttpClient>[0],
+  effect: Effect.Effect<A, E, GithubHttp>,
+): Promise<A> {
+  const layer = Layer.mergeAll(
+    GithubHttpLayer.pipe(Layer.provide(stubHttpClient(respond)), Layer.provide(GithubMemoryCache)),
+    TestClock.layer(),
+  );
+  const program = Effect.gen(function* () {
+    const fiber = yield* Effect.forkChild(effect);
+    yield* Effect.yieldNow;
+    yield* TestClock.adjust("1 hour");
+    return yield* Fiber.join(fiber);
+  });
+  return Effect.runPromise(program.pipe(Effect.provide(layer)) as Effect.Effect<A, E, never>);
+}
+
+/** Runs `effect` against a disk-backed cache at `directory`, as a fresh process would. */
+function runWithDiskCache<A, E>(
+  directory: string,
+  respond: Parameters<typeof stubHttpClient>[0],
+  effect: Effect.Effect<A, E, GithubHttp>,
+): Promise<A> {
+  const diskCache = GithubDiskCache(directory).pipe(
+    Layer.provide(BunFileSystem.layer),
+    Layer.provide(BunPath.layer),
+  );
+  const layer = GithubHttpLayer.pipe(
+    Layer.provide(stubHttpClient(respond)),
+    Layer.provide(diskCache),
+  );
   return Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<A, E, never>);
 }
 
@@ -143,7 +189,7 @@ describe("GithubHttp: rate-limit budgeting", () => {
   });
 
   test("handles a secondary limit distinctly from a primary one", async () => {
-    const error = await run(
+    const error = await runWithTestClock(
       () =>
         jsonResponse(
           403,
@@ -196,5 +242,109 @@ describe("makeGithubHttp", () => {
     );
     expect(result.status).toBe(403);
     expect(result.body).toEqual({ message: "Forbidden" });
+  });
+});
+
+describe("GithubHttp: secondary rate-limit backoff", () => {
+  test("retries a burst-limited request, honoring retry-after, instead of failing", async () => {
+    let calls = 0;
+    const value = await run(
+      () => {
+        calls += 1;
+        if (calls <= 2)
+          return jsonResponse(
+            403,
+            { message: "You have exceeded a secondary rate limit." },
+            { "retry-after": "0" },
+          );
+        return jsonResponse(200, { ok: true });
+      },
+      Effect.gen(function* () {
+        const http = yield* GithubHttp;
+        const response = yield* http.execute(HttpClientRequest.post(url));
+        return { status: response.status, body: yield* response.json };
+      }),
+    );
+    expect(calls).toBe(3);
+    expect(value).toEqual({ status: 200, body: { ok: true } });
+  });
+
+  test("gives up with the clear error once the retry budget is spent", async () => {
+    let calls = 0;
+    const error = await runWithTestClock(
+      () => {
+        calls += 1;
+        return jsonResponse(
+          403,
+          { message: "You have exceeded a secondary rate limit." },
+          { "retry-after": "0" },
+        );
+      },
+      Effect.gen(function* () {
+        const http = yield* GithubHttp;
+        return yield* Effect.flip(http.execute(HttpClientRequest.post(url)));
+      }),
+    );
+    expect(calls).toBe(SECONDARY_RATE_LIMIT_ATTEMPTS);
+    expect(error.message).toContain("secondary rate limit");
+  });
+
+  test("secondaryRetryDelay backs off exponentially, honors retry-after, and caps", () => {
+    expect(Duration.toMillis(secondaryRetryDelay(0))).toBe(1_000);
+    expect(Duration.toMillis(secondaryRetryDelay(2))).toBe(4_000);
+    expect(Duration.toMillis(secondaryRetryDelay(0, 5))).toBe(5_000);
+    expect(Duration.toMillis(secondaryRetryDelay(10))).toBe(30_000);
+  });
+});
+
+describe("GithubHttp: a cache that outlives the process", () => {
+  test("revalidates a persisted entry with If-None-Match and serves the 304 body", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "wayful-cache-"));
+    try {
+      const seen: Array<string | undefined> = [];
+      const respond = (request: HttpClientRequest.HttpClientRequest) => {
+        seen.push(request.headers["if-none-match"]);
+        if (request.headers["if-none-match"] === undefined)
+          return jsonResponse(200, { n: 1 }, { etag: '"v1"' });
+        return new Response(null, { status: 304 });
+      };
+      const read = () =>
+        runWithDiskCache(
+          directory,
+          respond,
+          Effect.gen(function* () {
+            const http = yield* GithubHttp;
+            return (yield* http.getJson(HttpClientRequest.get(url))).value;
+          }),
+        );
+      // Two independent layer constructions stand in for two CLI processes.
+      expect(await read()).toEqual({ n: 1 });
+      expect(await read()).toEqual({ n: 1 });
+      expect(seen).toEqual([undefined, '"v1"']);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("a change on GitHub is visible to the very next process, never served stale", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "wayful-cache-"));
+    try {
+      let version = 1;
+      const respond = () => jsonResponse(200, { n: version }, { etag: `"v${version}"` });
+      const read = () =>
+        runWithDiskCache(
+          directory,
+          respond,
+          Effect.gen(function* () {
+            const http = yield* GithubHttp;
+            return (yield* http.getJson(HttpClientRequest.get(url))).value;
+          }),
+        );
+      expect(await read()).toEqual({ n: 1 });
+      version = 2;
+      expect(await read()).toEqual({ n: 2 });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });

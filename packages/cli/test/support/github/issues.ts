@@ -69,3 +69,46 @@ export function graphqlIssue(
 export function graphqlIssueResponse(issue: Record<string, unknown>): Response {
   return jsonResponse(200, { data: { repository: { issue } } });
 }
+
+/**
+ * Converts a REST-shaped issue fixture (`issueJson`/`stepIssue`/`goalIssue`)
+ * into the GraphQL node the snapshot query returns, so a test written against
+ * the REST shape can also answer the GraphQL read that now backs
+ * `listSteps`/`listGoals`. `dependencies` become native `blockedBy` nodes.
+ */
+export function asGraphqlIssue(
+  rest: Record<string, unknown>,
+  dependencies: readonly number[] = [],
+): Record<string, unknown> {
+  const labels = Array.isArray(rest.labels) ? rest.labels : [];
+  return {
+    number: rest.number,
+    databaseId: rest.id,
+    title: rest.title,
+    body: rest.body,
+    state: typeof rest.state === "string" ? rest.state.toUpperCase() : "OPEN",
+    stateReason: typeof rest.state_reason === "string" ? rest.state_reason.toUpperCase() : null,
+    labels: {
+      nodes: labels.map((label) => ({ name: (label as { name?: unknown }).name })),
+    },
+    createdAt: rest.created_at,
+    updatedAt: rest.updated_at,
+    closedAt: rest.closed_at ?? null,
+    blockedBy: { nodes: dependencies.map((number) => ({ number })) },
+  };
+}
+
+/**
+ * The `data.repository.issue` envelope for a map whose sub-issues are
+ * `children`. The map issue itself is a placeholder: a snapshot's map metadata
+ * comes from the `MapHandle`, never the query.
+ */
+export function graphqlSnapshotResponse(
+  children: readonly Record<string, unknown>[],
+  mapNumber = 7,
+): Response {
+  return graphqlIssueResponse({
+    ...graphqlIssue(mapNumber),
+    subIssues: { nodes: children },
+  });
+}

@@ -1,7 +1,7 @@
 import { Console, Effect, Result, Schema } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 
-import { MapStore } from "@backend/MapStore";
+import { MapStore, type SubIssueUsage } from "@backend/MapStore";
 import { MapMetadataError } from "@domain/errors";
 import { deriveArtifacts, nextSteps } from "@domain/graph";
 import { mapStatus } from "@domain/status";
@@ -10,6 +10,25 @@ import { buildSnapshot, resolveMap, resolveProject } from "@/scope";
 import { jsonFlag, mapFlag } from "@cli/flags";
 import { bodyLines, errorLines, handle, printOutput } from "@cli/render";
 import { wayfulRoot } from "@cli/root";
+
+/** The fraction of a backend-imposed cap at which `map status` warns. */
+const SUB_ISSUE_WARN_RATIO = 0.9;
+
+/**
+ * A map's step/goal usage against the backend's cap, for backends that impose
+ * one. The GitHub backend shares a single sub-issue budget between steps and
+ * goals; the filesystem backend reports no capacity, and so no line.
+ */
+export function subIssueUsage(capacity: SubIssueUsage): {
+  readonly human: string;
+  readonly value: { readonly used: number; readonly cap: number; readonly warning: boolean };
+} {
+  const warning = capacity.used >= capacity.cap * SUB_ISSUE_WARN_RATIO;
+  const human = warning
+    ? `Sub-issues: ${capacity.used}/${capacity.cap} (approaching the ${capacity.cap} sub-issue cap)`
+    : `Sub-issues: ${capacity.used}/${capacity.cap}`;
+  return { human, value: { used: capacity.used, cap: capacity.cap, warning } };
+}
 
 const mapCreateCommand = Command.make(
   "create",
@@ -175,12 +194,14 @@ const mapStatusCommand = Command.make("status", { map: mapFlag, json: jsonFlag }
       const root = yield* wayfulRoot;
       const p = yield* resolveProject(root.project);
       const m = yield* resolveMap(map, p);
-      const { snapshot, errors } = yield* buildSnapshot(m);
+      const { snapshot, errors, capacity } = yield* buildSnapshot(m);
       const status = mapStatus(snapshot.map, snapshot.steps, snapshot.goals);
+      const usage = capacity === undefined ? undefined : subIssueUsage(capacity);
       const human = [
         `Map ${status.map}`,
         `Goals: ${status.goals.satisfied}/${status.goals.total} satisfied`,
         `Steps: ${status.steps.pending} pending, ${status.steps.blocked} blocked, ${status.steps.complete} complete, ${status.steps.cancelled} cancelled`,
+        ...(usage === undefined ? [] : [usage.human]),
         "Blockers:",
         ...(status.blockers.length
           ? status.blockers.map((b) => `- ${b.id} ${b.name}: ${b.reason ?? "no reason recorded"}`)
@@ -194,7 +215,11 @@ const mapStatusCommand = Command.make("status", { map: mapFlag, json: jsonFlag }
           : ["- none"]),
         ...errorLines(errors),
       ].join("\n");
-      yield* printOutput(json, { ...status, errors }, human);
+      yield* printOutput(
+        json,
+        { ...status, ...(usage === undefined ? {} : { sub_issues: usage.value }), errors },
+        human,
+      );
     }),
   ),
 ).pipe(Command.withDescription("Show map status"));

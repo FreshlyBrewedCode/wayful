@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { CURRENT_FORMAT_VERSION } from "@domain/model";
+import { subIssueUsage } from "@cli/commands/map";
 import {
   FIXTURE_TIME,
   expectCommandError,
@@ -12,6 +13,19 @@ import {
 } from "@test/support/cli-harness";
 
 const { temporaryDirectory, invoke, projectFixture } = makeCliHarness();
+
+describe("map status: sub-issue usage", () => {
+  test("reports usage against the cap, and warns as it approaches it", () => {
+    expect(subIssueUsage({ used: 3, cap: 100 })).toEqual({
+      human: "Sub-issues: 3/100",
+      value: { used: 3, cap: 100, warning: false },
+    });
+    expect(subIssueUsage({ used: 95, cap: 100 })).toEqual({
+      human: "Sub-issues: 95/100 (approaching the 100 sub-issue cap)",
+      value: { used: 95, cap: 100, warning: true },
+    });
+  });
+});
 
 describe("maps, types, and readable rendering", () => {
   test("writes generated YAML collections in multiline block style", async () => {

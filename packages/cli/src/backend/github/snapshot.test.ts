@@ -173,4 +173,17 @@ describe("GithubMapStore: snapshot", () => {
     expect(result.snapshot.steps).toEqual([]);
     expect(result.errors.map((error) => error.file)).toEqual(["#14"]);
   });
+
+  test("reports the map's step/goal sub-issue usage against the shared cap", async () => {
+    const result = await runGithubMapStore(
+      () => graphqlIssueResponse(mapGraphqlIssue),
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        return yield* store.snapshot(map);
+      }),
+      { types: [taskType] },
+    );
+    // `mapGraphqlIssue` holds two steps and one goal; steps and goals share one budget.
+    expect(result.capacity).toEqual({ used: 3, cap: 100 });
+  });
 });
