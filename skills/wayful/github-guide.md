@@ -20,7 +20,7 @@ The repository and host come from the `origin` remote, or pass
 `--repo owner/name` for the repository. `init` verifies the credential can
 write, creates the `wayful:*` labels, and records the backend and repository in
 `.wayful/project.toml`. If a `.wayful/` project already exists it refuses to
-overwrite it, so a repeat run is safe.
+overwrite it.
 
 ## Credentials
 
