@@ -1,4 +1,4 @@
-import { Effect, Fiber, FileSystem, Layer, Path, Ref, Result, Schedule } from "effect";
+import { Effect, Fiber, FileSystem, Layer, Path, Redacted, Ref, Result, Schedule } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { WayfulError } from "@domain/errors";
@@ -26,6 +26,7 @@ import {
   addLabels,
   addSubIssue,
   createIssue,
+  deleteIssue,
   ensureLabel,
   getIssue,
   listBlockedBy,
@@ -56,6 +57,7 @@ import {
 } from "@backend/github/labels";
 import { decodeMapIssue, mapIssueData } from "@backend/github/map";
 import { resolveRepo, type ResolvedRepo } from "@backend/github/repo";
+import type { GitRemoteRef } from "@backend/github/remote";
 import { readRevision, REVISION_POLL_MS } from "@backend/github/revision";
 import { decodeStepIssue, dependencyOutsideMapError, stepIssueData } from "@backend/github/step";
 import { SUB_ISSUE_CAP, subIssueCapError } from "@backend/github/subIssues";
@@ -64,6 +66,23 @@ const fail = (message: string) => Effect.fail(new WayfulError({ message }));
 
 function describeError(error: unknown): string {
   return error instanceof WayfulError ? error.message : String(error);
+}
+
+/**
+ * Cleans up an issue this run just created when the link that would have made
+ * it part of a map failed. GitHub has no transaction spanning issue creation
+ * and sub-issue linking, so without this the run leaves an unreferenced wayful
+ * issue behind. Best-effort: the original failure is what the caller reports,
+ * and a failed cleanup is swallowed rather than masking it.
+ */
+function discardCreated(
+  ref: GitRemoteRef,
+  token: Redacted.Redacted<string>,
+  created: GithubIssue,
+): Effect.Effect<void, never, GithubHttp> {
+  return created.node_id === undefined
+    ? Effect.void
+    : deleteIssue(ref, token, created.node_id).pipe(Effect.ignore);
 }
 
 /** The memoization key for a map's snapshot: one project, one map. */
@@ -335,7 +354,11 @@ export const makeGithubMapStore = Effect.gen(function* () {
           }),
           labels: [WAYFUL_GOAL_LABEL],
         });
-        yield* addSubIssue(ref, token, map.number, initialGoal.id);
+        yield* addSubIssue(ref, token, map.number, initialGoal.id).pipe(
+          Effect.catch((error) =>
+            discardCreated(ref, token, initialGoal).pipe(Effect.andThen(Effect.fail(error))),
+          ),
+        );
       }),
     );
 
@@ -407,7 +430,11 @@ export const makeGithubMapStore = Effect.gen(function* () {
           body: encodeIssueBody(step.body, stepIssueData(step)),
           labels: [WAYFUL_STEP_LABEL, wayfulTypeLabel(step.type)],
         });
-        yield* addSubIssue(ref, token, parent, created.id);
+        yield* addSubIssue(ref, token, parent, created.id).pipe(
+          Effect.catch((error) =>
+            discardCreated(ref, token, created).pipe(Effect.andThen(Effect.fail(error))),
+          ),
+        );
         for (const dependency of step.dependencies)
           yield* addBlockedBy(ref, token, created.number, stepIds.get(dependency)!);
         // A record may be created non-pending (the shared interface allows
@@ -473,6 +500,16 @@ export const makeGithubMapStore = Effect.gen(function* () {
         // attachments, and the reason/summary fields), so compare the full
         // encoded body, not just the prose: adding a block reason must reach
         // the body, while a hand-edited key order must not cause a rewrite.
+        //
+        // Removing the blocked label happens *before* the body edit. These
+        // mutations are not transactional, so an interrupted unblock must leave
+        // a decodable record: taking the label off first yields a pending step
+        // with a stray reason (which still decodes), never a blocked step whose
+        // reason has already been cleared.
+        const present = new Set(issue.labels);
+        if (present.has(WAYFUL_BLOCKED_LABEL) && step.status !== "blocked")
+          yield* removeLabel(ref, token, step.id, WAYFUL_BLOCKED_LABEL);
+
         const bodyPatch: IssuePatch = {};
         if (step.description !== current.description) bodyPatch.title = step.description;
         const desiredBody = encodeIssueBody(step.body, stepIssueData(step));
@@ -494,20 +531,19 @@ export const makeGithubMapStore = Effect.gen(function* () {
           });
         }
 
+        // Adding the blocked label comes *after* the body edit, so the reason
+        // is already recorded when the label marks the step blocked.
         const desiredLabels = [
           WAYFUL_STEP_LABEL,
           wayfulTypeLabel(step.type),
           ...(step.status === "blocked" ? [WAYFUL_BLOCKED_LABEL] : []),
         ];
-        const present = new Set(issue.labels);
         yield* addLabels(
           ref,
           token,
           step.id,
           desiredLabels.filter((label) => !present.has(label)),
         );
-        if (present.has(WAYFUL_BLOCKED_LABEL) && step.status !== "blocked")
-          yield* removeLabel(ref, token, step.id, WAYFUL_BLOCKED_LABEL);
 
         // The dependency edges themselves, never the body. Additions use the
         // database ids resolved above; removals use the ids of the edges
@@ -563,7 +599,11 @@ export const makeGithubMapStore = Effect.gen(function* () {
           body: encodeGoalBody(goal),
           labels: [WAYFUL_GOAL_LABEL],
         });
-        yield* addSubIssue(ref, token, parent, created.id);
+        yield* addSubIssue(ref, token, parent, created.id).pipe(
+          Effect.catch((error) =>
+            discardCreated(ref, token, created).pipe(Effect.andThen(Effect.fail(error))),
+          ),
+        );
         yield* invalidateSnapshot(map);
       }),
     );

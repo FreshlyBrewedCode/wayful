@@ -2,22 +2,39 @@ import { Console, Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 
 import { MapStore } from "@backend/MapStore";
+import type { MapHandle } from "@backend/MapStore";
 import { liftSync } from "@backend/filesystem/documents";
 import { normalizeRef } from "@domain/artifact-ref";
 import { WayfulError } from "@domain/errors";
 import { attachmentOK } from "@domain/graph";
 import { identifier, nonEmpty, slots } from "@domain/identifier";
 import type { Slot } from "@domain/identifier";
-import { CURRENT_FORMAT_VERSION, type Attachment } from "@domain/model";
-import { assertWritableMapIntegrity, fail, resolveMap, resolveProject, strict } from "@/scope";
+import { CURRENT_FORMAT_VERSION, type Attachment, type GoalRecord } from "@domain/model";
+import { assertWritableMapIntegrity, fail, resolveMap, resolveProject } from "@/scope";
 import { jsonFlag, mapFlag } from "@cli/flags";
-import { bodyLines, handle, printOutput } from "@cli/render";
+import { bodyLines, errorLines, handle, printOutput } from "@cli/render";
 import { wayfulRoot } from "@cli/root";
 
 const goalParent = Command.make("goal").pipe(
   Command.withSharedFlags({ map: mapFlag }),
   Command.withDescription("Manage map goals"),
 );
+
+/**
+ * The goal collection a write reads and mutates, gated for whole-map semantic
+ * integrity and for decode errors in the goals themselves. A malformed step
+ * elsewhere on the map never blocks a goal write.
+ */
+function writableGoals(
+  map: MapHandle,
+): Effect.Effect<readonly GoalRecord[], WayfulError, MapStore> {
+  return Effect.gen(function* () {
+    const mapStore = yield* MapStore;
+    const read = yield* mapStore.listGoals(map);
+    yield* assertWritableMapIntegrity(map, read);
+    return read.records;
+  });
+}
 
 const goalListCommand = Command.make("list", { json: jsonFlag }, ({ json }) =>
   handle(
@@ -28,11 +45,16 @@ const goalListCommand = Command.make("list", { json: jsonFlag }, ({ json }) =>
       const root = yield* wayfulRoot;
       const project = yield* resolveProject(root.project);
       const map = yield* resolveMap(parent.map, project);
-      const goals = yield* strict(yield* mapStore.listGoals(map));
-      const human = goals
-        .flatMap((g) => [`${g.name}: ${g.description}`, ...bodyLines(g.body)])
-        .join("\n");
-      yield* printOutput(json, goals, human);
+      const goalsRead = yield* mapStore.listGoals(map);
+      const goals = goalsRead.records;
+      // A broken sibling never hides a healthy goal: render everything that
+      // decoded, and report everything that didn't by issue number.
+      const errors = goalsRead.errors;
+      const human = [
+        ...goals.flatMap((g) => [`${g.name}: ${g.description}`, ...bodyLines(g.body)]),
+        ...errorLines(errors),
+      ].join("\n");
+      yield* printOutput(json, { goals, errors }, human);
     }),
   ),
 ).pipe(Command.withDescription("List goals"));
@@ -77,7 +99,9 @@ const goalAddCommand = Command.make(
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const map = yield* resolveMap(parent.map, project);
-        yield* assertWritableMapIntegrity(map);
+        // The write gate is scoped to the goals this command touches: a
+        // malformed step elsewhere on the map must not block adding a goal.
+        yield* writableGoals(map);
         const resolvedName = yield* liftSync(() => identifier(name, "goal name"));
         const resolvedDescription = yield* liftSync(() =>
           nonEmpty(description, "goal description"),
@@ -124,9 +148,8 @@ const goalOutputCommand = Command.make(
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const map = yield* resolveMap(parent.map, project);
-        yield* assertWritableMapIntegrity(map);
         const resolvedGoalName = yield* liftSync(() => identifier(goal, "goal name"));
-        const goals = yield* strict(yield* mapStore.listGoals(map));
+        const goals = yield* writableGoals(map);
         const target = goals.find((g) => g.name === resolvedGoalName);
         if (!target) return yield* fail(`goal '${resolvedGoalName}' does not exist.`);
         const normalizedRef = yield* liftSync(() => normalizeRef(rawRef));
@@ -177,9 +200,8 @@ const goalSatisfyCommand = Command.make(
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const map = yield* resolveMap(parent.map, project);
-        yield* assertWritableMapIntegrity(map);
         const resolvedGoalName = yield* liftSync(() => identifier(goal, "goal name"));
-        const goals = yield* strict(yield* mapStore.listGoals(map));
+        const goals = yield* writableGoals(map);
         const target = goals.find((g) => g.name === resolvedGoalName);
         if (!target) return yield* fail(`goal '${resolvedGoalName}' does not exist.`);
         if (!attachmentOK(target.required_outputs, target.outputs))

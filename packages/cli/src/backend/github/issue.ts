@@ -17,6 +17,8 @@ export interface GithubIssue {
   readonly created_at: string;
   readonly updated_at: string;
   readonly closed_at: string | null;
+  /** GitHub's global node id, present on REST reads and needed to delete an orphan. */
+  readonly node_id?: string;
 }
 
 const DETAILS_OPEN = "<details>";

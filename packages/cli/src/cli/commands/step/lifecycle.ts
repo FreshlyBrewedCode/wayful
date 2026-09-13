@@ -5,7 +5,7 @@ import { MapStore } from "@backend/MapStore";
 import { liftSync } from "@backend/filesystem/documents";
 import { attachmentOK } from "@domain/graph";
 import { nonEmpty } from "@domain/identifier";
-import { assertWritableMapIntegrity, fail, resolveProject, strict } from "@/scope";
+import { fail, resolveProject } from "@/scope";
 import { handle } from "@cli/render";
 import { wayfulRoot } from "@cli/root";
 import {
@@ -14,6 +14,7 @@ import {
   resolveStepTarget,
   stepArgument,
   stepParent,
+  writableSteps,
 } from "@cli/commands/step/shared";
 
 export const stepBlockCommand = Command.make(
@@ -34,8 +35,7 @@ export const stepBlockCommand = Command.make(
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
-        yield* assertWritableMapIntegrity(map);
-        const steps = yield* strict(yield* mapStore.listSteps(map));
+        const steps = yield* writableSteps(map);
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         if (target.status !== "pending") return yield* fail("only pending steps can be blocked.");
@@ -58,8 +58,7 @@ export const stepUnblockCommand = Command.make(
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
-        yield* assertWritableMapIntegrity(map);
-        const steps = yield* strict(yield* mapStore.listSteps(map));
+        const steps = yield* writableSteps(map);
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         if (target.status !== "blocked") return yield* fail("only blocked steps can be unblocked.");
@@ -88,8 +87,7 @@ export const stepCompleteCommand = Command.make(
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
-        yield* assertWritableMapIntegrity(map);
-        const steps = yield* strict(yield* mapStore.listSteps(map));
+        const steps = yield* writableSteps(map);
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         const completionSummary = yield* liftSync(() => nonEmpty(summary, "completion summary"));
@@ -123,8 +121,7 @@ export const stepCancelCommand = Command.make(
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
-        yield* assertWritableMapIntegrity(map);
-        const steps = yield* strict(yield* mapStore.listSteps(map));
+        const steps = yield* writableSteps(map);
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         const cancellationReason = yield* liftSync(() => nonEmpty(reason, "cancellation reason"));

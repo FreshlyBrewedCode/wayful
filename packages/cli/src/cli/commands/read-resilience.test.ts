@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { breakStep, expectCommandError, makeCliHarness } from "@test/support/cli-harness";
 
-const { invoke, projectFixture, writeStep } = makeCliHarness();
+const { invoke, projectFixture, writeStep, writeGoal } = makeCliHarness();
 
 describe("read resilience: skip-and-collect on malformed records", () => {
   test("map show renders the healthy step and reports the broken sibling, in both human and JSON output", async () => {
@@ -49,6 +49,27 @@ describe("read resilience: skip-and-collect on malformed records", () => {
     expect(nextValue.errors[0].file).toBe("2-bad.md");
   });
 
+  test("goal list renders healthy goals and names a broken sibling by file", async () => {
+    const project = await projectFixture();
+    await writeGoal(project, "healthy");
+    await writeFile(
+      join(project, ".wayful", "maps", "plan", "goals", "broken.md"),
+      "not a goal at all\n",
+    );
+
+    const listed = invoke(["goal", "list", "--map", "plan", "--json"], project);
+    expect(listed.exitCode).toBe(0);
+    const value = JSON.parse(listed.stdout);
+    expect(value.goals.map((g: { name: string }) => g.name)).toEqual(["healthy"]);
+    expect(value.errors).toHaveLength(1);
+    expect(value.errors[0].file).toBe("broken.md");
+
+    const human = invoke(["goal", "list", "--map", "plan"], project).stdout;
+    expect(human).toContain("healthy: Original description");
+    expect(human).toContain("Errors:");
+    expect(human).toContain("broken.md");
+  });
+
   test("malformed project metadata remains fatal even though step decode errors are tolerated elsewhere", async () => {
     const project = await projectFixture();
     await writeFile(join(project, ".wayful", "project.toml"), "not valid toml at all {{{");
@@ -91,6 +112,44 @@ describe("read resilience: skip-and-collect on malformed records", () => {
     expectCommandError(
       invoke(["step", "update", "good", "--map", "plan", "--description", "Changed"], project),
     );
+  });
+
+  test("the write gate is scoped to the collection a command touches", async () => {
+    // A broken goal is outside a step write's scope, so the write succeeds.
+    const stepProject = await projectFixture();
+    await writeStep(stepProject, "good", 1);
+    await writeFile(
+      join(stepProject, ".wayful", "maps", "plan", "goals", "broken.md"),
+      "not a goal at all\n",
+    );
+    expect(
+      invoke(
+        ["step", "create", "second", "--map", "plan", "--type", "task", "--description", "New"],
+        stepProject,
+      ).exitCode,
+    ).toBe(0);
+
+    // A broken step is outside a goal write's scope, so the write succeeds.
+    const goalProject = await projectFixture();
+    await writeStep(goalProject, "bad", 1);
+    await breakStep(goalProject, "1-bad.md");
+    expect(
+      invoke(
+        [
+          "goal",
+          "add",
+          "--map",
+          "plan",
+          "--name",
+          "release",
+          "--description",
+          "Approved",
+          "--required-outputs",
+          '[{"name":"evidence","kind":"artifact"}]',
+        ],
+        goalProject,
+      ).exitCode,
+    ).toBe(0);
   });
 
   test("map validate treats decode errors as blocking and reports every malformed file", async () => {

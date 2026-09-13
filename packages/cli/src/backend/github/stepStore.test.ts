@@ -324,6 +324,37 @@ describe("GithubMapStore: createStep", () => {
     expect(error.message).toContain("sub-issue");
     expect(find("POST", "/repos/acme/widgets/issues")).toBeUndefined();
   });
+
+  test("deletes the created issue when linking it as a sub-issue fails", async () => {
+    const { record, requests } = recorder();
+    const error = await runGithubMapStore(
+      (request) => {
+        record(request);
+        const path = new URL(request.url).pathname;
+        if (request.method === "GET" && path.endsWith("/sub_issues")) return jsonResponse(200, []);
+        if (request.method === "POST" && path === "/repos/acme/widgets/labels")
+          return jsonResponse(201, {});
+        if (request.method === "POST" && path === "/repos/acme/widgets/issues")
+          return jsonResponse(201, issueJson(42, { id: 1042, node_id: "NODE_42" }));
+        if (request.method === "POST" && path.endsWith("/sub_issues"))
+          return jsonResponse(500, { message: "boom" });
+        if (request.method === "POST" && path === "/graphql")
+          return jsonResponse(200, { data: { deleteIssue: { clientMutationId: null } } });
+        throw new Error(`unexpected ${request.method} ${request.url}`);
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        return yield* Effect.flip(store.createStep(mapHandle(), newStep()));
+      }),
+    );
+    expect(error.message).toContain("sub-issue");
+    const deletion = requests.find((r) => r.method === "POST" && r.path === "/graphql");
+    expect(deletion).toBeDefined();
+    expect(deletion!.body).toMatchObject({
+      query: expect.stringContaining("deleteIssue"),
+      variables: { id: "NODE_42" },
+    });
+  });
 });
 
 describe("GithubMapStore: listSteps", () => {
@@ -381,6 +412,81 @@ describe("GithubMapStore: listSteps", () => {
       }),
     );
     expect(steps).toEqual(["pending", "blocked", "complete", "cancelled"]);
+  });
+
+  test("a step closed natively as completed with no recorded summary decodes as complete", async () => {
+    const result = await runGithubMapStore(
+      (request) => {
+        const path = new URL(request.url).pathname;
+        if (path.endsWith("/sub_issues"))
+          return jsonResponse(200, [
+            stepIssue(
+              5,
+              { name: "merged", description: "closed by a pull request" },
+              { state: "closed", state_reason: "completed", closed_at: ISSUE_TIME },
+            ),
+          ]);
+        if (path.endsWith("/dependencies/blocked_by")) return jsonResponse(200, []);
+        throw new Error(`unexpected ${request.method} ${request.url}`);
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        return yield* store.listSteps(mapHandle());
+      }),
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.records[0]!.status).toBe("complete");
+    expect(result.records[0]!.completion_summary).toBeUndefined();
+  });
+
+  test("a step closed with a reason wayful does not model decodes as cancelled", async () => {
+    const result = await runGithubMapStore(
+      (request) => {
+        const path = new URL(request.url).pathname;
+        if (path.endsWith("/sub_issues"))
+          return jsonResponse(200, [
+            stepIssue(
+              5,
+              { name: "archived", description: "closed by hand" },
+              { state: "closed", state_reason: null, closed_at: ISSUE_TIME },
+            ),
+          ]);
+        if (path.endsWith("/dependencies/blocked_by")) return jsonResponse(200, []);
+        throw new Error(`unexpected ${request.method} ${request.url}`);
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        return yield* store.listSteps(mapHandle());
+      }),
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.records[0]!.status).toBe("cancelled");
+    expect(result.records[0]!.cancellation_reason).toBeUndefined();
+  });
+
+  test("a step carrying the blocked label but no recorded reason still decodes", async () => {
+    const result = await runGithubMapStore(
+      (request) => {
+        const path = new URL(request.url).pathname;
+        if (path.endsWith("/sub_issues"))
+          return jsonResponse(200, [
+            stepIssue(
+              4,
+              { name: "waiting", description: "blocked by hand" },
+              { labels: blockedLabels() },
+            ),
+          ]);
+        if (path.endsWith("/dependencies/blocked_by")) return jsonResponse(200, []);
+        throw new Error(`unexpected ${request.method} ${request.url}`);
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        return yield* store.listSteps(mapHandle());
+      }),
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.records[0]!.status).toBe("blocked");
+    expect(result.records[0]!.block_reason).toBeUndefined();
   });
 
   test("ignores sub-issues that are not steps and reports malformed steps beside healthy ones", async () => {
@@ -530,6 +636,50 @@ describe("GithubMapStore: saveStep status transitions", () => {
     const patches = requests.filter((r) => r.method === "PATCH").map((r) => r.body);
     expect(patches.every((patch) => !("state" in (patch as object)))).toBe(true);
     expect((patches[0] as { body: string }).body).not.toContain("block_reason");
+    // The blocked label goes first: an interrupted unblock must never leave a
+    // blocked issue whose recorded reason has already been cleared.
+    expect(requests.findIndex((r) => r.method === "DELETE")).toBeLessThan(
+      requests.findIndex((r) => r.method === "PATCH"),
+    );
+  });
+
+  test("unblocks a step whose blocked label has no recorded reason", async () => {
+    const current = stepIssue(
+      5,
+      { name: "alpha", description: "first" },
+      { labels: blockedLabels() },
+    );
+    const { record, requests } = recorder();
+    await runGithubMapStore(
+      (request) => {
+        record(request);
+        const path = new URL(request.url).pathname;
+        if (request.method === "GET" && path.endsWith("/issues/7/sub_issues"))
+          return jsonResponse(200, [current]);
+        if (
+          request.method === "GET" &&
+          path === "/repos/acme/widgets/issues/5/dependencies/blocked_by"
+        )
+          return jsonResponse(200, []);
+        if (request.method === "GET" && path === "/repos/acme/widgets/issues/5")
+          return jsonResponse(200, current);
+        if (request.method === "DELETE" && path.startsWith("/repos/acme/widgets/issues/5/labels/"))
+          return jsonResponse(200, {});
+        if (request.method === "PATCH" && path === "/repos/acme/widgets/issues/5")
+          return jsonResponse(200, {});
+        throw new Error(`unexpected ${request.method} ${request.url}`);
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        const step = yield* loadStep();
+        expect(step.status).toBe("blocked");
+        expect(step.block_reason).toBeUndefined();
+        const { block_reason: _blockReason, ...rest } = step;
+        yield* store.saveStep(mapHandle(), { ...rest, status: "pending" });
+      }),
+    );
+    expect(requests.some((r) => r.method === "DELETE")).toBe(true);
+    expect(requests.some((r) => r.method === "PATCH")).toBe(false);
   });
 
   test("complete persists the summary in the body and closes as completed in a body-free state edit", async () => {

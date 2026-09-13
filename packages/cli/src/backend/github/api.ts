@@ -162,6 +162,7 @@ function normalizeIssue(raw: unknown): GithubIssue | undefined {
       record.closed_at === null || record.closed_at === undefined
         ? null
         : isoMillis(record.closed_at),
+    node_id: typeof record.node_id === "string" ? record.node_id : undefined,
   };
 }
 
@@ -447,5 +448,38 @@ export function createIssue(
     const created = normalizeIssue(body);
     if (!created) return yield* requestFailed("the created issue could not be read.");
     return created;
+  });
+}
+
+/**
+ * Deletes an issue by its global node id. REST has no issue delete, so this is
+ * the one GraphQL mutation the backend issues; it exists to clean up an issue
+ * created for a map that could not then be linked to it.
+ */
+export function deleteIssue(
+  repo: GitRemoteRef,
+  token: Redacted.Redacted<string>,
+  nodeId: string,
+): Effect.Effect<void, WayfulError, GithubHttp> {
+  return Effect.gen(function* () {
+    const base = apiBase(repo.host);
+    const request = authorized(HttpClientRequest.post(base.graphql), token).pipe(
+      HttpClientRequest.bodyJsonUnsafe({
+        query: "mutation($id: ID!) { deleteIssue(input: {issueId: $id}) { clientMutationId } }",
+        variables: { id: nodeId },
+      }),
+    );
+    const response = yield* execute(request);
+    if (response.status < 200 || response.status >= 300)
+      return yield* requestFailed(`could not delete issue (status ${response.status}).`);
+    const body = (yield* response.json.pipe(
+      Effect.mapError((error) => requestFailed(error.message)),
+    )) as { readonly errors?: unknown };
+    const messages = Array.isArray(body.errors)
+      ? body.errors
+          .map((error) => (error as { message?: unknown }).message)
+          .filter((message): message is string => typeof message === "string")
+      : [];
+    if (messages.length) return yield* requestFailed(messages.join("; "));
   });
 }

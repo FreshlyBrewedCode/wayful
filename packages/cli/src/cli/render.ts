@@ -1,10 +1,20 @@
 import { Console, Effect } from "effect";
 
 import { MapMetadataError, WayfulError } from "@domain/errors";
+import type { DecodeError } from "@domain/model";
 import { report } from "@cli/report";
 
 export function printOutput(json: boolean, value: unknown, human: string): Effect.Effect<void> {
   return Console.log(json ? JSON.stringify(value, null, 2) : human);
+}
+
+/**
+ * Renders decode errors as an explicit section — omitted entirely when there
+ * are none, so degraded output is never confused with the ordinary case. Used
+ * by every collection read that renders what decoded and names what did not.
+ */
+export function errorLines(errors: readonly DecodeError[]): string[] {
+  return errors.length ? ["Errors:", ...errors.map((e) => `- ${e.file}: ${e.message}`)] : [];
 }
 
 /** Renders a Markdown body as the labelled, indented lines humans see. */

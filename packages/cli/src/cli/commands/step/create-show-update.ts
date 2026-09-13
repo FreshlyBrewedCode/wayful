@@ -6,7 +6,7 @@ import { ProjectStore } from "@backend/ProjectStore";
 import { liftSync } from "@backend/filesystem/documents";
 import { identifier, nonEmpty } from "@domain/identifier";
 import { CURRENT_FORMAT_VERSION, type NewStepRecord } from "@domain/model";
-import { assertWritableMapIntegrity, fail, resolveMap, resolveProject, strict } from "@/scope";
+import { fail, resolveMap, resolveProject, strict } from "@/scope";
 import { jsonFlag } from "@cli/flags";
 import { handle, printOutput } from "@cli/render";
 import { wayfulRoot } from "@cli/root";
@@ -17,6 +17,7 @@ import {
   resolveStepTarget,
   stepArgument,
   stepParent,
+  writableSteps,
 } from "@cli/commands/step/shared";
 
 export const stepCreateCommand = Command.make(
@@ -57,8 +58,7 @@ export const stepCreateCommand = Command.make(
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const map = yield* resolveMap(parent.map, project);
-        yield* assertWritableMapIntegrity(map);
-        const steps = yield* strict(yield* mapStore.listSteps(map));
+        const steps = yield* writableSteps(map);
         const stepName = yield* liftSync(() => identifier(name, "step name", true));
         if (steps.some((s) => s.name === stepName))
           return yield* fail(`step '${stepName}' already exists.`);
@@ -154,8 +154,7 @@ export const stepUpdateCommand = Command.make(
         const root = yield* wayfulRoot;
         const project = yield* resolveProject(root.project);
         const { map, token } = yield* resolveStepTarget(reference, parent.map, project);
-        yield* assertWritableMapIntegrity(map);
-        const steps = yield* strict(yield* mapStore.listSteps(map));
+        const steps = yield* writableSteps(map);
         const target = yield* findStep(steps, token);
         yield* assertNotTerminal(target);
         if (target.status !== "pending") return yield* fail("only pending steps can be updated.");
