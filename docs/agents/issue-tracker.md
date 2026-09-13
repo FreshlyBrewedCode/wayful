@@ -15,12 +15,22 @@ Infer the repo from `git remote -v`; `gh` does this automatically when run insid
 
 ## Labels
 
-Two axes only, always both:
+Two axes for the issues you create and manage, always both:
 
 - **Package**: `pkg:cli` or `pkg:ui`. Add both if a change spans packages.
 - **Type**: `type:bug` or `type:feature`.
 
-No other labels exist. In particular, there are no dedicated triage labels — triage is handled by the GitHub Project (see below), not by labels.
+These are what triage and the ready queue work from; don't invent others.
+There are no dedicated triage labels — triage is the GitHub Project (below),
+not a label.
+
+The repository also carries the `wayful:*` labels: `wayful:map`,
+`wayful:step`, `wayful:goal`, `wayful:blocked`, and one `wayful:type/<name>`
+per step type. They belong to the wayful CLI, which applies them to its own
+issues — this repository is itself a GitHub-backed wayful project — and reads
+its records back by them. Never add a `wayful:*` label by hand, and never treat
+one as an agent-facing category; leave them to the CLI. See
+`skills/wayful/github-guide.md`.
 
 ## Triage: the GitHub Project
 

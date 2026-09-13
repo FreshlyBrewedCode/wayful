@@ -30,20 +30,25 @@ The CLI is the primary way to interact with wayful primitives.
 
 ## Quickstart
 
-Use the `context` command to quickly gather context for a project, map, step, or artifact. Bare `context` starts at project scope; drill into a map, then a step or an artifact, by passing a reference:
+Use the `context` command to quickly gather context for a project, map, step, or artifact. Bare `context` starts at project scope; drill into a map, then a step, by passing a reference:
 ```sh
 wayful context
 wayful context redesign
 wayful context 'redesign/#3'
-wayful context 'redesign/@5'
 ```
-With `--map`/`WAYFUL_MAP` already set, the map-qualified prefix can be dropped:
+An artifact is addressed by its ref rather than a reference, so it needs a map context rather than a map-qualified prefix. With `--map`/`WAYFUL_MAP` set, that context is already there:
 ```sh
+export WAYFUL_MAP=redesign
 wayful context '#3'
-wayful context @5
+wayful context 'file:docs/research/interviews.md'
 ```
 Quote or escape `#` references so the shell does not treat them as a comment.
 
 ## Create and inspect work
 
 Projects are scoped to directories. Initialize a project in its directory, then run `wayful` commands from that directory; the CLI discovers the current project by default. To operate on another project, pass its directory path with `--project`.
+
+## Guides
+
+- `cli-guide.md` — the full command surface, with runnable examples.
+- `github-guide.md` — running a project whose maps, steps, and goals live in GitHub Issues.

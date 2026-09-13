@@ -10,5 +10,5 @@ import { projectFlag } from "@cli/flags";
  */
 export const wayfulRoot = Command.make("wayful").pipe(
   Command.withSharedFlags({ project: projectFlag }),
-  Command.withDescription("Wayful filesystem CLI"),
+  Command.withDescription("Plan and complete work on maps of steps and goals"),
 );
