@@ -72,9 +72,10 @@ export function resolveMap(
     if (map.metadata.allowed_step_types !== undefined) {
       const types = yield* projectStore.listTypes(project);
       const known = new Set(types.records.map((type) => type.name));
-      if (map.metadata.allowed_step_types.some((type) => !known.has(type)))
+      const unknown = map.metadata.allowed_step_types.filter((type) => !known.has(type));
+      if (unknown.length)
         return yield* new MapMetadataError({
-          message: "map allowed_step_types contains an unknown project type.",
+          message: `map '${map.name}' allows unknown step type(s): ${unknown.join(", ")}; known types are ${[...known].toSorted().join(", ") || "none"}.`,
         });
     }
     return map;

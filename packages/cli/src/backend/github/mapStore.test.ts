@@ -267,6 +267,37 @@ describe("GithubMapStore: listMaps", () => {
   });
 });
 
+describe("GithubMapStore: failures name the problem and the remedy", () => {
+  async function listFailure(status: number, message: string) {
+    return run(
+      () => jsonResponse(status, { message }),
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        return yield* Effect.flip(store.listMaps(project));
+      }),
+    );
+  }
+
+  test("an invalid credential points at how to supply a working one", async () => {
+    const error = await listFailure(401, "Bad credentials");
+    expect(error.message).toContain("acme/widgets");
+    expect(error.message).toContain("invalid or expired");
+    expect(error.message).toMatch(/gh auth login|GH_TOKEN/);
+  });
+
+  test("a credential that cannot reach the repository is not told to sign in again", async () => {
+    const error = await listFailure(403, "Resource not accessible");
+    expect(error.message).toContain("cannot access acme/widgets");
+    expect(error.message).not.toMatch(/gh auth login|sign in/i);
+  });
+
+  test("a repository that is not visible is named and described", async () => {
+    const error = await listFailure(404, "Not Found");
+    expect(error.message).toContain("acme/widgets");
+    expect(error.message).toMatch(/not exist|not be visible/);
+  });
+});
+
 describe("GithubMapStore: openMap", () => {
   test("resolves a kebab-case name to its issue", async () => {
     const map = await run(

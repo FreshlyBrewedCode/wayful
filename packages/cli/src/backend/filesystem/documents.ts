@@ -11,7 +11,10 @@ export function stringifyYaml(value: unknown): string {
 
 export function stringifyToml(value: Record<string, unknown>): string {
   const text = Bun.TOML.stringify(value);
-  if (text === undefined) throw new WayfulError({ message: "cannot serialize TOML metadata." });
+  if (text === undefined)
+    throw new WayfulError({
+      message: "cannot serialize TOML metadata; the record has a value TOML cannot represent.",
+    });
   return text.endsWith("\n") ? text : `${text}\n`;
 }
 
@@ -19,7 +22,7 @@ export function parseYaml(text: string, where: string): unknown {
   try {
     return Bun.YAML.parse(text);
   } catch {
-    throw new WayfulError({ message: `malformed YAML in ${where}.` });
+    throw new WayfulError({ message: `malformed YAML in ${where}; fix the file and retry.` });
   }
 }
 
@@ -27,7 +30,7 @@ export function parseToml(text: string, where: string): unknown {
   try {
     return Bun.TOML.parse(text);
   } catch {
-    throw new WayfulError({ message: `malformed TOML in ${where}.` });
+    throw new WayfulError({ message: `malformed TOML in ${where}; fix the file and retry.` });
   }
 }
 
@@ -36,12 +39,19 @@ export function parseFrontmatter(
   where: string,
 ): { data: Record<string, unknown>; body: string } {
   if (!text.startsWith("---\n"))
-    throw new WayfulError({ message: `malformed frontmatter in ${where}.` });
+    throw new WayfulError({
+      message: `malformed frontmatter in ${where}; fix the file and retry.`,
+    });
   const end = text.indexOf("\n---", 4);
-  if (end < 0) throw new WayfulError({ message: `malformed frontmatter in ${where}.` });
+  if (end < 0)
+    throw new WayfulError({
+      message: `malformed frontmatter in ${where}; fix the file and retry.`,
+    });
   const data = parseYaml(text.slice(4, end), where);
   if (!data || typeof data !== "object" || Array.isArray(data))
-    throw new WayfulError({ message: `malformed frontmatter in ${where}.` });
+    throw new WayfulError({
+      message: `malformed frontmatter in ${where}; fix the file and retry.`,
+    });
   return { data: data as Record<string, unknown>, body: text.slice(end + 4).replace(/^\n/, "") };
 }
 
@@ -64,7 +74,9 @@ export function writeAtomic(
 ): Effect.Effect<void, WayfulError> {
   return Effect.gen(function* () {
     const tmp = `${path}.tmp-${process.pid}-${yield* Clock.currentTimeMillis}-${(yield* Random.next).toString(36).slice(2)}`;
-    const onError = new WayfulError({ message: `cannot write ${path}.` });
+    const onError = new WayfulError({
+      message: `cannot write '${path}'; check that its directory exists and is writable.`,
+    });
     yield* fs.writeFileString(tmp, text).pipe(Effect.mapError(() => onError));
     yield* fs.rename(tmp, path).pipe(Effect.mapError(() => onError));
   });

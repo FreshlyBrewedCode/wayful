@@ -184,6 +184,40 @@ describe("GithubHttp: rate-limit budgeting", () => {
   });
 });
 
+describe("GithubHttp: response classification", () => {
+  const cases: ReadonlyArray<readonly [number, string]> = [
+    [401, "unauthenticated"],
+    [403, "forbidden"],
+    [404, "not-found"],
+    [500, "unexpected"],
+  ];
+  for (const [status, kind] of cases) {
+    test(`classifies a ${status} response as ${kind}`, async () => {
+      const error = await run(
+        () => jsonResponse(status, { message: "nope" }),
+        Effect.gen(function* () {
+          const http = yield* GithubHttp;
+          return yield* Effect.flip(http.getJson(HttpClientRequest.get(url)));
+        }),
+      );
+      expect((error as { _tag?: string })["_tag"]).toBe("GithubRequestError");
+      expect((error as { kind?: string }).kind).toBe(kind);
+      expect((error as { status?: number }).status).toBe(status);
+    });
+  }
+
+  test("keeps GitHub's own message alongside the classified status", async () => {
+    const error = await run(
+      () => jsonResponse(422, { message: "Validation Failed" }),
+      Effect.gen(function* () {
+        const http = yield* GithubHttp;
+        return yield* Effect.flip(http.getJson(HttpClientRequest.get(url)));
+      }),
+    );
+    expect((error as { message?: string }).message).toContain("Validation Failed");
+  });
+});
+
 describe("makeGithubHttp", () => {
   test("does not classify a generic 403 as a rate limit", async () => {
     const result = await run(

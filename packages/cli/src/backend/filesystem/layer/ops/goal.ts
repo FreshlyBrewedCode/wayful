@@ -1,6 +1,5 @@
 import { Effect, FileSystem, Path } from "effect";
 
-import { WayfulError } from "@domain/errors";
 import type { GoalRecord, NewGoalRecord } from "@domain/model";
 import type { MapHandle } from "@backend/MapStore";
 import { decodeGoal } from "@backend/filesystem/decode";
@@ -13,7 +12,13 @@ import {
   writeAtomic,
 } from "@backend/filesystem/documents";
 import { goalFile, goalsDir, mapDir } from "@backend/filesystem/paths";
-import { accessError, collect, fail, goalToDocument } from "@backend/filesystem/layer/records";
+import {
+  accessError,
+  collect,
+  fail,
+  goalToDocument,
+  readDirError,
+} from "@backend/filesystem/layer/records";
 
 export function makeGoalOps(fs: FileSystem.FileSystem, path: Path.Path) {
   return {
@@ -22,7 +27,7 @@ export function makeGoalOps(fs: FileSystem.FileSystem, path: Path.Path) {
         const dir = goalsDir(path, mapDir(path, map.project.root, map.name));
         const files = yield* fs
           .readDirectory(dir)
-          .pipe(Effect.mapError(() => new WayfulError({ message: "cannot read goals." })));
+          .pipe(Effect.mapError(() => readDirError(dir, "goals")));
         const filenames = files.filter((file) => file.endsWith(".md")).toSorted();
         const result = yield* collect(
           filenames,
