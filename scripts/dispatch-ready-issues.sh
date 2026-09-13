@@ -42,10 +42,18 @@ RETRY_STATE_FILE="${DISPATCH_RETRY_STATE:-$SCRIPT_DIR/.dispatch-retries.tsv}"
 
 # orderBy: POSITION is the project's own manual ordering — the same order
 # items appear top-to-bottom within a board column. blockedBy walks GitHub's
-# native issue-dependencies edges (open blockers only). A blocker whose open
-# blockers each already have an open linked PR (closedByPullRequestsReferences,
-# i.e. a PR with a closing keyword — merge not required) doesn't count as a
-# hard block; anything else does.
+# native issue-dependencies edges (open blockers only). An open blocker that
+# already has a linked PR (closedByPullRequestsReferences) doesn't count as a
+# hard block — the work exists, so the dependent issue can be started; anything
+# else does.
+#
+# The PR need not be merged, only linked. Both OPEN and MERGED count: a merged
+# PR whose issue is still open means the work landed and the issue just hasn't
+# been closed yet, which is not a reason to hold the dependent issue back.
+#
+# Note that GitHub only auto-links a closing keyword ("closes #12") when the PR
+# targets the default branch. Stacked PRs must be linked explicitly — see
+# ready-issue-prompt.md — or they will not show up here.
 ready_items=$(gh api graphql -f query='
   query($owner: String!, $number: Int!) {
     user(login: $owner) {
@@ -82,7 +90,7 @@ ready_items=$(gh api graphql -f query='
     | . as $item
     | ($item.content.blockedBy.nodes // []) as $blockers
     | ($blockers | map(select(.state == "OPEN"))) as $openBlockers
-    | ($openBlockers | map(select((.closedByPullRequestsReferences.nodes // []) | map(select(.state == "OPEN")) | length == 0))) as $hardBlockers
+    | ($openBlockers | map(select((.closedByPullRequestsReferences.nodes // []) | map(select(.state == "OPEN" or .state == "MERGED")) | length == 0))) as $hardBlockers
     | [
         ($item.content.number | tostring),
         $item.id,
@@ -259,12 +267,12 @@ while IFS=$'\t' read -r issue_number item_id hard_blocked hard_blockers open_blo
   [[ -z "$issue_number" ]] && continue
 
   if [[ "$hard_blocked" == "1" ]]; then
-    echo "Skipping issue #$issue_number (item $item_id): blocked by $hard_blockers (no open PR yet)"
+    echo "Skipping issue #$issue_number (item $item_id): blocked by $hard_blockers (no linked PR yet)"
     continue
   fi
 
   if [[ "$open_blockers" != "-" ]]; then
-    echo "Issue #$issue_number (item $item_id): blocker(s) $open_blockers still open but have an open PR — treating as unblocked"
+    echo "Issue #$issue_number (item $item_id): blocker(s) $open_blockers still open but have a linked PR — treating as unblocked"
   fi
 
   prompt="$(sed "s/{{ISSUE_NUMBER}}/$issue_number/g" "$PROMPT_TEMPLATE")"
