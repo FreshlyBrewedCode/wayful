@@ -1,6 +1,7 @@
 import { Effect, Layer } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
+import { GithubMemoryCache } from "@backend/github/cache";
 import { GithubHttp, makeGithubHttp } from "@backend/github/http";
 
 /**
@@ -27,5 +28,6 @@ export function stubGithubHttp(
 ) {
   return Layer.effect(GithubHttp, Effect.flatMap(HttpClient.HttpClient, makeGithubHttp)).pipe(
     Layer.provide(stubHttpClient(respond)),
+    Layer.provide(GithubMemoryCache),
   );
 }

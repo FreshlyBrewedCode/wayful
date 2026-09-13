@@ -5,6 +5,7 @@ import { FetchHttpClient, HttpClientRequest } from "effect/unstable/http";
 
 import { FileSystemProjectStore } from "@backend/filesystem/layer";
 import { apiBase, authorized, ensureLabels, verifyAccess } from "@backend/github/api";
+import { GithubMemoryCache } from "@backend/github/cache";
 import { GithubCredentials, GithubCredentialsLayer } from "@backend/github/credentials";
 import { GithubHttp, GithubHttpLayer } from "@backend/github/http";
 import { WAYFUL_LABELS } from "@backend/github/labels";
@@ -54,7 +55,7 @@ export function liveLayer(): Layer.Layer<LiveRequirements> {
   const runtime = Layer.mergeAll(
     BunServices.layer,
     FetchHttpClient.layer,
-    GithubHttpLayer.pipe(Layer.provide(FetchHttpClient.layer)),
+    GithubHttpLayer.pipe(Layer.provide(GithubMemoryCache), Layer.provide(FetchHttpClient.layer)),
     GithubCredentialsLayer.pipe(Layer.provide(BunServices.layer)),
   );
   const projectStore = FileSystemProjectStore.pipe(Layer.provide(BunServices.layer));
@@ -107,7 +108,10 @@ export async function discoverLive(): Promise<LiveDiscovery> {
         Layer.mergeAll(
           BunServices.layer,
           FetchHttpClient.layer,
-          GithubHttpLayer.pipe(Layer.provide(FetchHttpClient.layer)),
+          GithubHttpLayer.pipe(
+            Layer.provide(GithubMemoryCache),
+            Layer.provide(FetchHttpClient.layer),
+          ),
           GithubCredentialsLayer.pipe(Layer.provide(BunServices.layer)),
         ),
       ),

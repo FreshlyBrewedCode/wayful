@@ -8,7 +8,14 @@ import type { MapHandle } from "@backend/MapStore";
 import type { ProjectHandle } from "@backend/ProjectStore";
 import type { Slot } from "@domain/identifier";
 import type { GoalRecord, MapMetadata, NewGoalRecord } from "@domain/model";
-import { ISSUE_TIME, bodyText, issueJson, jsonResponse } from "@test/support/github/issues";
+import {
+  ISSUE_TIME,
+  asGraphqlIssue,
+  bodyText,
+  graphqlSnapshotResponse,
+  issueJson,
+  jsonResponse,
+} from "@test/support/github/issues";
 import { runGithubMapStore } from "@test/support/github/store";
 
 const project: ProjectHandle = {
@@ -91,6 +98,11 @@ function goalRecord(overrides: Partial<GoalRecord> = {}): GoalRecord {
     updated_at: ISSUE_TIME,
     ...overrides,
   };
+}
+
+/** A GraphQL snapshot response for a map whose sub-issues are `issues`. */
+function snapshot(issues: readonly Record<string, unknown>[]): Response {
+  return graphqlSnapshotResponse(issues.map((issue) => asGraphqlIssue(issue)));
 }
 
 interface Recorded {
@@ -252,8 +264,8 @@ describe("GithubMapStore: listGoals", () => {
   test("reads goals from the map's sub-issues, including satisfied (closed) ones", async () => {
     const result = await runGithubMapStore(
       (request) => {
-        if (request.method === "GET" && new URL(request.url).pathname.endsWith("/sub_issues"))
-          return jsonResponse(200, [
+        if (request.method === "POST" && new URL(request.url).pathname === "/graphql")
+          return snapshot([
             goalIssue(52, { name: "zeta", description: "z" }, { state: "closed" }),
             goalIssue(50, { name: "alpha", description: "a" }),
             issueJson(51, { title: "a step", labels: [{ name: "wayful:step" }] }),
@@ -272,8 +284,8 @@ describe("GithubMapStore: listGoals", () => {
   test("a malformed goal is a DecodeError beside its healthy siblings", async () => {
     const result = await runGithubMapStore(
       (request) => {
-        if (request.method === "GET" && new URL(request.url).pathname.endsWith("/sub_issues"))
-          return jsonResponse(200, [
+        if (request.method === "POST" && new URL(request.url).pathname === "/graphql")
+          return snapshot([
             goalIssue(50, { name: "alpha", description: "a" }),
             issueJson(52, {
               title: "broken",
@@ -300,10 +312,8 @@ describe("GithubMapStore: saveGoal", () => {
       (request) => {
         record(request);
         const path = new URL(request.url).pathname;
-        if (request.method === "GET" && path.endsWith("/sub_issues"))
-          return jsonResponse(200, [
-            goalIssue(50, { name: "launch", description: "users can sign up" }),
-          ]);
+        if (request.method === "POST" && path === "/graphql")
+          return snapshot([goalIssue(50, { name: "launch", description: "users can sign up" })]);
         if (request.method === "PATCH" && path === "/repos/acme/widgets/issues/50")
           return jsonResponse(200, {});
         throw new Error(`unexpected ${request.method} ${request.url}`);
@@ -332,8 +342,8 @@ describe("GithubMapStore: saveGoal", () => {
       (request) => {
         record(request);
         const path = new URL(request.url).pathname;
-        if (request.method === "GET" && path.endsWith("/sub_issues"))
-          return jsonResponse(200, [
+        if (request.method === "POST" && path === "/graphql")
+          return snapshot([
             goalIssue(50, {
               name: "launch",
               description: "users can sign up",
@@ -367,8 +377,8 @@ describe("GithubMapStore: saveGoal", () => {
       (request) => {
         record(request);
         const path = new URL(request.url).pathname;
-        if (request.method === "GET" && path.endsWith("/sub_issues"))
-          return jsonResponse(200, [
+        if (request.method === "POST" && path === "/graphql")
+          return snapshot([
             goalIssue(
               50,
               { name: "launch", description: "users can sign up" },

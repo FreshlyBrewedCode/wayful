@@ -19,7 +19,7 @@ import {
 } from "@domain/model";
 import { makeReadArtifact } from "@backend/artifacts";
 import { liftSync } from "@backend/effect";
-import { MapStore, type MapHandle } from "@backend/MapStore";
+import { MapStore, type MapHandle, type SubIssueUsage } from "@backend/MapStore";
 import { ProjectStore, type ProjectHandle } from "@backend/ProjectStore";
 import {
   addBlockedBy,
@@ -28,8 +28,6 @@ import {
   createIssue,
   deleteIssue,
   ensureLabel,
-  getIssue,
-  listBlockedBy,
   listIssues,
   listSubIssues,
   removeBlockedBy,
@@ -88,10 +86,25 @@ function discardCreated(
 /** The memoization key for a map's snapshot: one project, one map. */
 const snapshotKey = (map: MapHandle) => `${map.project.root}#${map.number ?? map.name}`;
 
-/** The snapshot a read returns, plus every record it could not decode. */
+/**
+ * The snapshot a read returns, plus every record it could not decode. The
+ * per-collection error lists and the native addresses of the decoded records
+ * ride along so `listSteps`/`listGoals` and the `save*` methods answer from one
+ * snapshot instead of issuing their own collection reads.
+ */
 interface SnapshotRead {
   readonly snapshot: MapSnapshot;
   readonly errors: readonly DecodeError[];
+  readonly stepErrors: readonly DecodeError[];
+  readonly goalErrors: readonly DecodeError[];
+  /** A `wayful:step` child's issue number → its GitHub database id, the address a native `blocked_by` edge uses. */
+  readonly stepIds: ReadonlyMap<number, number>;
+  /** Every decodable goal keyed by name, carrying the issue a save has to mutate. */
+  readonly goalIssues: ReadonlyMap<string, GithubIssue>;
+  /** Every sub-issue of the map, decodable or not — the shared budget steps and goals spend. */
+  readonly subIssueCount: number;
+  /** How much of the shared step/goal sub-issue budget the map has used. */
+  readonly capacity: SubIssueUsage;
 }
 
 /**
@@ -108,8 +121,10 @@ function assembleSnapshot(
 ): SnapshotRead {
   const steps: StepRecord[] = [];
   const goals: GoalRecord[] = [];
-  const errors: DecodeError[] = [];
+  const stepErrors: DecodeError[] = [];
+  const goalErrors: DecodeError[] = [];
   const stepIds = stepIdsFrom(children.map((child) => child.issue));
+  const goalIssues = new Map<string, GithubIssue>();
   for (const child of children) {
     const issue = child.issue;
     if (issue.labels.includes(WAYFUL_STEP_LABEL)) {
@@ -120,13 +135,15 @@ function assembleSnapshot(
         assertDependenciesInMap(child.dependencies, stepIds);
         steps.push(decodeStepIssue(issue, child.dependencies));
       } catch (error) {
-        errors.push({ file: `#${issue.number}`, message: describeError(error) });
+        stepErrors.push({ file: `#${issue.number}`, message: describeError(error) });
       }
     } else if (issue.labels.includes(WAYFUL_GOAL_LABEL)) {
       try {
-        goals.push(decodeGoalIssue(issue));
+        const goal = decodeGoalIssue(issue);
+        goals.push(goal);
+        goalIssues.set(goal.name, issue);
       } catch (error) {
-        errors.push({ file: `#${issue.number}`, message: describeError(error) });
+        goalErrors.push({ file: `#${issue.number}`, message: describeError(error) });
       }
     }
   }
@@ -140,7 +157,13 @@ function assembleSnapshot(
       goals,
       types: typeRead.records,
     },
-    errors: [...errors, ...typeRead.errors],
+    errors: [...stepErrors, ...goalErrors, ...typeRead.errors],
+    stepErrors,
+    goalErrors,
+    stepIds,
+    goalIssues,
+    subIssueCount: children.length,
+    capacity: { used: children.length, cap: SUB_ISSUE_CAP },
   };
 }
 
@@ -373,39 +396,34 @@ export const makeGithubMapStore = Effect.gen(function* () {
       }),
     );
 
-  const listSteps = (map: MapHandle): Effect.Effect<CollectionRead<StepRecord>, WayfulError> =>
+  // One GraphQL query assembles the map, its step and goal sub-issues, their
+  // labels, native state and dependencies together — where composing
+  // `listSteps` (a read per step for its `blocked_by` edges) and `listGoals`
+  // would be several round trips. The result is memoized for the life of the
+  // process, so a command that reaches for the same map twice fetches once;
+  // a write to the map invalidates it. Every map-scoped read and write below
+  // is assembled from this one snapshot.
+  const snapshot = (map: MapHandle): Effect.Effect<SnapshotRead, WayfulError> =>
     withInfra(
       Effect.gen(function* () {
-        const { ref, token } = yield* context(map.project);
+        const key = snapshotKey(map);
+        const cached = (yield* Ref.get(snapshots)).get(key);
+        if (cached !== undefined) return cached;
         const parent = yield* mapNumber(map);
-        const issues = yield* listSubIssues(ref, token, parent);
-        // Sub-issues are steps and goals together; a goal (or a foreign
-        // sub-issue) is not a step and is skipped, not an error.
-        const stepIds = stepIdsFrom(issues);
-        const records: StepRecord[] = [];
-        const errors: DecodeError[] = [];
-        for (const issue of issues) {
-          if (!issue.labels.includes(WAYFUL_STEP_LABEL)) continue;
-          // A step's dependencies are native `blocked_by` edges and so are a
-          // second read per step. An API failure fails the whole listing
-          // rather than masquerading as a malformed record.
-          const blockedBy = yield* listBlockedBy(ref, token, issue.number);
-          const dependencies = blockedBy.map((blocking) => blocking.number);
-          const decoded = yield* Effect.result(
-            liftSync(() => {
-              // Issue numbers are repo-global, so a `blocked_by` edge can point
-              // anywhere in the repo. Only a `wayful:step` sub-issue of this
-              // same map is a valid dependency.
-              assertDependenciesInMap(dependencies, stepIds);
-              return decodeStepIssue(issue, dependencies);
-            }),
-          );
-          if (Result.isFailure(decoded))
-            errors.push({ file: `#${issue.number}`, message: describeError(decoded.failure) });
-          else records.push(decoded.success);
-        }
-        return { records: records.toSorted((a, b) => a.id - b.id), errors };
+        const { ref, token } = yield* context(map.project);
+        const read = yield* readMapSnapshot(ref, token, parent);
+        // Types stay on disk under every backend; reading them is a local,
+        // unmetered concern, never part of the query.
+        const types = yield* projectStore.listTypes(map.project);
+        const assembled = assembleSnapshot(map, read.children, types);
+        yield* Ref.update(snapshots, (memo) => new Map(memo).set(key, assembled));
+        return assembled;
       }),
+    );
+
+  const listSteps = (map: MapHandle): Effect.Effect<CollectionRead<StepRecord>, WayfulError> =>
+    snapshot(map).pipe(
+      Effect.map((read) => ({ records: read.snapshot.steps, errors: read.stepErrors })),
     );
 
   const createStep = (map: MapHandle, step: NewStepRecord) =>
@@ -469,32 +487,22 @@ export const makeGithubMapStore = Effect.gen(function* () {
     withInfra(
       Effect.gen(function* () {
         const { ref, token } = yield* context(map.project);
-        const issue = yield* getIssue(ref, token, step.id);
-        // Dependencies are native `blocked_by` edges, absent from the issue
-        // object, so the current set is a second read.
-        const blockedBy = yield* listBlockedBy(ref, token, step.id);
-        const current = yield* liftSync(() =>
-          decodeStepIssue(
-            issue,
-            blockedBy.map((blocking) => blocking.number),
-          ),
-        );
+        // The snapshot already carries the step and its native dependencies,
+        // so a save re-reads neither the issue nor its `blocked_by` edges.
+        const read = yield* snapshot(map);
+        const current = read.snapshot.steps.find((candidate) => candidate.id === step.id);
+        if (current === undefined) return yield* fail(`step #${step.id} does not exist.`);
 
         // The dependency diff is validated before any mutation, so a foreign
         // edge fails the save before it can make a partial write. Every
         // desired dependency must be a `wayful:step` sub-issue of this map —
         // an issue number is repo-global, so only a child of this map is
-        // valid — and looking them up also resolves the database ids native
-        // edges are addressed by.
+        // valid — and the snapshot's step ids also address the native edges.
         const currentDependencies = new Set(current.dependencies);
         const desiredDependencies = new Set(step.dependencies);
         const added = [...desiredDependencies].filter((id) => !currentDependencies.has(id));
         const removed = [...currentDependencies].filter((id) => !desiredDependencies.has(id));
-        const stepIds =
-          desiredDependencies.size > 0
-            ? stepIdsFrom(yield* listSubIssues(ref, token, yield* mapNumber(map)))
-            : new Map<number, number>();
-        yield* liftSync(() => assertDependenciesInMap(desiredDependencies, stepIds));
+        yield* liftSync(() => assertDependenciesInMap(desiredDependencies, read.stepIds));
 
         // The body carries the prose and the structured residue (slots,
         // attachments, and the reason/summary fields), so compare the full
@@ -505,8 +513,13 @@ export const makeGithubMapStore = Effect.gen(function* () {
         // mutations are not transactional, so an interrupted unblock must leave
         // a decodable record: taking the label off first yields a pending step
         // with a stray reason (which still decodes), never a blocked step whose
-        // reason has already been cleared.
-        const present = new Set(issue.labels);
+        // reason has already been cleared. The block label is reconstructed
+        // from the current status, since no fact is stored twice.
+        const present = new Set([
+          WAYFUL_STEP_LABEL,
+          wayfulTypeLabel(current.type),
+          ...(current.status === "blocked" ? [WAYFUL_BLOCKED_LABEL] : []),
+        ]);
         if (present.has(WAYFUL_BLOCKED_LABEL) && step.status !== "blocked")
           yield* removeLabel(ref, token, step.id, WAYFUL_BLOCKED_LABEL);
 
@@ -546,15 +559,12 @@ export const makeGithubMapStore = Effect.gen(function* () {
         );
 
         // The dependency edges themselves, never the body. Additions use the
-        // database ids resolved above; removals use the ids of the edges
-        // already read back, so an already-absent edge is never a request.
-        const blockingIds = new Map(
-          blockedBy.map((blocking) => [blocking.number, blocking.id] as const),
-        );
+        // snapshot's database ids; removals use the same ids, so an
+        // already-absent edge is never a request.
         for (const dependency of added)
-          yield* addBlockedBy(ref, token, step.id, stepIds.get(dependency)!);
+          yield* addBlockedBy(ref, token, step.id, read.stepIds.get(dependency)!);
         for (const dependency of removed) {
-          const blockingId = blockingIds.get(dependency);
+          const blockingId = read.stepIds.get(dependency);
           if (blockingId !== undefined) yield* removeBlockedBy(ref, token, step.id, blockingId);
         }
         yield* invalidateSnapshot(map);
@@ -562,25 +572,8 @@ export const makeGithubMapStore = Effect.gen(function* () {
     );
 
   const listGoals = (map: MapHandle): Effect.Effect<CollectionRead<GoalRecord>, WayfulError> =>
-    withInfra(
-      Effect.gen(function* () {
-        const { ref, token } = yield* context(map.project);
-        const parent = yield* mapNumber(map);
-        const issues = yield* listSubIssues(ref, token, parent);
-        const records: GoalRecord[] = [];
-        const errors: DecodeError[] = [];
-        for (const issue of issues) {
-          // Sub-issues are steps and goals together; a step (or a foreign
-          // sub-issue) is not a goal and is skipped, not an error. A goal's
-          // kind lives on its label, so a de-labelled goal is data loss.
-          if (!issue.labels.includes(WAYFUL_GOAL_LABEL)) continue;
-          const decoded = yield* Effect.result(liftSync(() => decodeGoalIssue(issue)));
-          if (Result.isFailure(decoded))
-            errors.push({ file: `#${issue.number}`, message: describeError(decoded.failure) });
-          else records.push(decoded.success);
-        }
-        return { records: records.toSorted((a, b) => a.name.localeCompare(b.name)), errors };
-      }),
+    snapshot(map).pipe(
+      Effect.map((read) => ({ records: read.snapshot.goals, errors: read.goalErrors })),
     );
 
   const createGoal = (map: MapHandle, goal: NewGoalRecord) =>
@@ -617,9 +610,10 @@ export const makeGithubMapStore = Effect.gen(function* () {
     withInfra(
       Effect.gen(function* () {
         const { ref, token } = yield* context(map.project);
-        const parent = yield* mapNumber(map);
-        const issues = yield* listSubIssues(ref, token, parent);
-        const target = findGoalIssue(issues, goal.name);
+        // The snapshot already resolved every decodable goal to the issue the
+        // save has to mutate, so no collection read is needed here.
+        const read = yield* snapshot(map);
+        const target = read.goalIssues.get(goal.name);
         if (target === undefined) return yield* fail(`goal '${goal.name}' does not exist.`);
         const current = yield* liftSync(() => decodeGoalIssue(target));
 
@@ -643,30 +637,6 @@ export const makeGithubMapStore = Effect.gen(function* () {
           );
         }
         yield* invalidateSnapshot(map);
-      }),
-    );
-
-  // One GraphQL query assembles the map, its step and goal sub-issues, their
-  // labels, native state and dependencies together — where composing
-  // `listSteps` (a read per step for its `blocked_by` edges) and `listGoals`
-  // would be several round trips. The result is memoized for the life of the
-  // process, so a command that reaches for the same map twice fetches once;
-  // a write to the map invalidates it.
-  const snapshot = (map: MapHandle): Effect.Effect<SnapshotRead, WayfulError> =>
-    withInfra(
-      Effect.gen(function* () {
-        const key = snapshotKey(map);
-        const cached = (yield* Ref.get(snapshots)).get(key);
-        if (cached !== undefined) return cached;
-        const parent = yield* mapNumber(map);
-        const { ref, token } = yield* context(map.project);
-        const read = yield* readMapSnapshot(ref, token, parent);
-        // Types stay on disk under every backend; reading them is a local,
-        // unmetered concern, never part of the query.
-        const types = yield* projectStore.listTypes(map.project);
-        const assembled = assembleSnapshot(map, read.children, types);
-        yield* Ref.update(snapshots, (memo) => new Map(memo).set(key, assembled));
-        return assembled;
       }),
     );
 

@@ -8,7 +8,14 @@ import { MapStore } from "@backend/MapStore";
 import type { ProjectHandle } from "@backend/ProjectStore";
 import type { WayfulError } from "@domain/errors";
 import type { MapMetadata, NewStepRecord, StepRecord } from "@domain/model";
-import { ISSUE_TIME, bodyText, issueJson, jsonResponse } from "@test/support/github/issues";
+import {
+  ISSUE_TIME,
+  asGraphqlIssue,
+  bodyText,
+  graphqlSnapshotResponse,
+  issueJson,
+  jsonResponse,
+} from "@test/support/github/issues";
 import { runGithubMapStore } from "@test/support/github/store";
 
 const project: ProjectHandle = {
@@ -130,6 +137,21 @@ function loadStep(): Effect.Effect<StepRecord, WayfulError, MapStore> {
     const store = yield* MapStore;
     return (yield* store.listSteps(mapHandle())).records[0]!;
   });
+}
+
+/**
+ * A GraphQL snapshot response for a map whose sub-issues are `children`,
+ * translating the REST-shaped fixtures used by these tests.
+ */
+function snapshot(
+  children: ReadonlyArray<{
+    readonly issue: Record<string, unknown>;
+    readonly dependencies?: readonly number[];
+  }>,
+): Response {
+  return graphqlSnapshotResponse(
+    children.map(({ issue, dependencies = [] }) => asGraphqlIssue(issue, dependencies)),
+  );
 }
 
 describe("GithubMapStore: createStep", () => {
@@ -362,12 +384,11 @@ describe("GithubMapStore: listSteps", () => {
     const steps = await runGithubMapStore(
       (request) => {
         const path = new URL(request.url).pathname;
-        if (path.endsWith("/sub_issues"))
-          return jsonResponse(200, [
-            stepIssue(5, { name: "beta", description: "second" }),
-            stepIssue(3, { name: "alpha", description: "first" }),
+        if (request.method === "POST" && path === "/graphql")
+          return snapshot([
+            { issue: stepIssue(5, { name: "beta", description: "second" }) },
+            { issue: stepIssue(3, { name: "alpha", description: "first" }) },
           ]);
-        if (path.endsWith("/dependencies/blocked_by")) return jsonResponse(200, []);
         throw new Error(`unexpected ${request.method} ${request.url}`);
       },
       Effect.gen(function* () {
@@ -384,26 +405,31 @@ describe("GithubMapStore: listSteps", () => {
     const steps = await runGithubMapStore(
       (request) => {
         const path = new URL(request.url).pathname;
-        if (path.endsWith("/sub_issues"))
-          return jsonResponse(200, [
-            stepIssue(3, { name: "pending", description: "p" }),
-            stepIssue(
-              4,
-              { name: "blocked", description: "b", block_reason: "waiting" },
-              { labels: blockedLabels() },
-            ),
-            stepIssue(
-              5,
-              { name: "complete", description: "c", completion_summary: "done" },
-              { state: "closed", state_reason: "completed", closed_at: ISSUE_TIME },
-            ),
-            stepIssue(
-              6,
-              { name: "cancelled", description: "x", cancellation_reason: "dropped" },
-              { state: "closed", state_reason: "not_planned", closed_at: ISSUE_TIME },
-            ),
+        if (request.method === "POST" && path === "/graphql")
+          return snapshot([
+            { issue: stepIssue(3, { name: "pending", description: "p" }) },
+            {
+              issue: stepIssue(
+                4,
+                { name: "blocked", description: "b", block_reason: "waiting" },
+                { labels: blockedLabels() },
+              ),
+            },
+            {
+              issue: stepIssue(
+                5,
+                { name: "complete", description: "c", completion_summary: "done" },
+                { state: "closed", state_reason: "completed", closed_at: ISSUE_TIME },
+              ),
+            },
+            {
+              issue: stepIssue(
+                6,
+                { name: "cancelled", description: "x", cancellation_reason: "dropped" },
+                { state: "closed", state_reason: "not_planned", closed_at: ISSUE_TIME },
+              ),
+            },
           ]);
-        if (path.endsWith("/dependencies/blocked_by")) return jsonResponse(200, []);
         throw new Error(`unexpected ${request.method} ${request.url}`);
       },
       Effect.gen(function* () {
@@ -418,15 +444,16 @@ describe("GithubMapStore: listSteps", () => {
     const result = await runGithubMapStore(
       (request) => {
         const path = new URL(request.url).pathname;
-        if (path.endsWith("/sub_issues"))
-          return jsonResponse(200, [
-            stepIssue(
-              5,
-              { name: "merged", description: "closed by a pull request" },
-              { state: "closed", state_reason: "completed", closed_at: ISSUE_TIME },
-            ),
+        if (request.method === "POST" && path === "/graphql")
+          return snapshot([
+            {
+              issue: stepIssue(
+                5,
+                { name: "merged", description: "closed by a pull request" },
+                { state: "closed", state_reason: "completed", closed_at: ISSUE_TIME },
+              ),
+            },
           ]);
-        if (path.endsWith("/dependencies/blocked_by")) return jsonResponse(200, []);
         throw new Error(`unexpected ${request.method} ${request.url}`);
       },
       Effect.gen(function* () {
@@ -443,15 +470,16 @@ describe("GithubMapStore: listSteps", () => {
     const result = await runGithubMapStore(
       (request) => {
         const path = new URL(request.url).pathname;
-        if (path.endsWith("/sub_issues"))
-          return jsonResponse(200, [
-            stepIssue(
-              5,
-              { name: "archived", description: "closed by hand" },
-              { state: "closed", state_reason: null, closed_at: ISSUE_TIME },
-            ),
+        if (request.method === "POST" && path === "/graphql")
+          return snapshot([
+            {
+              issue: stepIssue(
+                5,
+                { name: "archived", description: "closed by hand" },
+                { state: "closed", state_reason: null, closed_at: ISSUE_TIME },
+              ),
+            },
           ]);
-        if (path.endsWith("/dependencies/blocked_by")) return jsonResponse(200, []);
         throw new Error(`unexpected ${request.method} ${request.url}`);
       },
       Effect.gen(function* () {
@@ -468,15 +496,16 @@ describe("GithubMapStore: listSteps", () => {
     const result = await runGithubMapStore(
       (request) => {
         const path = new URL(request.url).pathname;
-        if (path.endsWith("/sub_issues"))
-          return jsonResponse(200, [
-            stepIssue(
-              4,
-              { name: "waiting", description: "blocked by hand" },
-              { labels: blockedLabels() },
-            ),
+        if (request.method === "POST" && path === "/graphql")
+          return snapshot([
+            {
+              issue: stepIssue(
+                4,
+                { name: "waiting", description: "blocked by hand" },
+                { labels: blockedLabels() },
+              ),
+            },
           ]);
-        if (path.endsWith("/dependencies/blocked_by")) return jsonResponse(200, []);
         throw new Error(`unexpected ${request.method} ${request.url}`);
       },
       Effect.gen(function* () {
@@ -493,13 +522,12 @@ describe("GithubMapStore: listSteps", () => {
     const result = await runGithubMapStore(
       (request) => {
         const path = new URL(request.url).pathname;
-        if (path.endsWith("/sub_issues"))
-          return jsonResponse(200, [
-            issueJson(2, { labels: [{ name: "wayful:goal" }] }),
-            stepIssue(3, { name: "alpha", description: "healthy" }),
-            issueJson(4, { labels: [{ name: "wayful:step" }], body: "no details here" }),
+        if (request.method === "POST" && path === "/graphql")
+          return snapshot([
+            { issue: issueJson(2, { labels: [{ name: "wayful:goal" }] }) },
+            { issue: stepIssue(3, { name: "alpha", description: "healthy" }) },
+            { issue: issueJson(4, { labels: [{ name: "wayful:step" }], body: "no details here" }) },
           ]);
-        if (path.endsWith("/dependencies/blocked_by")) return jsonResponse(200, []);
         throw new Error(`unexpected ${request.method} ${request.url}`);
       },
       Effect.gen(function* () {
@@ -515,14 +543,11 @@ describe("GithubMapStore: listSteps", () => {
     const steps = await runGithubMapStore(
       (request) => {
         const path = new URL(request.url).pathname;
-        if (path.endsWith("/issues/7/sub_issues"))
-          return jsonResponse(200, [
-            stepIssue(3, { name: "alpha", description: "first" }),
-            stepIssue(5, { name: "beta", description: "second" }),
+        if (request.method === "POST" && path === "/graphql")
+          return snapshot([
+            { issue: stepIssue(3, { name: "alpha", description: "first" }), dependencies: [5] },
+            { issue: stepIssue(5, { name: "beta", description: "second" }) },
           ]);
-        if (path.endsWith("/issues/3/dependencies/blocked_by"))
-          return jsonResponse(200, [issueJson(5, { id: 1005 })]);
-        if (path.endsWith("/issues/5/dependencies/blocked_by")) return jsonResponse(200, []);
         throw new Error(`unexpected ${request.method} ${request.url}`);
       },
       Effect.gen(function* () {
@@ -537,10 +562,10 @@ describe("GithubMapStore: listSteps", () => {
     const result = await runGithubMapStore(
       (request) => {
         const path = new URL(request.url).pathname;
-        if (path.endsWith("/issues/7/sub_issues"))
-          return jsonResponse(200, [stepIssue(3, { name: "alpha", description: "first" })]);
-        if (path.endsWith("/issues/3/dependencies/blocked_by"))
-          return jsonResponse(200, [issueJson(99, { id: 1099 })]);
+        if (request.method === "POST" && path === "/graphql")
+          return snapshot([
+            { issue: stepIssue(3, { name: "alpha", description: "first" }), dependencies: [99] },
+          ]);
         throw new Error(`unexpected ${request.method} ${request.url}`);
       },
       Effect.gen(function* () {
@@ -561,6 +586,7 @@ describe("GithubMapStore: saveStep status transitions", () => {
       (request) => {
         record(request);
         const path = new URL(request.url).pathname;
+        if (request.method === "POST" && path === "/graphql") return snapshot([{ issue: current }]);
         if (request.method === "GET" && path.endsWith("/issues/7/sub_issues"))
           return jsonResponse(200, [current]);
         if (
@@ -586,7 +612,10 @@ describe("GithubMapStore: saveStep status transitions", () => {
         });
       }),
     );
-    expect(requests.find((r) => r.method === "POST")?.body).toEqual({
+    expect(
+      requests.find((r) => r.method === "POST" && r.path === "/repos/acme/widgets/issues/5/labels")
+        ?.body,
+    ).toEqual({
       labels: ["wayful:blocked"],
     });
     const patches = requests.filter((r) => r.method === "PATCH").map((r) => r.body);
@@ -607,6 +636,7 @@ describe("GithubMapStore: saveStep status transitions", () => {
       (request) => {
         record(request);
         const path = new URL(request.url).pathname;
+        if (request.method === "POST" && path === "/graphql") return snapshot([{ issue: current }]);
         if (request.method === "GET" && path.endsWith("/issues/7/sub_issues"))
           return jsonResponse(200, [current]);
         if (
@@ -654,6 +684,7 @@ describe("GithubMapStore: saveStep status transitions", () => {
       (request) => {
         record(request);
         const path = new URL(request.url).pathname;
+        if (request.method === "POST" && path === "/graphql") return snapshot([{ issue: current }]);
         if (request.method === "GET" && path.endsWith("/issues/7/sub_issues"))
           return jsonResponse(200, [current]);
         if (
@@ -689,6 +720,7 @@ describe("GithubMapStore: saveStep status transitions", () => {
       (request) => {
         record(request);
         const path = new URL(request.url).pathname;
+        if (request.method === "POST" && path === "/graphql") return snapshot([{ issue: current }]);
         if (request.method === "GET" && path.endsWith("/issues/7/sub_issues"))
           return jsonResponse(200, [current]);
         if (
@@ -729,6 +761,7 @@ describe("GithubMapStore: saveStep status transitions", () => {
       (request) => {
         record(request);
         const path = new URL(request.url).pathname;
+        if (request.method === "POST" && path === "/graphql") return snapshot([{ issue: current }]);
         if (request.method === "GET" && path.endsWith("/issues/7/sub_issues"))
           return jsonResponse(200, [current]);
         if (
@@ -769,6 +802,8 @@ describe("GithubMapStore: saveStep status transitions", () => {
       (request) => {
         record(request);
         const path = new URL(request.url).pathname;
+        if (request.method === "POST" && path === "/graphql")
+          return snapshot([{ issue: current }, { issue: prerequisite }]);
         if (request.method === "GET" && path.endsWith("/issues/7/sub_issues"))
           return jsonResponse(200, [current, prerequisite]);
         if (request.method === "GET" && path === "/repos/acme/widgets/issues/5")
@@ -805,6 +840,8 @@ describe("GithubMapStore: saveStep status transitions", () => {
       (request) => {
         record(request);
         const path = new URL(request.url).pathname;
+        if (request.method === "POST" && path === "/graphql")
+          return snapshot([{ issue: current, dependencies: [9] }, { issue: prerequisite }]);
         if (request.method === "GET" && path.endsWith("/issues/7/sub_issues"))
           return jsonResponse(200, [current, prerequisite]);
         if (request.method === "GET" && path === "/repos/acme/widgets/issues/5")
@@ -843,6 +880,7 @@ describe("GithubMapStore: saveStep status transitions", () => {
       (request) => {
         record(request);
         const path = new URL(request.url).pathname;
+        if (request.method === "POST" && path === "/graphql") return snapshot([{ issue: current }]);
         if (request.method === "GET" && path.endsWith("/issues/7/sub_issues"))
           return jsonResponse(200, [current]);
         if (request.method === "GET" && path === "/repos/acme/widgets/issues/5")
@@ -892,15 +930,7 @@ describe("GithubMapStore: saveStep status transitions", () => {
       (request) => {
         record(request);
         const path = new URL(request.url).pathname;
-        if (request.method === "GET" && path === "/repos/acme/widgets/issues/5")
-          return jsonResponse(200, current);
-        if (
-          request.method === "GET" &&
-          path === "/repos/acme/widgets/issues/5/dependencies/blocked_by"
-        )
-          return jsonResponse(200, [issueJson(99, { id: 1099 })]);
-        if (request.method === "GET" && path.endsWith("/issues/7/sub_issues"))
-          return jsonResponse(200, [current]);
+        if (request.method === "POST" && path === "/graphql") return snapshot([{ issue: current }]);
         throw new Error(`unexpected ${request.method} ${request.url}`);
       },
       Effect.gen(function* () {
@@ -910,7 +940,7 @@ describe("GithubMapStore: saveStep status transitions", () => {
     );
     expect(error.message).toContain("same map");
     expect(requests.some((r) => r.method === "DELETE")).toBe(false);
-    expect(requests.some((r) => r.method === "POST")).toBe(false);
+    expect(requests.some((r) => r.method === "POST" && r.path !== "/graphql")).toBe(false);
   });
 
   test("a description and body update rewrites the title and body without a state edit", async () => {
@@ -920,6 +950,7 @@ describe("GithubMapStore: saveStep status transitions", () => {
       (request) => {
         record(request);
         const path = new URL(request.url).pathname;
+        if (request.method === "POST" && path === "/graphql") return snapshot([{ issue: current }]);
         if (request.method === "GET" && path.endsWith("/issues/7/sub_issues"))
           return jsonResponse(200, [current]);
         if (
@@ -950,5 +981,33 @@ describe("GithubMapStore: saveStep status transitions", () => {
     expect(patch.body).toContain("new prose");
     expect(patch.body).toContain("name: alpha");
     expect(patch).not.toHaveProperty("state");
+  });
+});
+
+describe("GithubMapStore: read budget", () => {
+  test("listing a map's steps and goals is one GraphQL query no matter how many steps it holds", async () => {
+    let graphqlCalls = 0;
+    const issues = Array.from({ length: 30 }, (_, index) =>
+      stepIssue(index + 1, { name: `step-${index + 1}`, description: `d${index + 1}` }),
+    );
+    const result = await runGithubMapStore(
+      (request) => {
+        const path = new URL(request.url).pathname;
+        if (request.method === "POST" && path === "/graphql") {
+          graphqlCalls += 1;
+          return snapshot(issues.map((issue) => ({ issue })));
+        }
+        throw new Error(`unexpected ${request.method} ${request.url}`);
+      },
+      Effect.gen(function* () {
+        const store = yield* MapStore;
+        const steps = yield* store.listSteps(mapHandle());
+        const goals = yield* store.listGoals(mapHandle());
+        return { steps, goals };
+      }),
+    );
+    expect(result.steps.records).toHaveLength(30);
+    expect(result.goals.records).toEqual([]);
+    expect(graphqlCalls).toBe(1);
   });
 });

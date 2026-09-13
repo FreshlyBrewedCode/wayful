@@ -5,6 +5,7 @@ import { CliError, CliOutput, Command } from "effect/unstable/cli";
 import { FetchHttpClient } from "effect/unstable/http";
 
 import { Backend } from "@backend/backend";
+import { GithubDiskCache, githubCacheDirectory } from "@backend/github/cache";
 import { GithubCredentialsLayer } from "@backend/github/credentials";
 import { GithubHttpLayer } from "@backend/github/http";
 import { cli } from "@cli/cli";
@@ -17,10 +18,16 @@ import { report } from "@cli/report";
 declare const WAYFUL_BUILD_VERSION: string | undefined;
 const VERSION = typeof WAYFUL_BUILD_VERSION === "string" ? WAYFUL_BUILD_VERSION : "0.0.0-dev";
 
+// Conditional `GET`s are cached under the user's cache directory, so a second
+// CLI invocation revalidates with `If-None-Match` instead of re-downloading an
+// unchanged body. The cache is always revalidated, so it can never serve stale
+// data.
+const diskCache = GithubDiskCache(githubCacheDirectory()).pipe(Layer.provide(BunServices.layer));
+
 const InfraLayer = Layer.mergeAll(
   BunServices.layer,
   FetchHttpClient.layer,
-  GithubHttpLayer.pipe(Layer.provide(FetchHttpClient.layer)),
+  GithubHttpLayer.pipe(Layer.provide(diskCache), Layer.provide(FetchHttpClient.layer)),
   GithubCredentialsLayer.pipe(Layer.provide(BunServices.layer)),
 );
 
