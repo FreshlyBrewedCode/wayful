@@ -17,7 +17,7 @@ import { normalizeRef, SCHEME } from "@domain/artifact-ref";
 import type { DecodeError } from "@domain/model";
 import { describeToken, parseReference, resolveToken } from "@domain/reference";
 import { buildSnapshot, fail, resolveMap, resolveProject, resolveReferencedMap } from "@/scope";
-import { jsonFlag } from "@cli/flags";
+import { jsonFlag, mapFlag } from "@cli/flags";
 import { handle, printOutput } from "@cli/render";
 import {
   renderArtifactContext,
@@ -52,8 +52,8 @@ const refArgument = Argument.string("ref").pipe(
 // sibling.
 const contextCommand = Command.make(
   "context",
-  { ref: refArgument, since: sinceFlag, json: jsonFlag },
-  ({ ref, since, json }) =>
+  { ref: refArgument, map: mapFlag, since: sinceFlag, json: jsonFlag },
+  ({ ref, map: contextMap, since, json }) =>
     handle(
       json,
       Effect.gen(function* () {
@@ -112,7 +112,7 @@ const contextCommand = Command.make(
         // reference correctly is what's tested).
         if (SCHEME.test(ref.value)) {
           const normalizedRef = yield* liftSync(() => normalizeRef(ref.value));
-          const map = yield* resolveMap(Option.none(), project);
+          const map = yield* resolveMap(contextMap, project);
           const { snapshot, errors } = yield* buildSnapshot(map);
           const target = snapshot.artifacts.find((a) => a.ref === normalizedRef);
           if (!target) return yield* fail(`artifact '${normalizedRef}' does not exist.`);
@@ -155,7 +155,7 @@ const contextCommand = Command.make(
         }
 
         // reference.kind === "step"
-        const map = yield* resolveReferencedMap(reference.map, Option.none(), project);
+        const map = yield* resolveReferencedMap(reference.map, contextMap, project);
         const { snapshot, errors } = yield* buildSnapshot(map);
         const target = resolveToken(reference.token, snapshot.steps);
         if (!target) return yield* fail(`step '${describeToken(reference.token)}' does not exist.`);

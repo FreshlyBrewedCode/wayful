@@ -4,13 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  addSubIssue,
-  createIssue,
-  getIssue,
-  listSubIssues,
-  updateIssue,
-} from "@backend/github/api";
+import { addSubIssue, createIssue, getIssue, listSubIssues } from "@backend/github/api";
 import { SUB_ISSUE_CAP, subIssueCapError } from "@backend/github/subIssues";
 import { MapStore } from "@backend/MapStore";
 import {
@@ -316,29 +310,32 @@ suite(`live GitHub backend suite against ${process.env[LIVE_REPO_ENV] ?? "a scra
       }),
     );
 
-    // Archive and reopen. Closing the map issue is the archive: it disappears
-    // from `listMaps`/`openMap` but its sub-issues persist, so reopening
-    // restores the map intact. A fresh run gives fresh, unmemoized reads.
+    // Archive and reopen through the backend's own operations. Closing the map
+    // issue is the archive: it disappears from `listMaps` but its sub-issues
+    // persist, so reopening restores the map intact. A fresh run gives fresh,
+    // unmemoized reads.
     await runLive(
       Effect.gen(function* () {
         const store = yield* MapStore;
-        yield* updateIssue(target.ref, target.token, created.mapNumber, {
-          state: "closed",
-          state_reason: "completed",
-        });
+        yield* store.archiveMap(target.project, mapName);
         yield* poll(
           `map '${mapName}' to be archived`,
           store.listMaps(target.project),
           (read) => !read.records.some((map) => map.name === mapName),
         );
-        const absent = yield* Effect.flip(store.openMap(target.project, mapName));
-        expect(absent.message).toContain("does not exist");
-
-        yield* updateIssue(target.ref, target.token, created.mapNumber, { state: "open" });
-        const reopened = yield* poll(
-          `map '${mapName}' to reappear`,
+        const archived = yield* poll(
+          `map '${mapName}' to read back archived`,
           store.openMap(target.project, mapName),
-          () => true,
+          (map) => map.metadata.archived,
+        );
+        expect(archived.metadata.archived).toBe(true);
+
+        const reopened = yield* poll(
+          `map '${mapName}' to be restored`,
+          store
+            .unarchiveMap(target.project, mapName)
+            .pipe(Effect.andThen(store.openMap(target.project, mapName))),
+          (map) => !map.metadata.archived,
         );
         expect(reopened.number).toBe(created.mapNumber);
         yield* poll(

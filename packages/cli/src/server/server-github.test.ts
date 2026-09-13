@@ -48,6 +48,7 @@ const metadata = {
   format_version: CURRENT_FORMAT_VERSION,
   name: "plan",
   start: "here",
+  archived: false,
   created_at: FIXTURE_TIME,
   updated_at: FIXTURE_TIME,
 };
@@ -80,6 +81,9 @@ function stubMapStore() {
       createMap: unused,
       openMap: (_project, name) =>
         Effect.succeed({ project: _project, name, metadata } as MapHandle),
+      archiveMap: unused,
+      unarchiveMap: unused,
+      setAllowedStepTypes: unused,
       listSteps: unused,
       createStep: unused,
       saveStep: unused,

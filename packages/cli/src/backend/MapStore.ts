@@ -36,8 +36,13 @@ export interface MapHandle {
 export class MapStore extends Context.Service<
   MapStore,
   {
+    /**
+     * Every map, in no particular order. Archived maps are omitted unless
+     * `includeArchived` is set, so the default listing is the live set.
+     */
     readonly listMaps: (
       project: ProjectHandle,
+      options?: { readonly includeArchived?: boolean },
     ) => Effect.Effect<CollectionRead<MapMetadata>, WayfulError>;
     readonly createMap: (
       project: ProjectHandle,
@@ -46,12 +51,34 @@ export class MapStore extends Context.Service<
         readonly start: string;
         readonly goal: string;
         readonly goalBody: string;
+        /** Narrows the map's allowed step types; absent permits every project type. */
+        readonly allowedStepTypes?: readonly string[];
       },
     ) => Effect.Effect<void, WayfulError>;
     readonly openMap: (
       project: ProjectHandle,
       name: string,
     ) => Effect.Effect<MapHandle, WayfulError | MapMetadataError>;
+
+    /**
+     * Archives a live map, hiding it from the default listing while keeping
+     * every step and goal intact. Fails if the map is absent or already
+     * archived.
+     */
+    readonly archiveMap: (project: ProjectHandle, name: string) => Effect.Effect<void, WayfulError>;
+    /** Restores an archived map with its steps and goals intact. Fails if it is not archived. */
+    readonly unarchiveMap: (
+      project: ProjectHandle,
+      name: string,
+    ) => Effect.Effect<void, WayfulError>;
+    /**
+     * Sets or clears a map's allowed-step-types restriction. `undefined`
+     * clears it, permitting every project type; a list narrows it.
+     */
+    readonly setAllowedStepTypes: (
+      map: MapHandle,
+      allowed: readonly string[] | undefined,
+    ) => Effect.Effect<void, WayfulError>;
 
     readonly listSteps: (map: MapHandle) => Effect.Effect<CollectionRead<StepRecord>, WayfulError>;
     readonly createStep: (
